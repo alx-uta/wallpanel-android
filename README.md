@@ -10,14 +10,14 @@ This is an fork of the [original WallPanel project](https://github.com/TheTimeWa
 - Better modern web standards support (ES6+, WebGL, advanced CSS)
 - Improved dark mode support with proper rendering
 
-### Performance Optimizations
-- **Camera CPU Optimization** - Reduced motion detection CPU usage by 85-92% through frame skipping and low-resolution processing
+### Performance Optimisations
+- **Camera CPU Optimisation** - Reduced motion detection CPU usage by 85-92% through frame skipping and low-resolution processing
 - Configurable frame skip for motion detection (default: process every 5th frame)
 - Optional low-resolution camera mode (320x240) for better performance on low-end devices
 - Camera-only-during-screensaver feature to save battery
 
 ### Architecture & Dependencies
-- Updated to latest AndroidX libraries (2024 releases)
+- Updated to the latest AndroidX libraries (2024 releases)
 - Migrated from RxJava to Kotlin Coroutines (-2.4 MB)
 - Removed legacy support libraries
 - Updated OkHttp to 4.12.0 with TLS 1.3 support
