@@ -29,7 +29,7 @@ def versionBuild = 0 // bump for dog food builds, public betas, etc.
 def CODE() {
     def localPropertiesFile = project.rootProject.file('local.properties')
     if (!localPropertiesFile.exists()) {
-        return 1234
+        return "1234"
     }
     Properties properties = new Properties()
     properties.load(localPropertiesFile.newDataInputStream())
