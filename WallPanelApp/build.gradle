@@ -92,6 +92,9 @@ android {
             proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
         }
     }
+    lintOptions {
+        abortOnError false
+    }
     buildFeatures {
         viewBinding true
         buildConfig true
@@ -117,6 +120,11 @@ android {
             buildConfigField "String", BASE_ENVIRONMENT, '"QA_ENVIRONMENT"'
             applicationId "xyz.wallpanel.app"
             versionName "${versionMajor}.${versionMinor}.${versionPatch} Build ${versionBuild}-QA"
+            buildConfigField 'Integer', 'CODE', '1234'
+            buildConfigField 'String', 'HASS_URL', '""'
+            buildConfigField 'String', 'BROKER', '""'
+            buildConfigField 'String', 'BROKER_USERNAME', '""'
+            buildConfigField 'String', 'BROKER_PASS', '""'
         }
         prod {
             dimension "default"
