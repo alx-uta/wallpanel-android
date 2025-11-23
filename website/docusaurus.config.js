@@ -24,7 +24,7 @@ const config = {
         docs: {
           sidebarPath: require.resolve('./sidebars.js'),
           editUrl:
-            'https://github.com/TheTimeWalker/wallpanel-android/tree/master/website/',
+            'https://github.com/alx-uta/wallpanel-android/tree/master/website/',
         },
         theme: {
           customCss: require.resolve('./src/css/custom.css'),

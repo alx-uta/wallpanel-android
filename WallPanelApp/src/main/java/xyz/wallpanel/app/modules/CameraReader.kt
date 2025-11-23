@@ -126,16 +126,16 @@ constructor(private val context: Context) {
             buildDetectors(configuration)
             multiDetector?.let {
                 try {
-                    cameraSource = initCamera(configuration.cameraId, configuration.cameraFPS)
+                    cameraSource = initCamera(configuration.cameraId, configuration.cameraFPS, configuration)
                     cameraSource?.start()
                 } catch (e: Exception) {
                     Timber.e(e.message)
                     try {
                         if (configuration.cameraId == CAMERA_FACING_FRONT) {
-                            cameraSource = initCamera(CAMERA_FACING_BACK, configuration.cameraFPS)
+                            cameraSource = initCamera(CAMERA_FACING_BACK, configuration.cameraFPS, configuration)
                             cameraSource?.start()
                         } else {
-                            cameraSource = initCamera(CAMERA_FACING_FRONT, configuration.cameraFPS)
+                            cameraSource = initCamera(CAMERA_FACING_FRONT, configuration.cameraFPS, configuration)
                             cameraSource?.start()
                         }
                     } catch (e: Exception) {
@@ -157,14 +157,14 @@ constructor(private val context: Context) {
             this.cameraPreview = preview
             buildDetectors(configuration)
             if (multiDetector != null) {
-                cameraSource = initCamera(configuration.cameraId, configuration.cameraFPS)
+                cameraSource = initCamera(configuration.cameraId, configuration.cameraFPS, configuration)
                 cameraPreview?.start(cameraSource, object : CameraSourcePreview.OnCameraPreviewListener {
                     override fun onCameraError() {
                         Timber.e("Camera Preview Error")
                         cameraSource = if (configuration.cameraId == CAMERA_FACING_FRONT) {
-                            initCamera(CAMERA_FACING_BACK, configuration.cameraFPS)
+                            initCamera(CAMERA_FACING_BACK, configuration.cameraFPS, configuration)
                         } else {
-                            initCamera(CAMERA_FACING_FRONT, configuration.cameraFPS)
+                            initCamera(CAMERA_FACING_FRONT, configuration.cameraFPS, configuration)
                         }
                         if (cameraPreview != null) {
                             try {
@@ -196,14 +196,14 @@ constructor(private val context: Context) {
             this.cameraPreview = preview
             buildCameraDetector(configuration)
             if (multiDetector != null) {
-                cameraSource = initCamera(configuration.cameraId, configuration.cameraFPS)
+                cameraSource = initCamera(configuration.cameraId, configuration.cameraFPS, configuration)
                 cameraPreview?.start(cameraSource, object : CameraSourcePreview.OnCameraPreviewListener {
                     override fun onCameraError() {
                         Timber.e("Camera Preview Error")
                         cameraSource = if (configuration.cameraId == CAMERA_FACING_FRONT) {
-                            initCamera(CAMERA_FACING_BACK, configuration.cameraFPS)
+                            initCamera(CAMERA_FACING_BACK, configuration.cameraFPS, configuration)
                         } else {
-                            initCamera(CAMERA_FACING_FRONT, configuration.cameraFPS)
+                            initCamera(CAMERA_FACING_FRONT, configuration.cameraFPS, configuration)
                         }
                         if (cameraPreview != null) {
                             try {
@@ -313,7 +313,11 @@ constructor(private val context: Context) {
         }
 
         if (configuration.cameraEnabled && configuration.cameraMotionEnabled) {
-            motionDetector = MotionDetector.Builder(configuration.cameraMotionMinLuma, configuration.cameraMotionLeniency).build()
+            motionDetector = MotionDetector.Builder(
+                configuration.cameraMotionMinLuma, 
+                configuration.cameraMotionLeniency,
+                configuration.cameraMotionFrameSkip
+            ).build()
             motionDetectorProcessor = MultiProcessor.Builder<Motion> {
                 object : Tracker<Motion>() {
                     override fun onUpdate(p0: Detector.Detections<Motion>, motion: Motion) {
@@ -395,11 +399,17 @@ constructor(private val context: Context) {
     }
 
     @SuppressLint("MissingPermission")
-    private fun initCamera(camerId: Int, fsp: Float): CameraSource {
+    private fun initCamera(camerId: Int, fsp: Float, configuration: Configuration): CameraSource {
+        // Use low resolution (320x240) if enabled, otherwise use standard resolution (640x480)
+        val width = if (configuration.cameraLowResolution) 320 else 640
+        val height = if (configuration.cameraLowResolution) 240 else 480
+        
+        Timber.d("Initializing camera with resolution: ${width}x${height}")
+        
         return CameraSource.Builder(context, multiDetector!!)
                 .setRequestedFps(fsp)
                 .setAutoFocusEnabled(true)
-                .setRequestedPreviewSize(640, 480)
+                .setRequestedPreviewSize(width, height)
                 .setFacing(camerId)
                 .build()
     }

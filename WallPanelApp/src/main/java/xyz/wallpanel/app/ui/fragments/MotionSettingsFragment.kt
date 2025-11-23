@@ -99,7 +99,7 @@ class MotionSettingsFragment : BaseSettingsFragment() {
         bindPreferenceSummaryToValue(motionClearPreference!!)
     }
 
-    override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String) {
+    override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
         when (key) {
             PREF_CAMERA_LATENCY -> {
                 val latency = motionLeniencyPreference?.text?.toIntOrNull()

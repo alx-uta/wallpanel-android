@@ -35,7 +35,14 @@
             <WebView
                 android:id="@+id/activity_browser_webview_native"
                 android:layout_width="match_parent"
-                android:layout_height="match_parent" />
+                android:layout_height="match_parent"
+                android:visibility="visible" />
+
+            <org.mozilla.geckoview.GeckoView
+                android:id="@+id/activity_browser_geckoview"
+                android:layout_width="match_parent"
+                android:layout_height="match_parent"
+                android:visibility="gone" />
 
             <ProgressBar
                 android:id="@+id/progressView"
@@ -60,18 +67,4 @@
         app:pressedTranslationZ="0dp"
         app:srcCompat="@drawable/ic_dashboard_white" />
 
-    <!--<Button
-        android:id="@+id/refreshButton"
-        style="@style/ButtonGreen.Small"
-        android:layout_width="wrap_content"
-        android:layout_height="wrap_content"
-        android:paddingEnd="16dp"
-        app:srcCompat="@drawable/ic_baseline_refresh"
-        android:drawableStart="@drawable/ic_baseline_refresh"
-        android:drawablePadding="8dp"
-        android:layout_gravity="bottom|center_horizontal"
-        android:layout_marginBottom="24dp"
-        android:visibility="gone"
-        android:text="Refresh"/>
--->
 </androidx.coordinatorlayout.widget.CoordinatorLayout>

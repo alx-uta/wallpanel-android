@@ -311,6 +311,9 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (isScreenSaver) {
             resetScreenBrightness(false)
+            if (configuration.cameraOnlyWhenScreenSaver) {
+                stopCameraForScreenSaver()
+            }
         }
     }
 
@@ -319,9 +322,13 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
      * with the alarm disabled because the disable time will be longer than this.
      */
     open fun showScreenSaver() {
+        Timber.d("showScreenSaver - cameraOnlyWhenScreenSaver: ${configuration.cameraOnlyWhenScreenSaver}")
         if (configuration.hasDimScreenSaver) {
             inactivityHandler.removeCallbacks(inactivityCallback)
             resetScreenBrightness(true)
+            if (configuration.cameraOnlyWhenScreenSaver) {
+                startCameraForScreenSaver()
+            }
         } else if ((configuration.hasClockScreenSaver
                     || configuration.webScreenSaver
                     || configuration.hasScreenSaverWallpaper
@@ -344,11 +351,28 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
                 configuration.appPreventSleep
             )
             resetScreenBrightness(true)
+            if (configuration.cameraOnlyWhenScreenSaver) {
+                startCameraForScreenSaver()
+            }
         }
     }
 
     open fun resetScreenBrightness(screenSaver: Boolean = false) {
         screenUtils.resetScreenBrightness(screenSaver)
+    }
+
+    private fun startCameraForScreenSaver() {
+        Timber.d("startCameraForScreenSaver")
+        val intent = Intent(WallPanelService.BROADCAST_CAMERA_START_SCREENSAVER)
+        val bm = LocalBroadcastManager.getInstance(applicationContext)
+        bm.sendBroadcast(intent)
+    }
+
+    private fun stopCameraForScreenSaver() {
+        Timber.d("stopCameraForScreenSaver")
+        val intent = Intent(WallPanelService.BROADCAST_CAMERA_STOP_SCREENSAVER)
+        val bm = LocalBroadcastManager.getInstance(applicationContext)
+        bm.sendBroadcast(intent)
     }
 
     protected abstract fun configureWebSettings(userAgent: String)

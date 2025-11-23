@@ -53,7 +53,7 @@ class CustomWebView @JvmOverloads constructor(
         settings.databaseEnabled = true
         settings.saveFormData = true
         settings.javaScriptCanOpenWindowsAutomatically = true
-        settings.cacheMode = WebSettings.LOAD_NO_CACHE
+        settings.cacheMode = WebSettings.LOAD_DEFAULT
         settings.allowFileAccess = true
         settings.allowFileAccessFromFileURLs = true
         settings.allowContentAccess = true
@@ -61,13 +61,8 @@ class CustomWebView @JvmOverloads constructor(
         settings.loadWithOverviewMode = true
         settings.useWideViewPort = true
         settings.pluginState = WebSettings.PluginState.ON
-        settings.setRenderPriority(WebSettings.RenderPriority.HIGH);
-        // settings.cacheMode = WebSettings.LOAD_NO_CACHE;
-        settings.mediaPlaybackRequiresUserGesture = false;
-
-        /*if (userAgent.isNotEmpty()) {
-            settings.userAgentString = userAgent
-        }*/
+        settings.setRenderPriority(WebSettings.RenderPriority.HIGH)
+        settings.mediaPlaybackRequiresUserGesture = false
 
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             settings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW

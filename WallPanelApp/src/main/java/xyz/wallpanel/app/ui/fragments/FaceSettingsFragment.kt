@@ -92,7 +92,7 @@ class FaceSettingsFragment : BaseSettingsFragment() {
         faceSizePreference?.setDefaultValue(faceSize)
     }
 
-    override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String) {
+    override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
         when (key) {
             getString(R.string.key_setting_camera_face_size)-> {
                 faceSizePreference?.text?.let {

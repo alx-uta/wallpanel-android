@@ -20,9 +20,9 @@
 
         <EditTextPreference
             android:defaultValue="@string/default_setting_app_launchurl"
+            android:key="@string/key_setting_app_launchurl"
             android:summary="@string/pref_launchurl_summary"
             android:icon="@drawable/ic_dashboard"
-            android:key="pref_settings_dashboard_url"
             android:title="@string/title_setting_app_launchurl" />
 
         <Preference
@@ -78,13 +78,20 @@
             android:summary="@string/summary_hardware_acceleration"/>
 
         <SwitchPreference
+            android:defaultValue="@string/default_use_geckoview"
+            android:key="@string/key_use_geckoview"
+            android:title="@string/title_use_geckoview"
+            android:summary="@string/summary_use_geckoview"/>
+
+        <SwitchPreference
             android:defaultValue="@string/default_setting_ignore_ssl_errors"
             android:key="@string/key_setting_ignore_ssl_errors"
             android:title="@string/title_setting_ignore_ssl_errors"
             android:summary="@string/pref_ignore_ssl_errors_summary"/>
 
         <SwitchPreference
-            android:key="pref_settings_theme"
+            android:defaultValue="false"
+            android:key="pref_dark_theme"
             android:summary="Use dark theme"
             android:title="Theme" />
 
@@ -98,6 +105,11 @@
             android:title="Clear Home Screen"
             android:summary="Removes the app as the default Home screen (Important!! use this is you want to reset your device home app)."
             android:key="button_reset_home_app"/>
+
+        <Preference
+            android:title="Clear Cache"
+            android:summary="Clears browser cache, history, and cookies to force a fresh page load."
+            android:key="button_clear_cache"/>
 
     </PreferenceCategory>
 

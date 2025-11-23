@@ -123,6 +123,15 @@
     <string name="key_setting_camera_fps">setting_camera_fps</string>
     <string name="default_camera_fps">15</string>
 
+    <string name="key_setting_camera_motionframeskip">setting_camera_motionframeskip</string>
+    <string name="default_camera_motionframeskip">5</string>
+
+    <string name="key_setting_camera_only_screensaver">setting_camera_only_screensaver</string>
+    <string name="default_camera_only_screensaver">false</string>
+
+    <string name="key_setting_camera_low_resolution">setting_camera_low_resolution</string>
+    <string name="default_camera_low_resolution">true</string>
+
     <string name="key_setting_motion_clear">setting_motion_clear</string>
     <string name="default_motion_clear">30</string>
 

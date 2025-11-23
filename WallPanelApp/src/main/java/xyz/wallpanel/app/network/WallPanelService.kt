@@ -118,6 +118,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     private var motionDetected: Boolean = false
     private var appStatePublished: Boolean = false
     private var qrCodeRead: Boolean = false
+    private var isScreenSaverActive: Boolean = false
     private var faceDetected: Boolean = false
     private val reconnectHandler = Handler(Looper.getMainLooper())
     private var appLaunchUrl: String? = null
@@ -184,6 +185,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         val filter = IntentFilter()
         filter.addAction(BROADCAST_EVENT_URL_CHANGE)
         filter.addAction(BROADCAST_EVENT_SCREEN_TOUCH)
+        filter.addAction(BROADCAST_CAMERA_START_SCREENSAVER)
+        filter.addAction(BROADCAST_CAMERA_STOP_SCREENSAVER)
         filter.addAction(Intent.ACTION_SCREEN_ON)
         filter.addAction(Intent.ACTION_SCREEN_OFF)
         filter.addAction(Intent.ACTION_USER_PRESENT)
@@ -540,6 +543,12 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     // Attempt to stop camera and any optional camera options such as motion and streaming
     private fun stopCamera() {
         Timber.d("stopCamera")
+        cameraReader?.stopCamera()
+    }
+
+    // Stop camera and disable it permanently in settings
+    private fun stopCameraCompletely() {
+        Timber.d("stopCameraCompletely")
         configuration.cameraEnabled = false
         stopMJPEG()
         stopHttp()
@@ -821,7 +830,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         try {
             val pInfo: PackageInfo =
                 applicationContext.packageManager.getPackageInfo(applicationContext.packageName, 0)
-            version = pInfo.versionName
+            version = pInfo.versionName ?: ""
         } catch (e: PackageManager.NameNotFoundException) {
             e.printStackTrace()
         }
@@ -856,7 +865,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         try {
             val pInfo: PackageInfo =
                 applicationContext.packageManager.getPackageInfo(applicationContext.packageName, 0)
-            version = pInfo.versionName
+            version = pInfo.versionName ?: ""
         } catch (e: PackageManager.NameNotFoundException) {
             e.printStackTrace()
         }
@@ -1049,8 +1058,12 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                 publishApplicationState()
             } else if (BROADCAST_EVENT_SCREEN_TOUCH == intent.action) {
                 Timber.i("Screen touched")
-                //TODO: This overrides URL Change. Do we really need this?
-                //publishApplicationState()
+            } else if (BROADCAST_CAMERA_START_SCREENSAVER == intent.action) {
+                Timber.i("Screensaver started - enabling camera processing")
+                isScreenSaverActive = true
+            } else if (BROADCAST_CAMERA_STOP_SCREENSAVER == intent.action) {
+                Timber.i("Screensaver stopped - disabling camera processing")
+                isScreenSaverActive = false
             }
         }
     }
@@ -1074,6 +1087,12 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         }
 
         override fun onMotionDetected() {
+            // Skip motion detection if screensaver is not active and the feature is enabled
+            if (configuration.cameraOnlyWhenScreenSaver && !isScreenSaverActive) {
+                Timber.d("Motion detected but screensaver not active - ignoring")
+                return
+            }
+            
             Timber.i("Motion detected")
             if (configuration.cameraMotionWake) {
                 configurePowerOptions()
@@ -1087,6 +1106,12 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         }
 
         override fun onFaceDetected() {
+            // Skip face detection if screensaver is not active and the feature is enabled
+            if (configuration.cameraOnlyWhenScreenSaver && !isScreenSaverActive) {
+                Timber.d("Face detected but screensaver not active - ignoring")
+                return
+            }
+            
             Timber.i("Face detected")
             Timber.d("configuration.cameraMotionBright ${configuration.cameraMotionBright}")
             if (configuration.cameraFaceWake) {
@@ -1097,6 +1122,12 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         }
 
         override fun onQRCode(data: String) {
+            // Skip QR code processing if screensaver is not active and the feature is enabled
+            if (configuration.cameraOnlyWhenScreenSaver && !isScreenSaverActive) {
+                Timber.d("QR code detected but screensaver not active - ignoring")
+                return
+            }
+            
             Timber.i("QR Code Received: $data")
             publishQrCode(data)
         }
@@ -1115,6 +1146,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         const val BROADCAST_SCREEN_WAKE_ON = "BROADCAST_SCREEN_WAKE_ON"
         const val BROADCAST_SCREEN_WAKE_OFF = "BROADCAST_SCREEN_WAKE_OFF"
         const val BROADCAST_SCREEN_BRIGHTNESS_CHANGE = "BROADCAST_SCREEN_BRIGHTNESS_CHANGE"
+        const val BROADCAST_CAMERA_START_SCREENSAVER = "BROADCAST_CAMERA_START_SCREENSAVER"
+        const val BROADCAST_CAMERA_STOP_SCREENSAVER = "BROADCAST_CAMERA_STOP_SCREENSAVER"
         const val BROADCAST_CONNTED = "BROADCAST_SCREEN_BRIGHTNESS_CHANGE"
     }
 }

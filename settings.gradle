@@ -14,4 +14,16 @@
  * limitations under the License.
  */
 
+dependencyResolutionManagement {
+    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
+    repositories {
+        google()
+        mavenCentral()
+        gradlePluginPortal()
+        maven {
+            url "https://maven.mozilla.org/maven2/"
+        }
+    }
+}
+
 include ':WallPanelApp'
