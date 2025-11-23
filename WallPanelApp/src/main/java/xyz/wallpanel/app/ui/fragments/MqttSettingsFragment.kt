@@ -21,6 +21,8 @@ import android.content.SharedPreferences
 import android.os.Bundle
 import android.text.InputType
 import android.view.*
+import androidx.core.view.MenuProvider
+import androidx.lifecycle.Lifecycle
 import androidx.preference.SwitchPreference
 import androidx.preference.EditTextPreference
 import androidx.navigation.Navigation
@@ -56,33 +58,6 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
     override fun onAttach(context: Context) {
         AndroidSupportInjection.inject(this)
         super.onAttach(context)
-        setHasOptionsMenu(true)
-    }
-
-    override fun onActivityCreated(savedInstanceState: Bundle?) {
-        super.onActivityCreated(savedInstanceState)
-        if((activity as SettingsActivity).supportActionBar != null) {
-            (activity as SettingsActivity).supportActionBar!!.setDisplayHomeAsUpEnabled(true)
-            (activity as SettingsActivity).supportActionBar!!.setDisplayShowHomeEnabled(true)
-            (activity as SettingsActivity).supportActionBar!!.title = (getString(R.string.title_mqtt_settings))
-        }
-    }
-
-    override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
-        super.onCreateOptionsMenu(menu, inflater)
-        inflater.inflate(R.menu.menu_help, menu)
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        val id = item.itemId
-        if (id == android.R.id.home) {
-            view?.let { Navigation.findNavController(it).navigate(R.id.settings_action) }
-            return true
-        } else if (id == R.id.action_help) {
-            showSupport()
-            return true
-        }
-        return super.onOptionsItemSelected(item)
     }
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
@@ -90,8 +65,34 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-
         super.onViewCreated(view, savedInstanceState)
+        
+        if((activity as? SettingsActivity)?.supportActionBar != null) {
+            (activity as SettingsActivity).supportActionBar!!.setDisplayHomeAsUpEnabled(true)
+            (activity as SettingsActivity).supportActionBar!!.setDisplayShowHomeEnabled(true)
+            (activity as SettingsActivity).supportActionBar!!.title = getString(R.string.title_mqtt_settings)
+        }
+        
+        // Modern MenuProvider API
+        requireActivity().addMenuProvider(object : MenuProvider {
+            override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
+                menuInflater.inflate(R.menu.menu_help, menu)
+            }
+
+            override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
+                return when (menuItem.itemId) {
+                    android.R.id.home -> {
+                        Navigation.findNavController(requireView()).navigate(R.id.settings_action)
+                        true
+                    }
+                    R.id.action_help -> {
+                        showSupport()
+                        true
+                    }
+                    else -> false
+                }
+            }
+        }, viewLifecycleOwner, Lifecycle.State.RESUMED)
 
         mqttPreference = findPreference<SwitchPreference>(getString(R.string.key_setting_mqtt_enabled)) as SwitchPreference
         mqttVersion = findPreference<ListPreference>(PREF_MQTT_VERSION) as ListPreference
@@ -129,7 +130,7 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
 
     }
 
-    override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String) {
+    override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
         when (key) {
             PREF_TLS_CONNECTION -> {
                 val checked = sslPreference.isChecked

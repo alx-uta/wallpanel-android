@@ -33,6 +33,8 @@ import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.view.MenuProvider
+import androidx.lifecycle.Lifecycle
 import androidx.navigation.Navigation
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
@@ -73,6 +75,7 @@ class SettingsFragment : BaseSettingsFragment() {
     private var sensorsPreference: Preference? = null
     private var aboutPreference: Preference? = null
     private var brightnessPreference: Preference? = null
+    private var clearCachePreference: Preference? = null
     private var browserRefreshPreference: SwitchPreference? = null
 
     private var clockSaverPreference: SwitchPreference? = null
@@ -135,7 +138,23 @@ class SettingsFragment : BaseSettingsFragment() {
 
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
-        setHasOptionsMenu(true)
+        
+        // Modern MenuProvider API
+        requireActivity().addMenuProvider(object : MenuProvider {
+            override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
+                menuInflater.inflate(R.menu.menu_dashboard, menu)
+            }
+
+            override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
+                return when (menuItem.itemId) {
+                    R.id.action_help -> {
+                        showSupport()
+                        true
+                    }
+                    else -> false
+                }
+            }
+        }, this, Lifecycle.State.RESUMED)
     }
 
     override fun onAttach(context: Context) {
@@ -161,20 +180,6 @@ class SettingsFragment : BaseSettingsFragment() {
         }
     }
 
-    override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
-        super.onCreateOptionsMenu(menu, inflater)
-        inflater.inflate(R.menu.menu_dashboard, menu)
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        val id = item.itemId
-        if (id == R.id.action_help) {
-            showSupport()
-            return true
-        }
-        return super.onOptionsItemSelected(item)
-    }
-
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         addPreferencesFromResource(R.xml.pref_general)
     }
@@ -183,7 +188,7 @@ class SettingsFragment : BaseSettingsFragment() {
 
         super.onViewCreated(view, savedInstanceState)
 
-        dashboardPreference = findPreference<EditTextPreference>(PREF_SETTINGS_DASHBOARD_URL) as EditTextPreference
+        dashboardPreference = findPreference<EditTextPreference>(getString(R.string.key_setting_app_launchurl)) as EditTextPreference
         browserHeaderPreference = findPreference<EditTextPreference>(PREF_SETTINGS_USER_AGENT) as EditTextPreference
         preventSleepPreference = findPreference<SwitchPreference>(getString(R.string.key_setting_app_preventsleep)) as SwitchPreference
         browserActivityPreference = findPreference<SwitchPreference>(getString(R.string.key_setting_app_showactivity)) as SwitchPreference
@@ -247,6 +252,7 @@ class SettingsFragment : BaseSettingsFragment() {
         sensorsPreference = findPreference("button_key_sensors")
         aboutPreference = findPreference("button_key_about")
         brightnessPreference = findPreference("button_key_brightness")
+        clearCachePreference = findPreference("button_clear_cache")
 
         rotationPreference = findPreference("pref_settings_image_rotation")
         rotationPreference?.text = configuration.imageRotation.toString()
@@ -304,12 +310,17 @@ class SettingsFragment : BaseSettingsFragment() {
                 Toast.makeText(requireContext(), getString(R.string.toast_screen_brightness_captured), Toast.LENGTH_SHORT).show()
                 false
             }
+            
+            clearCachePreference?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                clearBrowserCache()
+                true
+            }
         }  catch (e: IllegalArgumentException) {
             Timber.d(e.message)
         }
     }
 
-    override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String) {
+    override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
         when (key) {
             PREF_SCREEN_BRIGHTNESS -> {
                 val useBright = screenBrightness?.isChecked
@@ -369,17 +380,17 @@ class SettingsFragment : BaseSettingsFragment() {
                     settingsLocationPreference.summary = settingsLocationPreference.entry
                 }
             }
-            PREF_SETTINGS_DASHBOARD_URL -> {
+            PREF_SETTINGS_USER_AGENT -> {
+                val value = userAgentPreference.text.orEmpty()
+                configuration.browserUserAgent = value
+                userAgentPreference.summary = value
+            }
+            getString(R.string.key_setting_app_launchurl) -> {
                 val value = dashboardPreference?.text.orEmpty()
                 if (value.isNotEmpty()) {
                     configuration.appLaunchUrl = value
                     dashboardPreference?.summary = value
                 }
-            }
-            PREF_SETTINGS_USER_AGENT -> {
-                val value = userAgentPreference.text.orEmpty()
-                configuration.browserUserAgent = value
-                userAgentPreference.summary = value
             }
             PREF_SETTINGS_WEB_SCREENSAVER_URL -> {
                 val value = webScreenSaverUrl.text.orEmpty()
@@ -539,6 +550,40 @@ class SettingsFragment : BaseSettingsFragment() {
         pm.clearPackagePreferredActivities(requireActivity().packageName)
         requireActivity().recreate()
     }
+    
+    private fun clearBrowserCache() {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.pref_clear_cache_title)
+            .setMessage(R.string.pref_clear_cache_confirm)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                try {
+                    // Clear WebView cache
+                    android.webkit.WebView(requireContext()).apply {
+                        clearCache(true)
+                        clearHistory()
+                        clearFormData()
+                    }
+                    
+                    // Clear app cache directory
+                    requireContext().cacheDir.deleteRecursively()
+                    requireContext().cacheDir.mkdir()
+                    
+                    // Clear cookies
+                    if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                        android.webkit.CookieManager.getInstance().removeAllCookies(null)
+                        android.webkit.CookieManager.getInstance().flush()
+                    }
+                    
+                    Toast.makeText(requireContext(), R.string.toast_cache_cleared, Toast.LENGTH_SHORT).show()
+                    Timber.d("Browser cache cleared successfully")
+                } catch (e: Exception) {
+                    Timber.e(e, "Error clearing cache")
+                    Toast.makeText(requireContext(), "Error clearing cache: ${e.message}", Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
 
     companion object {
         const val PREF_SCREEN_INACTIVITY_TIME = "pref_screensaver_inactivity_time"
@@ -547,8 +592,7 @@ class SettingsFragment : BaseSettingsFragment() {
         const val PREF_SETTINGS_REFRESH_ON_DISCONNECT = "pref_settings_refresh_on_disconnect"
         const val PREF_SETTINGS_BUTTON_DISABLE = "pref_settings_button_disable"
         const val PREF_SETTINGS_BUTTON_LOCATION = "pref_settings_button_location"
-        const val PREF_SETTINGS_THEME = "pref_settings_theme"
-        const val PREF_SETTINGS_DASHBOARD_URL = "pref_settings_dashboard_url"
+        const val PREF_SETTINGS_THEME = "pref_dark_theme"
         const val PREF_SETTINGS_USER_AGENT = "pref_settings_user_agent"
         const val PREF_SETTINGS_SCREENSAVER_DIM = "settings_screensaver_dim"
         const val PREF_SETTINGS_WEB_SCREENSAVER = "settings_screensaver_web"

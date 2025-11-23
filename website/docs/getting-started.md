@@ -5,7 +5,7 @@ sidebar_position: 1
 
 ## Installation
 
-You can either side load the application to your device from the [release section](https://github.com/thetimewalker/wallpanel-android/releases) or install the application from [Google Play](https://play.google.com/store/apps/details?id=xyz.wallpanel.app).
+You can either side load the application to your device from the [release section](https://github.com/alx-uta/wallpanel-android/releases) or clone the repository and build the application using Android Studio.
 
 :::important
 If you have need support for older Android 4.0 devices (those below Android 4.4), you want to use the [legacy version](https://github.com/thanksmister/wallpanel-android-legacy) of the application. Alternatively you can download an APK from the release section prior to release v0.8.8-beta.6

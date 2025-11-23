@@ -35,16 +35,15 @@ import androidx.coordinatorlayout.widget.CoordinatorLayout
 import androidx.core.app.ActivityCompat
 import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleObserver
-import com.google.firebase.crashlytics.FirebaseCrashlytics
-import com.google.firebase.crashlytics.ktx.crashlytics
-import com.google.firebase.crashlytics.ktx.setCustomKeys
-import com.google.firebase.ktx.Firebase
 import xyz.wallpanel.app.databinding.ActivityBrowserBinding
 import xyz.wallpanel.app.network.ConnectionLiveData
 import xyz.wallpanel.app.ui.fragments.CodeBottomSheetFragment
 import xyz.wallpanel.app.utils.InternalWebChromeClient
 import xyz.wallpanel.app.ui.views.WebClientCallback
 import xyz.wallpanel.app.utils.InternalWebClient
+import xyz.wallpanel.app.utils.GeckoWebClientAdapter
+import xyz.wallpanel.app.utils.GeckoWebChromeClientAdapter
+import xyz.wallpanel.app.ui.views.GeckoViewWrapper
 import xyz.wallpanel.app.BuildConfig
 import xyz.wallpanel.app.R
 import timber.log.Timber
@@ -55,7 +54,10 @@ import java.util.concurrent.TimeUnit
 
 class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClientCallback {
 
-    private lateinit var webView: WebView
+    private var webView: WebView? = null
+    private var geckoViewWrapper: GeckoViewWrapper? = null
+    private var usingGeckoView = false
+
     private lateinit var binding: ActivityBrowserBinding
     private var certPermissionsShown = false
     private var playlistHandler: Handler? = null
@@ -94,7 +96,8 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
 
         super.onCreate(savedInstanceState)
 
-        if (BuildConfig.DEBUG) {
+        if (BuildConfig.DEBUG && configuration.isFirstTime) {
+            // Only set debug defaults on first run, don't overwrite user settings
             configuration.mqttBroker = BuildConfig.BROKER
             configuration.mqttUsername = BuildConfig.BROKER_USERNAME
             configuration.mqttPassword = BuildConfig.BROKER_PASS
@@ -131,19 +134,25 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
 
     override fun onStart() {
         super.onStart()
+        
+        // Log device info for debugging
+        val deviceInfo = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
+        Timber.d("Device: $deviceInfo, Engine: ${if (usingGeckoView) "GeckoView" else "WebView"}, Dark Mode: ${if (configuration.useDarkTheme) "ON" else "OFF"}")
+        
         if (configuration.useDarkTheme) {
             AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
         } else {
             setLightTheme()
         }
 
-        if (configuration.hardwareAccelerated) {
-            // chromium, enable hardware acceleration
-            webView.setLayerType(View.LAYER_TYPE_HARDWARE, null)
-        } else {
+        if (configuration.hardwareAccelerated && !usingGeckoView) {
+            // chromium, enable hardware acceleration (only for WebView)
+            webView?.setLayerType(View.LAYER_TYPE_HARDWARE, null)
+        } else if (!usingGeckoView) {
             // older android version, disable hardware acceleration
-            webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+            webView?.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
         }
+        // Note: GeckoView handles hardware acceleration internally
 
         if (configuration.browserRefresh) {
             binding.swipeContainer.setOnRefreshListener {
@@ -151,7 +160,11 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
                 initWebPageLoad()
             }
             mOnScrollChangedListener = ViewTreeObserver.OnScrollChangedListener {
-                binding.swipeContainer?.isEnabled = webView.scrollY == 0
+                if (usingGeckoView) {
+                    binding.swipeContainer.isEnabled = binding.activityBrowserGeckoview.scrollY == 0
+                } else {
+                    binding.swipeContainer.isEnabled = webView?.scrollY == 0
+                }
             }
             binding.swipeContainer.viewTreeObserver.addOnScrollChangedListener(mOnScrollChangedListener)
         } else {
@@ -167,7 +180,6 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
 
     override fun onStop() {
         super.onStop()
-        val view = binding.root
         if (mOnScrollChangedListener != null && configuration.browserRefresh) {
             binding.swipeContainer.viewTreeObserver.removeOnScrollChangedListener(mOnScrollChangedListener)
         }
@@ -194,7 +206,10 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
                 launchIntent = Intent.parseUri(url, Intent.URI_INTENT_SCHEME)
             } catch (ex: URISyntaxException) {
                 Timber.e("Bad URI $url: $ex.message")
-                dialogUtils.showAlertDialog(webView.context, resources.getString(R.string.dialog_message_invalid_intent))
+                val context = if (usingGeckoView) binding.activityBrowserGeckoview.context else webView?.context
+                context?.let {
+                    dialogUtils.showAlertDialog(it, resources.getString(R.string.dialog_message_invalid_intent))
+                }
                 return
             }
             val selector = launchIntent.selector
@@ -202,62 +217,119 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
                 selector.addCategory(Intent.CATEGORY_BROWSABLE)
                 selector.setComponent(null)
             }
-            launchIntent.putExtra(Browser.EXTRA_APPLICATION_ID, webView.context.packageName);
-            webView.context.startActivity(launchIntent)
+            val context = if (usingGeckoView) binding.activityBrowserGeckoview.context else webView?.context
+            launchIntent.putExtra(Browser.EXTRA_APPLICATION_ID, context?.packageName)
+            context?.startActivity(launchIntent)
         } else {
-            webView.loadUrl(url)
+            if (usingGeckoView) {
+                geckoViewWrapper?.loadUrl(url)
+            } else {
+                webView?.loadUrl(url)
+            }
         }
     }
 
     override fun evaluateJavascript(js: String) {
-        webView.evaluateJavascript(js, null)
+        if (usingGeckoView) {
+            geckoViewWrapper?.evaluateJavascript(js)
+        } else {
+            webView?.evaluateJavascript(js, null)
+        }
     }
 
     override fun clearCache() {
-        webView.clearCache(true)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            CookieManager.getInstance().removeAllCookies(null)
+        if (usingGeckoView) {
+            geckoViewWrapper?.clearCache(true)
+        } else {
+            webView?.clearCache(true)
+            webView?.clearHistory()
+            webView?.clearFormData()
+            
+            try {
+                applicationContext.cacheDir.deleteRecursively()
+                applicationContext.cacheDir.mkdir()
+            } catch (e: Exception) {
+                Timber.e(e, "Error clearing cache directory")
+            }
+            
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                CookieManager.getInstance().removeAllCookies(null)
+                CookieManager.getInstance().flush()
+            }
         }
     }
 
     override fun reload() {
-        webView.reload()
+        if (usingGeckoView) {
+            geckoViewWrapper?.reload()
+        } else {
+            webView?.reload()
+        }
     }
 
     @SuppressLint("SetJavaScriptEnabled")
     // TODO handle deprecated web settings
     override fun configureWebSettings(userAgent: String) {
-        if (webSettings == null) {
-            webSettings = webView.settings
-        }
-        webSettings?.javaScriptEnabled = true
-        webSettings?.domStorageEnabled = true
-        webSettings?.databaseEnabled = true
-        webSettings?.saveFormData = true
-        webSettings?.javaScriptCanOpenWindowsAutomatically = true
-        webSettings?.cacheMode = WebSettings.LOAD_NO_CACHE
-        webSettings?.allowFileAccess = true
-        webSettings?.allowFileAccessFromFileURLs = true
-        webSettings?.allowContentAccess = true
-        webSettings?.setSupportZoom(true)
-        webSettings?.loadWithOverviewMode = true
-        webSettings?.useWideViewPort = true
-        webSettings?.pluginState = WebSettings.PluginState.ON
-        webSettings?.setRenderPriority(WebSettings.RenderPriority.HIGH)
-        // webSettings?.cacheMode = WebSettings.LOAD_NO_CACHE;
-        webSettings?.mediaPlaybackRequiresUserGesture = false
+        if (usingGeckoView) {
+            // GeckoView settings are handled in GeckoViewWrapper
+            geckoViewWrapper?.setUserAgent(userAgent)
+        } else {
+            if (webSettings == null) {
+                webSettings = webView?.settings
+            }
+            webSettings?.javaScriptEnabled = true
+            webSettings?.domStorageEnabled = true
+            
+            @Suppress("DEPRECATION")
+            webSettings?.databaseEnabled = true
+            @Suppress("DEPRECATION")
+            webSettings?.saveFormData = true
+            
+            webSettings?.javaScriptCanOpenWindowsAutomatically = true
+            
+            // Enable caching for better performance
+            webSettings?.cacheMode = WebSettings.LOAD_DEFAULT
+            
+            webSettings?.allowFileAccess = true
+            
+            @Suppress("DEPRECATION")
+            webSettings?.allowFileAccessFromFileURLs = true
+            
+            webSettings?.allowContentAccess = true
+            webSettings?.setSupportZoom(true)
+            webSettings?.loadWithOverviewMode = true
+            webSettings?.useWideViewPort = true
+            
+            @Suppress("DEPRECATION")
+            webSettings?.pluginState = WebSettings.PluginState.ON
+            @Suppress("DEPRECATION")
+            webSettings?.setRenderPriority(WebSettings.RenderPriority.HIGH)
+            
+            webSettings?.mediaPlaybackRequiresUserGesture = false
 
-        if (userAgent.isNotEmpty()) {
-            webSettings?.userAgentString = userAgent
-        }
+            if (userAgent.isNotEmpty()) {
+                webSettings?.userAgentString = userAgent
+            }
 
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            webSettings?.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
+                webSettings?.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
+            }
+            
+            // Apply dark mode for WebView
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+                // Android 10+ (API 29+) - Use native forceDark API
+                @Suppress("DEPRECATION")
+                if (configuration.useDarkTheme) {
+                    webSettings?.forceDark = WebSettings.FORCE_DARK_ON
+                } else {
+                    webSettings?.forceDark = WebSettings.FORCE_DARK_OFF
+                }
+            }
         }
     }
 
     override fun complete() {
-        if (binding.swipeContainer != null && binding.swipeContainer.isRefreshing && configuration.browserRefresh) {
+        if (binding.swipeContainer.isRefreshing && configuration.browserRefresh) {
             binding.swipeContainer.isRefreshing = false
         }
     }
@@ -324,14 +396,83 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     }
 
     @SuppressLint("ClickableViewAccessibility")
-    private fun configureWebView(view: ViewGroup) {
+    private fun configureWebView(@Suppress("UNUSED_PARAMETER") view: ViewGroup) {
+        // Determine which engine to use
+        usingGeckoView = configuration.useGeckoView
+
+        if (usingGeckoView) {
+            Timber.d("Initializing GeckoView engine")
+            try {
+                // Hide WebView, show GeckoView
+                binding.activityBrowserWebviewNative.visibility = View.GONE
+                binding.activityBrowserGeckoview.visibility = View.VISIBLE
+
+                // Initialize GeckoRuntime (if not already initialized)
+                GeckoViewWrapper.initializeRuntime(this)
+
+                // Initialize GeckoView wrapper
+                geckoViewWrapper = GeckoViewWrapper(this, binding.activityBrowserGeckoview)
+
+                // Configure delegates
+                configureGeckoViewDelegates()
+
+                Toast.makeText(this, "Using GeckoView Engine", Toast.LENGTH_SHORT).show()
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to initialize GeckoView, falling back to WebView")
+                // Fallback to WebView
+                usingGeckoView = false
+                configuration.useGeckoView = false
+                configureSystemWebView()
+                Toast.makeText(this, "GeckoView failed, using WebView", Toast.LENGTH_LONG).show()
+            }
+        } else {
+            Timber.d("Initializing System WebView engine")
+            // Hide GeckoView, show WebView
+            binding.activityBrowserGeckoview.visibility = View.GONE
+            binding.activityBrowserWebviewNative.visibility = View.VISIBLE
+
+            configureSystemWebView()
+        }
+    }
+
+    private fun configureSystemWebView() {
         webView = binding.activityBrowserWebviewNative
-        webView.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
+        webView?.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
         // Force links and redirects to open in the WebView instead of in a browser
         configureWebChromeClient()
         configureWebViewClient()
 
-        webView.setOnTouchListener { v, event ->
+        webView?.setOnTouchListener { v, event ->
+            when (event.action) {
+                MotionEvent.ACTION_DOWN -> {
+                    resetScreen()
+                    if (!v.hasFocus()) {
+                        v.requestFocus()
+                    }
+                }
+                MotionEvent.ACTION_UP -> if (!v.hasFocus()) {
+                    v.requestFocus()
+                }
+            }
+            false
+        }
+    }
+
+    private fun configureGeckoViewDelegates() {
+        val geckoClientAdapter = GeckoWebClientAdapter(resources, this, configuration)
+        val geckoChromeAdapter = GeckoWebChromeClientAdapter(resources, this)
+
+        // Pass the GeckoSession to the adapter for JavaScript execution
+        geckoViewWrapper?.geckoSession?.let { session ->
+            geckoClientAdapter.setGeckoSession(session)
+        }
+
+        geckoViewWrapper?.setNavigationDelegate(geckoClientAdapter)
+        geckoViewWrapper?.setProgressDelegate(geckoChromeAdapter)
+        geckoViewWrapper?.setPermissionDelegate(geckoChromeAdapter)
+        geckoViewWrapper?.setPromptDelegate(geckoChromeAdapter)
+
+        binding.activityBrowserGeckoview.setOnTouchListener { v, event ->
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     resetScreen()
@@ -348,22 +489,26 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     }
 
     private fun configureWebChromeClient() {
-        webView.webChromeClient = InternalWebChromeClient(resources = resources, callback = this)
+        webView?.webChromeClient = InternalWebChromeClient(resources = resources, callback = this)
     }
 
     private fun configureWebViewClient() {
-        webView.webViewClient = InternalWebClient(resources = resources, callback = this, configuration)
+        webView?.webViewClient = InternalWebClient(resources = resources, callback = this, configuration)
     }
 
     private fun initWebPageLoad() {
         binding.progressView.visibility = View.GONE
-        webView.visibility = View.VISIBLE
+        if (usingGeckoView) {
+            binding.activityBrowserGeckoview.visibility = View.VISIBLE
+        } else {
+            binding.activityBrowserWebviewNative.visibility = View.VISIBLE
+        }
         // set user agent
         configureWebSettings(configuration.browserUserAgent)
         // set zoom level
-        if (zoomLevel != 0.0f) {
+        if (zoomLevel != 0.0f && !usingGeckoView) {
             val zoomPercent = (zoomLevel * 100).toInt()
-            webView.setInitialScale(zoomPercent)
+            webView?.setInitialScale(zoomPercent)
         }
         // check if we are using playlist
         if (configuration.appLaunchUrl.lines().size == 1) {
@@ -377,8 +522,6 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         playlistHandler = Handler(Looper.getMainLooper())
         playlistHandler?.postDelayed(playlistRunnable, 10)
     }
-
-
 
     private fun showCodeBottomSheet() {
         codeBottomSheet = CodeBottomSheetFragment.newInstance(configuration.settingsCode,

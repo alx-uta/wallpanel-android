@@ -43,6 +43,34 @@
             android:paddingTop="0dp"
             android:summary="@string/pref_camera_fps_summary"/>
 
+        <EditTextPreference
+            android:defaultValue="@string/default_camera_motionframeskip"
+            android:key="@string/key_setting_camera_motionframeskip"
+            android:summary="10"
+            android:title="@string/pref_camera_motionframeskip_title"
+            android:dependency="pref_setting_camera_enabled"/>
+
+        <EditTextPreference
+            android:textColor="@color/light_gray"
+            android:textSize="12sp"
+            android:selectable="false"
+            android:paddingTop="0dp"
+            android:summary="@string/pref_camera_motionframeskip_summary"/>
+
+        <SwitchPreference
+            android:defaultValue="@string/default_camera_only_screensaver"
+            android:key="@string/key_setting_camera_only_screensaver"
+            android:summary="@string/pref_camera_only_screensaver_summary"
+            android:title="@string/pref_camera_only_screensaver_title"
+            android:dependency="pref_setting_camera_enabled"/>
+
+        <SwitchPreference
+            android:defaultValue="@string/default_camera_low_resolution"
+            android:key="@string/key_setting_camera_low_resolution"
+            android:summary="@string/pref_camera_low_resolution_summary"
+            android:title="@string/pref_camera_low_resolution_title"
+            android:dependency="pref_setting_camera_enabled"/>
+
         <ListPreference
             android:key="pref_setting_camera_rotate"
             android:title="@string/preference_camera_flip_title"

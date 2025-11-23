@@ -185,6 +185,12 @@
     <string name="pref_user_agent_summary">Set the browser user agent stream if needed to load the dashboard (leave blank otherwise)</string>
     <string name="pref_camera_fps_title">Camera FPS</string>
     <string name="pref_camera_fps_summary">Set the camera speed, use lower value for older values if you see a dark image during testing (default is 15).</string>
+    <string name="pref_camera_motionframeskip_title">Motion Frame Skip</string>
+    <string name="pref_camera_motionframeskip_summary">Process motion detection every Nth frame to reduce CPU usage. Higher values = lower CPU, slower detection. Set to 0 to disable frame skipping (default is 5).</string>
+    <string name="pref_camera_only_screensaver_title">Camera Only During Screensaver</string>
+    <string name="pref_camera_only_screensaver_summary">Only activate camera when screensaver is active to save CPU and battery.</string>
+    <string name="pref_camera_low_resolution_title">Use Low Resolution Camera</string>
+    <string name="pref_camera_low_resolution_summary">Use 320x240 resolution instead of 640x480 for faster motion detection and lower CPU usage (recommended for low-end devices).</string>
     <string name="pref_motion_reset_title">Motion Reset Time</string>
     <string name="pref_motion_reset_description">The time (in seconds) before resetting the motion detector.</string>
     <string name="text_front">Front</string>
@@ -276,6 +282,10 @@
     <string name="toast_code_changed">Code changed successfully!</string>
     <string name="toast_code_not_match">Code does not match, try again.</string>
     <string name="toast_code_invalid">Code is invalid, please try again.</string>
+    <string name="toast_cache_cleared">Browser cache cleared successfully!</string>
+
+    <string name="pref_clear_cache_title">Clear Cache</string>
+    <string name="pref_clear_cache_confirm">This will clear the browser cache, history, and cookies. The page will reload with fresh content. Continue?</string>
 
     <string name="preference_summary_security_code">Set the code to access the settings (default is 1234).</string>
     <string name="preference_title_security_code">Security Code</string>
@@ -301,6 +311,12 @@
     <string name="pref_web_saver_description">Use a web page as a screensaver.</string>
     <string name="pref_web_screen_url_title">Web Screensaver Url</string>
     <string name="pref_web_screen_url_description">Enter the url to use as a web screensaver.</string>
+
+    <!-- GeckoView Settings -->
+    <string name="key_use_geckoview">pref_use_geckoview</string>
+    <string name="default_use_geckoview">false</string>
+    <string name="title_use_geckoview">Use GeckoView</string>
+    <string name="summary_use_geckoview">Mozilla browser engine with modern web standards. Restart required.</string>
 
 
     <string-array name="flip_directions">

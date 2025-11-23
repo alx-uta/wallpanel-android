@@ -103,6 +103,7 @@ class CameraSettingsFragment : BaseSettingsFragment() {
         super.onViewCreated(view, savedInstanceState)
 
         fpsPreference = findPreference<EditTextPreference>(getString(R.string.key_setting_camera_fps)) as EditTextPreference
+        val frameSkipPreference = findPreference<EditTextPreference>(getString(R.string.key_setting_camera_motionframeskip)) as EditTextPreference
         cameraPreference = findPreference<SwitchPreference>(PREF_CAMERA_ENABLED) as SwitchPreference
         rotatePreference = findPreference<ListPreference>(PREF_CAMERA_ROTATE) as ListPreference
         rotatePreference!!.setDefaultValue(configuration.cameraRotate)
@@ -152,6 +153,7 @@ class CameraSettingsFragment : BaseSettingsFragment() {
 
         cameraPreference?.isChecked = configuration.cameraEnabled
         bindPreferenceSummaryToValue(fpsPreference!!)
+        bindPreferenceSummaryToValue(frameSkipPreference!!)
 
         motionDetectionPreference = findPreference("button_key_motion_detection")
         faceDetectionPreference = findPreference("button_key_face_detection")
@@ -255,7 +257,7 @@ class CameraSettingsFragment : BaseSettingsFragment() {
         startActivity(Intent(c, LiveCameraActivity::class.java))
     }
 
-    override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String) {
+    override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
         when (key) {
             PREF_CAMERA_ENABLED -> {
                 val cameraEnabled = cameraPreference?.isChecked

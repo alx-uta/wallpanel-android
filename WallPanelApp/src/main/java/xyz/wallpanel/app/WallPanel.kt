@@ -19,11 +19,14 @@ package xyz.wallpanel.app
 import android.R.attr
 import android.content.ComponentCallbacks2
 import android.content.Context
+import android.content.SharedPreferences
 import android.os.Process.myPid
 import android.os.StrictMode
 import android.os.StrictMode.ThreadPolicy
 import android.os.StrictMode.VmPolicy
+import androidx.appcompat.app.AppCompatDelegate
 import androidx.multidex.MultiDex
+import androidx.preference.PreferenceManager
 import dagger.android.AndroidInjector
 import dagger.android.support.DaggerApplication
 import timber.log.Timber
@@ -42,6 +45,16 @@ class WallPanel : DaggerApplication() {
 
     override fun onCreate() {
         super.onCreate()
+        
+        // Apply dark theme setting on app startup
+        val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(this)
+        val useDarkTheme = sharedPreferences.getBoolean("pref_dark_theme", false)
+        if (useDarkTheme) {
+            AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
+        } else {
+            AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_NO)
+        }
+        
         if (BuildConfig.DEBUG) {
             // Gives clickable links to the issue in the Android Studio Logcat
             Timber.plant(WallpanelDebugTree())

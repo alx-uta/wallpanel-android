@@ -84,8 +84,8 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     var appLaunchUrl: String
         get() = getStringPref(R.string.key_setting_app_launchurl,
                 R.string.default_setting_app_launchurl)
-        set(launchUrl) {
-            sharedPreferences.edit().putString(context.getString(R.string.key_setting_app_launchurl), launchUrl).apply()
+        set(value) {
+            sharedPreferences.edit().putString(context.getString(R.string.key_setting_app_launchurl), value).apply()
             settingsUpdated()
         }
 
@@ -273,12 +273,32 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
             sharedPreferences.edit().putBoolean(context.getString(R.string.key_pref_browser_refresh), value).apply()
         }
 
+    var useGeckoView: Boolean
+        get() = getBoolPref(R.string.key_use_geckoview, R.string.default_use_geckoview)
+        set(value) {
+            sharedPreferences.edit().putBoolean(context.getString(R.string.key_use_geckoview), value).apply()
+            settingsUpdated()
+        }
+
     val cameraFPS: Float
         get() = try {
             getStringPref(R.string.key_setting_camera_fps, R.string.default_camera_fps).trim().toFloat()
         } catch (e: Exception) {
             15.0F
         }
+
+    val cameraMotionFrameSkip: Int
+        get() = try {
+            getStringPref(R.string.key_setting_camera_motionframeskip, R.string.default_camera_motionframeskip).trim().toInt()
+        } catch (e: Exception) {
+            5
+        }
+
+    val cameraOnlyWhenScreenSaver: Boolean
+        get() = getBoolPref(R.string.key_setting_camera_only_screensaver, R.string.default_camera_only_screensaver)
+
+    val cameraLowResolution: Boolean
+        get() = getBoolPref(R.string.key_setting_camera_low_resolution, R.string.default_camera_low_resolution)
 
     val testZoomLevel: Float
         get() {

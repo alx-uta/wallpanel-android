@@ -21,6 +21,7 @@ import android.app.AlarmManager
 import android.app.PendingIntent
 import android.content.Context
 import android.content.Intent
+import android.os.Build
 import xyz.wallpanel.app.ui.activities.BrowserActivityNative
 import kotlin.system.exitProcess
 
@@ -30,7 +31,14 @@ class AppExceptionHandler(private val activity: Activity) : Thread.UncaughtExcep
         intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP
                 or Intent.FLAG_ACTIVITY_CLEAR_TASK
                 or Intent.FLAG_ACTIVITY_NEW_TASK)
-        val pendingIntent = PendingIntent.getActivity(activity.applicationContext, 0, intent, PendingIntent.FLAG_ONE_SHOT)
+        
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_ONE_SHOT
+        }
+        val pendingIntent = PendingIntent.getActivity(activity.applicationContext, 0, intent, flags)
+        
         val mgr = activity.applicationContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
         mgr[AlarmManager.RTC, System.currentTimeMillis() + 1000] = pendingIntent
         activity.finish()

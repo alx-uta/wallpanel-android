@@ -31,9 +31,14 @@ import timber.log.Timber
 /**
  * Created by Michael Ritchie on 7/6/18.
  */
-class MotionDetector private constructor(private val minLuma: Int, private val motionLeniency: Int) : Detector<Motion>() {
+class MotionDetector private constructor(
+    private val minLuma: Int, 
+    private val motionLeniency: Int,
+    private val frameSkip: Int
+) : Detector<Motion>() {
 
     private var aggregateLumaMotionDetection: AggregateLumaMotionDetection? = null
+    private var frameCount = 0
 
     init {
         aggregateLumaMotionDetection = AggregateLumaMotionDetection()
@@ -44,6 +49,14 @@ class MotionDetector private constructor(private val minLuma: Int, private val m
         if (frame == null) {
             throw IllegalArgumentException("No frame supplied.")
         } else {
+            // Skip frame skip logic entirely if frameSkip is 0 (disabled)
+            if (frameSkip > 0) {
+                frameCount++
+                if (frameCount % frameSkip != 0) {
+                    return SparseArray()
+                }
+            }
+            
             val byteBuffer = frame.grayscaleImageData
             val bytes = byteBuffer.array()
             val w = frame.metadata.width
@@ -83,9 +96,13 @@ class MotionDetector private constructor(private val minLuma: Int, private val m
         }
     }
 
-    class Builder(private val minLuma: Int, private val motionLeniency: Int) {
+    class Builder(
+        private val minLuma: Int, 
+        private val motionLeniency: Int,
+        private val frameSkip: Int = 10
+    ) {
         fun build(): MotionDetector {
-            return MotionDetector(minLuma, motionLeniency)
+            return MotionDetector(minLuma, motionLeniency, frameSkip)
         }
     }
 }

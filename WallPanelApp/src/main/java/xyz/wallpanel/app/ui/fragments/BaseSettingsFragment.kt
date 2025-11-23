@@ -21,6 +21,7 @@ import android.content.Intent
 import android.content.SharedPreferences
 import android.net.Uri
 import android.os.Bundle
+import android.view.View
 import androidx.preference.SwitchPreference
 import androidx.preference.ListPreference
 import androidx.preference.Preference
@@ -39,18 +40,18 @@ open class BaseSettingsFragment : PreferenceFragmentCompat(), SharedPreferences.
     @Inject
     lateinit var dialogUtils: DialogUtils
 
-    override fun onActivityCreated(savedInstanceState: Bundle?) {
-        super.onActivityCreated(savedInstanceState)
+    override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
+        super.onViewCreated(view, savedInstanceState)
         // Set title bar
-        if ((activity as SettingsActivity).supportActionBar != null) {
-            (activity as SettingsActivity).supportActionBar!!.title = (getString(R.string.title_settings))
+        if ((activity as? SettingsActivity)?.supportActionBar != null) {
+            (activity as SettingsActivity).supportActionBar!!.title = getString(R.string.title_settings)
         }
     }
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
     }
 
-    override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences, key: String) {
+    override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
         //na-da
     }
 

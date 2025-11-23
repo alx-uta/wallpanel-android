@@ -27,6 +27,8 @@ import android.view.Menu
 import android.view.MenuInflater
 import android.view.MenuItem
 import android.view.View
+import androidx.core.view.MenuProvider
+import androidx.lifecycle.Lifecycle
 import androidx.navigation.Navigation
 import xyz.wallpanel.app.R
 import xyz.wallpanel.app.ui.activities.SettingsActivity
@@ -40,33 +42,6 @@ class SensorsSettingsFragment : BaseSettingsFragment() {
     override fun onAttach(context: Context) {
         AndroidSupportInjection.inject(this)
         super.onAttach(context)
-        setHasOptionsMenu(true)
-    }
-
-    override fun onActivityCreated(savedInstanceState: Bundle?) {
-        super.onActivityCreated(savedInstanceState)
-        if((activity as SettingsActivity).supportActionBar != null) {
-            (activity as SettingsActivity).supportActionBar!!.setDisplayHomeAsUpEnabled(true)
-            (activity as SettingsActivity).supportActionBar!!.setDisplayShowHomeEnabled(true)
-            (activity as SettingsActivity).supportActionBar!!.title = (getString(R.string.title_sensor_settings))
-        }
-    }
-
-    override fun onCreateOptionsMenu(menu: Menu, inflater: MenuInflater) {
-        super.onCreateOptionsMenu(menu, inflater)
-        inflater.inflate(R.menu.menu_help, menu)
-    }
-
-    override fun onOptionsItemSelected(item: MenuItem): Boolean {
-        val id = item.itemId
-        if (id == android.R.id.home) {
-            view?.let { Navigation.findNavController(it).navigate(R.id.settings_action) }
-            return true
-        } else if (id == R.id.action_help) {
-            showSupport()
-            return true
-        }
-        return super.onOptionsItemSelected(item)
     }
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
@@ -74,8 +49,34 @@ class SensorsSettingsFragment : BaseSettingsFragment() {
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
-
         super.onViewCreated(view, savedInstanceState)
+        
+        if((activity as? SettingsActivity)?.supportActionBar != null) {
+            (activity as SettingsActivity).supportActionBar!!.setDisplayHomeAsUpEnabled(true)
+            (activity as SettingsActivity).supportActionBar!!.setDisplayShowHomeEnabled(true)
+            (activity as SettingsActivity).supportActionBar!!.title = getString(R.string.title_sensor_settings)
+        }
+        
+        // Modern MenuProvider API
+        requireActivity().addMenuProvider(object : MenuProvider {
+            override fun onCreateMenu(menu: Menu, menuInflater: MenuInflater) {
+                menuInflater.inflate(R.menu.menu_help, menu)
+            }
+
+            override fun onMenuItemSelected(menuItem: MenuItem): Boolean {
+                return when (menuItem.itemId) {
+                    android.R.id.home -> {
+                        Navigation.findNavController(requireView()).navigate(R.id.settings_action)
+                        true
+                    }
+                    R.id.action_help -> {
+                        showSupport()
+                        true
+                    }
+                    else -> false
+                }
+            }
+        }, viewLifecycleOwner, Lifecycle.State.RESUMED)
 
         sensorsPreference = findPreference<SwitchPreference>(getString(R.string.key_setting_sensors_enabled)) as SwitchPreference
         mqttPublishFrequency = findPreference<EditTextPreference>(getString(R.string.key_setting_mqtt_sensorfrequency)) as EditTextPreference
