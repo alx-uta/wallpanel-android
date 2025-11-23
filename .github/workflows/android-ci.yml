@@ -21,24 +21,21 @@ jobs:
     - name: Grant execute permission for gradlew
       run: chmod +x gradlew
       
-    - name: Build Production Release APK
+    - name: Decode Keystore
+      run: |
+        echo "${{ secrets.SIGNING_KEY }}" | base64 -d > release-keystore.jks
+      
+    - name: Build and Sign Release APK
       run: ./gradlew assembleProdRelease
-    
-    - name: Sign APK
-      uses: r0adkll/sign-android-release@v1
-      id: sign_app
-      with:
-        releaseDirectory: WallPanelApp/build/outputs/apk/prod/release
-        signingKeyBase64: ${{ secrets.SIGNING_KEY }}
-        alias: ${{ secrets.ALIAS }}
-        keyStorePassword: ${{ secrets.KEY_STORE_PASSWORD }}
-        keyPassword: ${{ secrets.KEY_PASSWORD }}
       env:
-        BUILD_TOOLS_VERSION: "35.0.0"
+        KEYSTORE_FILE: ../release-keystore.jks
+        KEYSTORE_PASSWORD: ${{ secrets.KEY_STORE_PASSWORD }}
+        KEY_ALIAS: ${{ secrets.ALIAS }}
+        KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
     
-    - name: Upload Signed APK to Release
+    - name: Upload Universal APK to Release
       uses: softprops/action-gh-release@v1
       with:
-        files: ${{ steps.sign_app.outputs.signedReleaseFile }}
+        files: WallPanelApp/build/outputs/apk/prod/release/*universal*.apk
       env:
         GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
