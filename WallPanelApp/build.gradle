@@ -21,8 +21,8 @@ plugins {
     id 'kotlin-kapt' // Allows for Kotlin annotation processors
 }
 
-def versionMajor = 0
-def versionMinor = 12
+def versionMajor = 1
+def versionMinor = 0
 def versionPatch = 0
 def versionBuild = 0 // bump for dog food builds, public betas, etc.
 

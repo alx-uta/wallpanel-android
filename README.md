@@ -1,7 +1,3 @@
-# WallPanel - Active Fork
-
-This is an fork of the [original WallPanel project](https://github.com/TheTimeWalker/wallpanel-android) (now archived).
-
 ## Recent Improvements
 
 ### Browser Engine
@@ -65,8 +61,6 @@ For issues, feature requests, use the [Github issues tracker](https://github.com
 - Support for launching external applications using intent URL
 
 ## Hardware & Software
-
-- Android Device running Android OS 4.4 or greater. Note: The WebView shipped with Android 4.4 (KitKat) is based on the same code as Chrome for Android version 30. This WebView does not have full feature parity with Chrome for Android and is given the version number 30.0.0.0.
 
 **_ If you have need support for older Android 4.0 devices (those below Android 4.4), you want to use the [legacy](https://github.com/thanksmister/wallpanel-android-legacy) version of the application. Alternatively you can download an APK from the release section prior to release v0.8.8-beta.6 _**
 
