@@ -27,32 +27,52 @@ def versionPatch = 0
 def versionBuild = 0 // bump for dog food builds, public betas, etc.
 
 def CODE() {
+    def localPropertiesFile = project.rootProject.file('local.properties')
+    if (!localPropertiesFile.exists()) {
+        return 1234
+    }
     Properties properties = new Properties()
-    properties.load(project.rootProject.file('local.properties').newDataInputStream())
+    properties.load(localPropertiesFile.newDataInputStream())
     return properties.getProperty("code")
 }
 
 def HASS_URL() {
+    def localPropertiesFile = project.rootProject.file('local.properties')
+    if (!localPropertiesFile.exists()) {
+        return ""
+    }
     Properties properties = new Properties()
-    properties.load(project.rootProject.file('local.properties').newDataInputStream())
+    properties.load(localPropertiesFile.newDataInputStream())
     return properties.getProperty("hassUrl")
 }
 
 def BROKER() {
+    def localPropertiesFile = project.rootProject.file('local.properties')
+    if (!localPropertiesFile.exists()) {
+        return ""
+    }
     Properties properties = new Properties()
-    properties.load(project.rootProject.file('local.properties').newDataInputStream())
+    properties.load(localPropertiesFile.newDataInputStream())
     return properties.getProperty("broker")
 }
 
 def BROKER_PASS() {
+    def localPropertiesFile = project.rootProject.file('local.properties')
+    if (!localPropertiesFile.exists()) {
+        return ""
+    }
     Properties properties = new Properties()
-    properties.load(project.rootProject.file('local.properties').newDataInputStream())
+    properties.load(localPropertiesFile.newDataInputStream())
     return properties.getProperty("brokerPass")
 }
 
 def BROKER_USERNAME() {
+    def localPropertiesFile = project.rootProject.file('local.properties')
+    if (!localPropertiesFile.exists()) {
+        return ""
+    }
     Properties properties = new Properties()
-    properties.load(project.rootProject.file('local.properties').newDataInputStream())
+    properties.load(localPropertiesFile.newDataInputStream())
     return properties.getProperty("brokerUsername")
 }
 
