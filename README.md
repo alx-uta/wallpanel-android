@@ -11,6 +11,11 @@
 - Configurable frame skip for motion detection (default: process every 5th frame)
 - Optional low-resolution camera mode (320x240) for better performance on low-end devices
 - Camera-only-during-screensaver feature to save battery
+- **Debug Logging Cleanup** - Removed 55+ high-frequency debug logs saving ~7.5 MB/day (2.7 GB/year)
+  - Eliminated logs from MQTT publish path (17,280 daily calls)
+  - Removed sensor update cycle logs (1,440 daily calls)
+  - Cleaned browser progress callbacks (100+ per page load)
+  - Reduced GC pressure and CPU overhead on low-power devices
 
 ### Architecture & Dependencies
 - Updated to the latest AndroidX libraries (2024 releases)
@@ -24,6 +29,12 @@
 - Gradle 8.5 with Java 17 support
 - Removed deprecated plugins and dependencies
 - Professional codebase cleanup
+
+### System Monitoring & Control
+- **CPU Usage Sensor** - Real-time system CPU usage monitoring via `/proc/stat`
+- **Memory Usage Sensor** - System memory tracking with total/available/used metrics
+- **Shell Command Support** - Remote command execution via MQTT/HTTP API (opt-in with security warnings)
+- Full MQTT Discovery support for Home Assistant auto-configuration
 
 ### User Experience
 - WebView caching enabled for 30-50% faster page loads
@@ -54,7 +65,9 @@ For issues, feature requests, use the [Github issues tracker](https://github.com
 - Camera support for streaming video, motion detection, face detection, and QR Code reading.
 - Google Text-to-Speech support to speak notification messages using MQTT or HTTP.
 - MQTT or HTTP commands to remotely control device and application (url, brightness, wake, etc.).
-- Sensor data reporting for the device (temperature, light, pressure, battery).
+- Sensor data reporting for the device (temperature, light, pressure, battery, CPU usage, memory usage).
+- System resource monitoring with CPU and memory sensors for device health tracking.
+- Remote shell command execution via MQTT/HTTP (opt-in, security warning).
 - Streaming MJPEG server support using the device camera.
 - Screensaver feature that can be dismissed with motion or face detection.
 - Support for Android 4.4 (API level 19) and greater devices.
