@@ -47,20 +47,16 @@ class GeckoWebChromeClientAdapter(
     // ProgressDelegate implementation
     @UiThread
     override fun onPageStart(session: GeckoSession, url: String) {
-        Timber.d("GeckoView page started: $url")
     }
 
     @UiThread
     override fun onPageStop(session: GeckoSession, success: Boolean) {
-        Timber.d("GeckoView page stopped, success: $success")
         snackbar?.dismiss()
         callback.complete()
     }
 
     @UiThread
     override fun onProgressChange(session: GeckoSession, progress: Int) {
-        Timber.d("GeckoView progress: $progress")
-        
         if (progress == 100) {
             snackbar?.dismiss()
             callback.complete()
@@ -83,7 +79,6 @@ class GeckoWebChromeClientAdapter(
         session: GeckoSession,
         securityInfo: GeckoSession.ProgressDelegate.SecurityInformation
     ) {
-        Timber.d("GeckoView security change")
     }
 
     @UiThread
@@ -97,7 +92,6 @@ class GeckoWebChromeClientAdapter(
         session: GeckoSession,
         perm: GeckoSession.PermissionDelegate.ContentPermission
     ): GeckoResult<Int>? {
-        Timber.d("GeckoView permission request: ${perm.permission}")
         
         when (perm.permission) {
             GeckoSession.PermissionDelegate.PERMISSION_DESKTOP_NOTIFICATION -> {
@@ -139,7 +133,6 @@ class GeckoWebChromeClientAdapter(
         permissions: Array<out String>?,
         callback: GeckoSession.PermissionDelegate.Callback
     ) {
-        Timber.d("GeckoView Android permissions request: ${permissions?.joinToString()}")
         // Grant permissions (they should be requested at app level)
         callback.grant()
     }
@@ -150,7 +143,6 @@ class GeckoWebChromeClientAdapter(
         session: GeckoSession,
         prompt: GeckoSession.PromptDelegate.AlertPrompt
     ): GeckoResult<GeckoSession.PromptDelegate.PromptResponse>? {
-        Timber.d("GeckoView alert: ${prompt.message}")
         // Show alert dialog if needed
         prompt.dismiss()
         return GeckoResult.fromValue(prompt.dismiss())

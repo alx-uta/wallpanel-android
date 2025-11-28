@@ -42,6 +42,13 @@
             android:key="@string/key_setting_http_restenabled"
             android:title="@string/title_setting_http_restenabled"/>
 
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_http_shellenabled"
+            android:key="@string/key_setting_http_shellenabled"
+            android:title="Enable Shell Commands ( Security Risk )"
+            android:summary="Allow executing shell commands via HTTP API"
+            android:dependency="@string/key_setting_http_restenabled"/>
+
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/pref_mjpeg_streaming_title">

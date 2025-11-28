@@ -36,12 +36,10 @@ class MQTTModule (base: Context?, var mqttOptions: MQTTOptions, private val list
     private var mqtt5Service: MQTT5Service? = null
 
     override fun onStart(owner: LifecycleOwner) {
-        Timber.d("start")
         startMqtt()
     }
 
     override fun onStop(owner: LifecycleOwner) {
-        Timber.d("stop")
         stopMqtt()
     }
 
@@ -101,26 +99,20 @@ class MQTTModule (base: Context?, var mqttOptions: MQTTOptions, private val list
     }
 
     fun restart() {
-        Timber.d("restart")
         stopMqtt()
         startMqtt()
     }
 
     fun pause() {
-        Timber.d("pause")
         stopMqtt()
     }
 
     fun publish(topic: String, message : String, retain: Boolean) {
-        Timber.d("topic: $topic")
-        Timber.d("message: $message")
-        Timber.d("retain: $retain")
         mqtt5Service?.publish(topic, message, retain)
         mqtt3Service?.publish(topic, message, retain)
     }
 
     override fun subscriptionMessage(id: String, topic: String, payload: String) {
-        Timber.d("topic: $topic")
         listener.onMQTTMessage(id, topic, payload)
     }
 

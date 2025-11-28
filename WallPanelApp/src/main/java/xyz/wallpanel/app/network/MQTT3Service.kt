@@ -76,8 +76,6 @@ class MQTT3Service(
 
     @Throws(Mqtt3MessageException::class)
     override fun close() {
-        Timber.d("close")
-
         mqtt3AsyncClient?.let {
 
             mqttOptions?.let {
@@ -114,7 +112,6 @@ class MQTT3Service(
      * @param options Cloud IoT configuration options.
      */
     private fun initialize(options: MQTTOptions) {
-        Timber.d("initialize")
         try {
             mqttOptions = options
             Timber.i("Service Configuration:")
@@ -152,14 +149,12 @@ class MQTT3Service(
         InvalidKeySpecException::class
     )
     private fun initializeMqttClient() {
-        Timber.d("initializeMqttClient")
         try {
             mqttOptions?.let { mqttOptions ->
 
                 val mqttBuilder = MqttClient.builder().identifier(mqttOptions.getClientId())
                     .serverHost(mqttOptions.getBroker()).serverPort(mqttOptions.getPort())
                 mqttBuilder.addConnectedListener { context: MqttClientConnectedContext? ->
-                    Timber.d("connect to broker completed")
                     subscribeToTopics(mqttOptions.getStateTopics())
 
                     val onlineMessage =
@@ -216,12 +211,10 @@ class MQTT3Service(
 
     @Throws(Mqtt3MessageException::class)
     private fun sendMessage(mqttMessage: Mqtt3Publish) {
-        Timber.d("sendMessage")
         mqtt3AsyncClient?.let {
             if (it.state.isConnected) {
                 try {
                     it.publish(mqttMessage)
-                    Timber.d("Command Topic: ${mqttMessage.topic} Payload: ${mqttMessage.payload}")
                 } catch (e: NullPointerException) {
                     Timber.e(e)
                 } catch (e: Mqtt3MessageException) {
@@ -235,7 +228,6 @@ class MQTT3Service(
     //@TargetApi(Build.VERSION_CODES.N)
     private fun subscribeToTopics(topicFilters: Array<String>?) {
         topicFilters?.let {
-            Timber.d("Subscribe to Topics: %s", topicFilters.convertArrayToString())
             mqtt3AsyncClient?.let {
                 try {
                     it.subscribeWith().topicFilter(topicFilters.convertArrayToString()).send()

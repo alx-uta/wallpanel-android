@@ -176,6 +176,10 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         get() = getBoolPref(R.string.key_setting_http_restenabled,
                 R.string.default_setting_http_restenabled)
 
+    val httpShellEnabled: Boolean
+        get() = getBoolPref(R.string.key_setting_http_shellenabled,
+                R.string.default_setting_http_shellenabled)
+
     val httpMJPEGEnabled: Boolean
         get() = getBoolPref(R.string.key_setting_http_mjpegenabled,
                 R.string.default_setting_http_mjpegenabled)

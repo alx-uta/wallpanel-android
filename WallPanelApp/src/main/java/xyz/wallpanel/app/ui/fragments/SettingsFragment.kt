@@ -316,7 +316,8 @@ class SettingsFragment : BaseSettingsFragment() {
                 true
             }
         }  catch (e: IllegalArgumentException) {
-            Timber.d(e.message)
+            // Add debug if required
+            // Timber.d(e.message)
         }
     }
 
@@ -575,7 +576,6 @@ class SettingsFragment : BaseSettingsFragment() {
                     }
                     
                     Toast.makeText(requireContext(), R.string.toast_cache_cleared, Toast.LENGTH_SHORT).show()
-                    Timber.d("Browser cache cleared successfully")
                 } catch (e: Exception) {
                     Timber.e(e, "Error clearing cache")
                     Toast.makeText(requireContext(), "Error clearing cache: ${e.message}", Toast.LENGTH_LONG).show()

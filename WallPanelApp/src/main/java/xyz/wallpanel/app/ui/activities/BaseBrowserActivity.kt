@@ -90,14 +90,11 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
                     evaluateJavascript(js)
                 }
             } else if (BROADCAST_ACTION_CLEAR_BROWSER_CACHE == intent.action) {
-                Timber.d("Clearing browser cache")
                 clearCache()
             } else if (BROADCAST_ACTION_RELOAD_PAGE == intent.action) {
-                Timber.d("Browser page reloading.")
                 stopDisconnectTimer()
                 reload()
             } else if (BROADCAST_ACTION_OPEN_SETTINGS == intent.action) {
-                Timber.d("Browser open settings.")
                 openSettings()
             } else if (BROADCAST_TOAST_MESSAGE == intent.action && !isFinishing) {
                 val message = intent.getStringExtra(BROADCAST_TOAST_MESSAGE)
@@ -214,7 +211,6 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
 
     override fun onUserInteraction() {
         onWindowFocusChanged(true)
-        Timber.d("onUserInteraction")
         if (!userPresent) {
             userPresent = true
             resetScreenBrightness(false)
@@ -243,7 +239,6 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     }
 
     private val inactivityCallback = Runnable {
-        Timber.d("inactivityCallback")
         dialogUtils.clearDialogs()
         userPresent = false
         showScreenSaver()
@@ -267,7 +262,6 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     }
 
     internal fun resetScreen() {
-        Timber.d("resetScreen Called")
         val intent = Intent(WallPanelService.BROADCAST_EVENT_SCREEN_TOUCH)
         intent.putExtra(WallPanelService.BROADCAST_EVENT_SCREEN_TOUCH, true)
         val bm = LocalBroadcastManager.getInstance(applicationContext)
@@ -275,7 +269,6 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     }
 
     fun pageLoadComplete(url: String) {
-        Timber.d("pageLoadComplete currentUrl $url")
         val intent = Intent(WallPanelService.BROADCAST_EVENT_URL_CHANGE)
         intent.putExtra(WallPanelService.BROADCAST_EVENT_URL_CHANGE, url)
         val bm = LocalBroadcastManager.getInstance(applicationContext)
@@ -295,7 +288,6 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     }
 
     fun stopDisconnectTimer() {
-        Timber.d("stopDisconnectTimer")
         if (userPresent.not()) {
             userPresent = true
             resetScreenBrightness(false)
@@ -306,7 +298,6 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     }
 
     open fun hideScreenSaver() {
-        Timber.d("hideScreenSaver")
         val isScreenSaver = dialogUtils.hideScreenSaverDialog()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         if (isScreenSaver) {
@@ -322,7 +313,6 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
      * with the alarm disabled because the disable time will be longer than this.
      */
     open fun showScreenSaver() {
-        Timber.d("showScreenSaver - cameraOnlyWhenScreenSaver: ${configuration.cameraOnlyWhenScreenSaver}")
         if (configuration.hasDimScreenSaver) {
             inactivityHandler.removeCallbacks(inactivityCallback)
             resetScreenBrightness(true)
@@ -362,14 +352,12 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     }
 
     private fun startCameraForScreenSaver() {
-        Timber.d("startCameraForScreenSaver")
         val intent = Intent(WallPanelService.BROADCAST_CAMERA_START_SCREENSAVER)
         val bm = LocalBroadcastManager.getInstance(applicationContext)
         bm.sendBroadcast(intent)
     }
 
     private fun stopCameraForScreenSaver() {
-        Timber.d("stopCameraForScreenSaver")
         val intent = Intent(WallPanelService.BROADCAST_CAMERA_STOP_SCREENSAVER)
         val bm = LocalBroadcastManager.getInstance(applicationContext)
         bm.sendBroadcast(intent)

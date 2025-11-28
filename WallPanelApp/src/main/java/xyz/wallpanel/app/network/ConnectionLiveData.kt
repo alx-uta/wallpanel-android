@@ -56,11 +56,9 @@ class ConnectionLiveData(private val context: Context) : MutableLiveData<Boolean
             val connectivityManager = context.getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
             val currentNetworkInfo = connectivityManager.activeNetworkInfo
             if (currentNetworkInfo != null && currentNetworkInfo.isConnected) {
-                Timber.d("Network Connected")
                 hasNetwork.set(true)
                 value = true
             } else if (hasNetwork.get()) {
-                Timber.d("Network Disconnected")
                 hasNetwork.set(false)
                 value = false
             }
