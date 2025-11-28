@@ -57,7 +57,6 @@ class GeckoWebClientAdapter(
         url: String?,
         perms: MutableList<GeckoSession.PermissionDelegate.ContentPermission>
     ) {
-        Timber.d("GeckoView onLocationChange: $url")
         url?.let {
             currentUrl = it
             // Notify page load complete
@@ -80,8 +79,6 @@ class GeckoWebClientAdapter(
         session: GeckoSession,
         request: LoadRequest
     ): GeckoResult<AllowOrDeny>? {
-        Timber.d("GeckoView onLoadRequest: ${request.uri}")
-        
         // Track URL changes
         callback.pageLoadComplete(request.uri)
         
@@ -161,7 +158,6 @@ class GeckoWebClientAdapter(
         """.trimIndent()
         
         geckoSession?.loadUri("javascript:$darkModeScript")
-        Timber.d("GeckoView dark mode applied via meta tag injection")
     }
     
     private fun disableWebNFCAPI() {
@@ -175,7 +171,6 @@ class GeckoWebClientAdapter(
         """.trimIndent()
         
         geckoSession?.loadUri("javascript:$disableNFCScript")
-        Timber.d("Disabled Web NFC API in GeckoView")
     }
 
     /**

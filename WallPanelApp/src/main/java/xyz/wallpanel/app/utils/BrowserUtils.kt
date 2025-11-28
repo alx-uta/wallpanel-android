@@ -27,10 +27,6 @@ class BrowserUtils {
     fun parseIntent(url: String): Intent? {
         val separated = url.split(";").toTypedArray()
         return if (separated.size == 4) {
-            Timber.d(separated[0]) // this will contain "intent:#Intent"
-            Timber.d(separated[1]) // this will contain "launch flag"
-            Timber.d(separated[2]) // this will contain "component"
-            Timber.d(separated[3]) // this will contain "end"
             val component = separated[2].removePrefix("component=")
             val classname = component.split("/").toTypedArray()
             val pkgName = classname[0] // this will set the packageName:

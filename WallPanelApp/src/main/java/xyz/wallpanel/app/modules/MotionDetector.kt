@@ -82,10 +82,8 @@ class MotionDetector private constructor(
                 val motionDetected = aggregateLumaMotionDetection!!.detect(img, w, h)
                 if (motionDetected) {
                     motion.type = MOTION_DETECTED
-                    //Timber.d("MOTION_DETECTED")
                 } else {
                     motion.type = MOTION_NOT_DETECTED
-                    //Timber.d("MOTION_NOT_DETECTED")
                 }
             } catch (e: Exception) {
                 Timber.e(e.message)

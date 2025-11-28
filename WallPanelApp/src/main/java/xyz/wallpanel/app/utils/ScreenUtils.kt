@@ -52,7 +52,6 @@ constructor(context: Context, private val configuration: Configuration): Context
     }
 
     fun setScreenBrightnessLevels() {
-        Timber.d("setScreenBrightnessLevels")
         try {
             val brightness = getCurrentScreenBrightness()
             updateScreenBrightness(brightness)

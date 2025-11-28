@@ -62,8 +62,6 @@ class GeckoViewWrapper(
                 builder.aboutConfigEnabled(true)
                 
                 runtime = GeckoRuntime.create(context.applicationContext, builder.build())
-                
-                Timber.d("GeckoRuntime initialized with caching and performance settings")
             }
         }
 
@@ -83,12 +81,10 @@ class GeckoViewWrapper(
         fun shutdownRuntime() {
             runtime?.shutdown()
             runtime = null
-            Timber.d("GeckoRuntime shutdown")
         }
     }
 
     init {
-        Timber.d("Creating GeckoViewWrapper")
         initializeSession()
     }
 
@@ -102,7 +98,6 @@ class GeckoViewWrapper(
             session.open(rt)
             geckoView.setSession(session)
             geckoSession = session
-            Timber.d("GeckoSession initialized and attached")
         } catch (e: Exception) {
             Timber.e(e, "Error initializing GeckoSession")
         }
@@ -112,7 +107,6 @@ class GeckoViewWrapper(
      * Load a URL in the GeckoView
      */
     fun loadUrl(url: String) {
-        Timber.d("GeckoView loadUrl: $url")
         geckoSession?.loadUri(url)
     }
 
@@ -120,7 +114,6 @@ class GeckoViewWrapper(
      * Reload the current page
      */
     fun reload() {
-        Timber.d("GeckoView reload")
         geckoSession?.reload()
     }
 
@@ -128,7 +121,6 @@ class GeckoViewWrapper(
      * Clear cache and data
      */
     fun clearCache(includeDiskFiles: Boolean = true) {
-        Timber.d("GeckoView clearCache")
         // Clear session data using runtime storage controller
         runtime?.storageController?.clearData(
             org.mozilla.geckoview.StorageController.ClearFlags.ALL
@@ -139,7 +131,6 @@ class GeckoViewWrapper(
      * Execute JavaScript in the current page
      */
     fun evaluateJavascript(script: String, callback: ((String?) -> Unit)? = null) {
-        Timber.d("GeckoView evaluateJavascript: $script")
         val session = geckoSession
         if (session != null) {
             // GeckoView doesn't have a direct evaluateJS method
@@ -193,7 +184,6 @@ class GeckoViewWrapper(
      * Clean up resources
      */
     fun destroy() {
-        Timber.d("GeckoView destroy")
         geckoSession?.close()
         geckoView.releaseSession()
     }

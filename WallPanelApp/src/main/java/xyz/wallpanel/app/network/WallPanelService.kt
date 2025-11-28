@@ -68,6 +68,7 @@ import xyz.wallpanel.app.utils.MqttUtils.Companion.COMMAND_SETTINGS
 import xyz.wallpanel.app.utils.MqttUtils.Companion.COMMAND_SPEAK
 import xyz.wallpanel.app.utils.MqttUtils.Companion.COMMAND_STATE
 import xyz.wallpanel.app.utils.MqttUtils.Companion.COMMAND_URL
+import xyz.wallpanel.app.utils.MqttUtils.Companion.COMMAND_SHELL
 import xyz.wallpanel.app.utils.MqttUtils.Companion.COMMAND_VOLUME
 import xyz.wallpanel.app.utils.MqttUtils.Companion.COMMAND_WAKE
 import xyz.wallpanel.app.utils.MqttUtils.Companion.COMMAND_WAKETIME
@@ -142,8 +143,6 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     override fun onCreate() {
         super.onCreate()
-
-        Timber.d("onCreate")
 
         AndroidInjection.inject(this)
 
@@ -324,7 +323,6 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     }
 
     private fun configureMqtt() {
-        Timber.d("configureMqtt")
         if (mqttModule == null && mqttOptions.isValid) {
             mqttModule = MQTTModule(this@WallPanelService.applicationContext, mqttOptions, this@WallPanelService)
             lifecycle.addObserver(mqttModule!!)
@@ -409,12 +407,10 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     private fun configureAudioPlayer() {
         audioPlayer = MediaPlayer()
         audioPlayer?.setOnPreparedListener { audioPlayer ->
-            Timber.d("audioPlayer: File buffered, playing it now")
             audioPlayerBusy = false
             audioPlayer.start()
         }
         audioPlayer?.setOnCompletionListener { audioPlayer ->
-            Timber.d("audioPlayer: Cleanup")
             if (audioPlayer.isPlaying) {  // should never happen, just in case
                 audioPlayer.stop()
             }
@@ -422,7 +418,6 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             audioPlayerBusy = false
         }
         audioPlayer?.setOnErrorListener { audioPlayer, i, i1 ->
-            Timber.d("audioPlayer: Error playing file")
             audioPlayerBusy = false
             false
         }
@@ -431,8 +426,6 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     // TODO text to speech requies content type 'Content-Type': 'application/json; charset=UTF-8'
     private fun startHttp() {
         if (httpServer == null && configuration.httpEnabled) {
-            Timber.d("startHttp")
-
             // TODO this is a hack to get utf-8 working, we need to switch http server libraries
             val charsetsClass = Charsets::class.java
             val us_ascii = charsetsClass.getDeclaredField("US_ASCII")
@@ -487,7 +480,6 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     }
 
     private fun stopHttp() {
-        Timber.d("stopHttp")
         httpServer?.let {
             stopMJPEG()
             it.stop()
@@ -496,7 +488,6 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     }
 
     private fun startMJPEG() {
-        Timber.d("startMJPEG")
         cameraReader?.let {
             it.getJpeg().observe(this, Observer { jpeg ->
                 if (mJpegSockets.size > 0 && jpeg != null) {
@@ -542,13 +533,11 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     // Attempt to stop camera and any optional camera options such as motion and streaming
     private fun stopCamera() {
-        Timber.d("stopCamera")
         cameraReader?.stopCamera()
     }
 
     // Stop camera and disable it permanently in settings
     private fun stopCameraCompletely() {
-        Timber.d("stopCameraCompletely")
         configuration.cameraEnabled = false
         stopMJPEG()
         stopHttp()
@@ -559,14 +548,12 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     // TODO we stop entire camera not just streaming
     private fun stopMJPEG() {
-        Timber.d("stopMJPEG Called")
         mJpegSockets.clear()
         //cameraReader?.getJpeg()?.removeObservers(this)
         httpServer?.removeAction("GET", "/camera/stream")
     }
 
     private fun startMJPEG(response: AsyncHttpServerResponse) {
-        Timber.d("startmJpeg Called")
         if (mJpegSockets.size < configuration.httpMJPEGMaxStreams) {
             Timber.i("Starting new MJPEG stream")
             response.headers.add("Cache-Control", "no-cache")
@@ -585,7 +572,6 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     }
 
     private fun processCommand(commandJson: JSONObject): Boolean {
-        Timber.d("processCommand $commandJson")
         try {
             if (commandJson.has(COMMAND_CAMERA)) {
                 val enableCamera = commandJson.getBoolean(COMMAND_CAMERA)
@@ -646,6 +632,9 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             if (commandJson.has(COMMAND_VOLUME)) {
                 setVolume((commandJson.getInt(COMMAND_VOLUME).toFloat() / 100))
             }
+            if (commandJson.has(COMMAND_SHELL) && configuration.httpShellEnabled) {
+                executeShellCommand(commandJson.getString(COMMAND_SHELL))
+            }
         } catch (ex: JSONException) {
             Timber.e("Invalid JSON passed as a command: " + commandJson.toString())
             return false
@@ -654,8 +643,16 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         return true
     }
 
+    private fun executeShellCommand(command: String) {
+        try {
+            val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
+            val exitCode = process.waitFor()
+        } catch (e: Exception) {
+            Timber.e(e, "Failed to execute shell command: $command")
+        }
+    }
+
     private fun processCommand(command: String): Boolean {
-        Timber.d("processCommand Called -> $command")
         return try {
             processCommand(JSONObject(command))
         } catch (ex: JSONException) {
@@ -665,7 +662,6 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     }
 
     private fun browseUrl(url: String) {
-        Timber.d("browseUrl")
         val intent = Intent(BROADCAST_ACTION_LOAD_URL)
         intent.putExtra(BROADCAST_ACTION_LOAD_URL, url)
         val bm = LocalBroadcastManager.getInstance(applicationContext)
@@ -674,10 +670,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     private fun playAudio(audioUrl: String) {
         if (audioPlayerBusy) {
-            Timber.d("audioPlayer: Cancelling all previous buffers because new audio was requested")
             audioPlayer?.reset()
         } else if (audioPlayer?.isPlaying == true) {
-            Timber.d("audioPlayer: Stopping all media playback because new audio was requested")
             audioPlayer?.stop()
             audioPlayer?.reset()
         }
@@ -942,7 +936,6 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     }
 
     private fun clearMotionDetected() {
-        Timber.d("Clearing motion detected status")
         if (motionDetected) {
             motionDetected = false
             val data = JSONObject()
@@ -957,7 +950,6 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     private fun clearFaceDetected() {
         if (faceDetected) {
-            Timber.d("Clearing face detected status")
             val data = JSONObject()
             try {
                 data.put(VALUE, false)
@@ -971,7 +963,6 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     private fun publishQrCode(data: String) {
         if (!qrCodeRead) {
-            Timber.d("publishQrCode")
             val jdata = JSONObject()
             try {
                 jdata.put(VALUE, data)
@@ -992,7 +983,6 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     }
 
     private fun sendAlertMessage(message: String) {
-        Timber.d("sendAlertMessage")
         val intent = Intent(BROADCAST_ALERT_MESSAGE)
         intent.putExtra(BROADCAST_ALERT_MESSAGE, message)
         val bm = LocalBroadcastManager.getInstance(applicationContext)
@@ -1000,35 +990,30 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     }
 
     private fun clearAlertMessage() {
-        Timber.d("clearAlertMessage")
         val intent = Intent(BROADCAST_CLEAR_ALERT_MESSAGE)
         val bm = LocalBroadcastManager.getInstance(applicationContext)
         bm.sendBroadcast(intent)
     }
 
     private fun sendWakeScreenOn() {
-        Timber.d("sendWakeScreen")
         val intent = Intent(BROADCAST_SCREEN_WAKE_ON)
         val bm = LocalBroadcastManager.getInstance(applicationContext)
         bm.sendBroadcast(intent)
     }
 
     private fun sendWakeScreenOff() {
-        Timber.d("sendWakeScreenOff")
         val intent = Intent(BROADCAST_SCREEN_WAKE_OFF)
         val bm = LocalBroadcastManager.getInstance(applicationContext)
         bm.sendBroadcast(intent)
     }
 
     private fun sendScreenBrightnessChange() {
-        Timber.d("sendWakeScreen")
         val intent = Intent(BROADCAST_SCREEN_BRIGHTNESS_CHANGE)
         val bm = LocalBroadcastManager.getInstance(applicationContext)
         bm.sendBroadcast(intent)
     }
 
     private fun sendToastMessage(message: String) {
-        Timber.d("sendToastMessage")
         val intent = Intent(BROADCAST_TOAST_MESSAGE)
         intent.putExtra(BROADCAST_TOAST_MESSAGE, message)
         val bm = LocalBroadcastManager.getInstance(applicationContext)
@@ -1036,7 +1021,6 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     }
 
     private fun sendServiceStarted() {
-        Timber.d("clearAlertMessage")
         val intent = Intent(BROADCAST_SERVICE_STARTED)
         val bm = LocalBroadcastManager.getInstance(applicationContext)
         bm.sendBroadcast(intent)
@@ -1089,7 +1073,6 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         override fun onMotionDetected() {
             // Skip motion detection if screensaver is not active and the feature is enabled
             if (configuration.cameraOnlyWhenScreenSaver && !isScreenSaverActive) {
-                Timber.d("Motion detected but screensaver not active - ignoring")
                 return
             }
             
@@ -1108,12 +1091,10 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         override fun onFaceDetected() {
             // Skip face detection if screensaver is not active and the feature is enabled
             if (configuration.cameraOnlyWhenScreenSaver && !isScreenSaverActive) {
-                Timber.d("Face detected but screensaver not active - ignoring")
                 return
             }
             
             Timber.i("Face detected")
-            Timber.d("configuration.cameraMotionBright ${configuration.cameraMotionBright}")
             if (configuration.cameraFaceWake) {
                 configurePowerOptions()
                 wakeScreen() // temp turn on screen
@@ -1124,11 +1105,9 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         override fun onQRCode(data: String) {
             // Skip QR code processing if screensaver is not active and the feature is enabled
             if (configuration.cameraOnlyWhenScreenSaver && !isScreenSaverActive) {
-                Timber.d("QR code detected but screensaver not active - ignoring")
                 return
             }
             
-            Timber.i("QR Code Received: $data")
             publishQrCode(data)
         }
     }

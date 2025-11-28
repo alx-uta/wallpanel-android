@@ -215,7 +215,6 @@ class LiveCameraActivity : DaggerAppCompatActivity() {
     }
 
     private fun setStatusText(text: String) {
-        Timber.d("statusTextView: $text")
         if(!toastShown) {
             toastShown = true
             toast = Toast.makeText(this@LiveCameraActivity, text, Toast.LENGTH_SHORT)

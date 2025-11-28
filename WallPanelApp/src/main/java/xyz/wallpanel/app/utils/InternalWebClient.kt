@@ -113,7 +113,6 @@ open class InternalWebClient(val resources: Resources, private val callback: Web
     override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             super.onRenderProcessGone(view, detail)
-            Timber.d("onRenderProcessGone %s %s", view, detail.didCrash())
             if (view.parent is ViewGroup) {
                 (view.parent as ViewGroup).removeView(view)
                 view.destroy()

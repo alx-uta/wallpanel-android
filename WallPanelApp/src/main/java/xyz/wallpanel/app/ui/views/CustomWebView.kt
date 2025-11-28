@@ -34,7 +34,6 @@ class CustomWebView @JvmOverloads constructor(
     private val androidInterface: Any = object : Any() {
         @JavascriptInterface
         fun requestScrollEvents() {
-            Timber.d("WebView.Android.requestScrollEvents")
             requestDisallow = true
         }
     }

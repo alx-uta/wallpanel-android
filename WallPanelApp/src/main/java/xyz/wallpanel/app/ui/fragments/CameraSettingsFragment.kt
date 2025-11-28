@@ -132,11 +132,9 @@ class CameraSettingsFragment : BaseSettingsFragment() {
             if (preference is ListPreference) {
                 val index = preference.findIndexOfValue(newValue.toString())
                 preference.setSummary(if (index >= 0) preference.entries[index] else "")
-                Timber.d("Camera index: " + index)
                 if(index >= 0) {
                     val cameraListItem = cameraList[index]
                     configuration.cameraId = cameraListItem.cameraId
-                    Timber.d("Camera Id: " + configuration.cameraId)
                 }
             }
             true
@@ -227,7 +225,6 @@ class CameraSettingsFragment : BaseSettingsFragment() {
     }
 
     private fun createCameraList() {
-        Timber.d("createCameraList")
         try {
             cameraList = CameraUtils.getCameraList(requireActivity())
             val cameraListEntries:ArrayList<CharSequence> = ArrayList()

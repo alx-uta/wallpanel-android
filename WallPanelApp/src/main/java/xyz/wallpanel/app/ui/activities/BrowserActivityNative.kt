@@ -137,8 +137,6 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         
         // Log device info for debugging
         val deviceInfo = "Android ${Build.VERSION.RELEASE} (API ${Build.VERSION.SDK_INT})"
-        Timber.d("Device: $deviceInfo, Engine: ${if (usingGeckoView) "GeckoView" else "WebView"}, Dark Mode: ${if (configuration.useDarkTheme) "ON" else "OFF"}")
-        
         if (configuration.useDarkTheme) {
             AppCompatDelegate.setDefaultNightMode(AppCompatDelegate.MODE_NIGHT_YES)
         } else {
@@ -199,7 +197,6 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     }
 
     override fun loadWebViewUrl(url: String) {
-        Timber.d("loadUrl $url")
         if (url.startsWith("intent:")) {
             val launchIntent: Intent
             try {
@@ -401,7 +398,6 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         usingGeckoView = configuration.useGeckoView
 
         if (usingGeckoView) {
-            Timber.d("Initializing GeckoView engine")
             try {
                 // Hide WebView, show GeckoView
                 binding.activityBrowserWebviewNative.visibility = View.GONE
@@ -415,8 +411,6 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
 
                 // Configure delegates
                 configureGeckoViewDelegates()
-
-                Toast.makeText(this, "Using GeckoView Engine", Toast.LENGTH_SHORT).show()
             } catch (e: Exception) {
                 Timber.e(e, "Failed to initialize GeckoView, falling back to WebView")
                 // Fallback to WebView
@@ -426,7 +420,6 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
                 Toast.makeText(this, "GeckoView failed, using WebView", Toast.LENGTH_LONG).show()
             }
         } else {
-            Timber.d("Initializing System WebView engine")
             // Hide GeckoView, show WebView
             binding.activityBrowserGeckoview.visibility = View.GONE
             binding.activityBrowserWebviewNative.visibility = View.VISIBLE

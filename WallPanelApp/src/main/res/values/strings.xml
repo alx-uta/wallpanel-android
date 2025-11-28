@@ -199,6 +199,10 @@
 
     <string name="pref_title_battery">Battery</string>
     <string name="pref_summary_battery">Battery Level, USB Plugged, AC Plugged, Charging</string>
+    <string name="pref_title_cpu">CPU Usage</string>
+    <string name="pref_summary_cpu">System CPU usage percentage</string>
+    <string name="pref_title_memory">Memory Usage</string>
+    <string name="pref_summary_memory">System memory usage in MB</string>
     <string name="text_loading_percent">Loading %1$s%% %2$s</string>
     <string name="dialog_no_camera_permissions">This feature requires the camera permissions. Go to the device settings, then turn on permissions for this application.</string>
     <string name="toast_storage_granted">Storage permissions granted…</string>
@@ -262,6 +266,8 @@
     <string name="mqtt_sensor_magnetic_field">Magnetic Field</string>
     <string name="mqtt_sensor_pressure">Pressure</string>
     <string name="mqtt_sensor_humidity">Humidity</string>
+    <string name="mqtt_sensor_cpu_usage">CPU Usage</string>
+    <string name="mqtt_sensor_memory_usage">Memory Usage</string>
     <string name="mqtt_sensor_face_detected">Face Detected</string>
     <string name="mqtt_sensor_motion_detected">Motion Detected</string>
 

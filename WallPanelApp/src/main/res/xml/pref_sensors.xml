@@ -85,6 +85,20 @@
             android:title="@string/title_setting_sensors_humidity"
             android:dependency="@string/key_setting_sensors_enabled"/>
 
+        <Preference
+            android:key="@string/key_settings_sensors_cpu"
+            android:summary="@string/pref_summary_cpu"
+            android:selectable="false"
+            android:title="@string/pref_title_cpu"
+            android:dependency="@string/key_setting_sensors_enabled"/>
+
+        <Preference
+            android:key="@string/key_settings_sensors_memory"
+            android:summary="@string/pref_summary_memory"
+            android:selectable="false"
+            android:title="@string/pref_title_memory"
+            android:dependency="@string/key_setting_sensors_enabled"/>
+
     </PreferenceCategory>
 
 </PreferenceScreen>

@@ -33,6 +33,8 @@
     <string name="key_settings_sensors_temperature">setting_sensors_temperature</string>
     <string name="key_settings_sensors_pressure">setting_sensors_pressure</string>
     <string name="key_settings_sensors_humidity">setting_sensors_humidity</string>
+    <string name="key_settings_sensors_cpu">setting_sensors_cpu</string>
+    <string name="key_settings_sensors_memory">setting_sensors_memory</string>
     <string name="key_setting_sensors_enabled">setting_sensors_enabled</string>
     <string name="key_hadware_accelerated_enabled">hadware_accelerated_enabled</string>
     <string name="default_setting_sensors_value">false</string>
@@ -68,6 +70,8 @@
     <string name="key_setting_directions">setting_directions</string>
     <string name="default_setting_camera_qrcodeenabled">false</string>
     <string name="key_setting_http_restenabled">setting_http_enabled</string>
+    <string name="key_setting_http_shellenabled">setting_http_shell_enabled</string>
+    <string name="default_setting_http_shellenabled">false</string>
     <string name="default_setting_camera_facewake">false</string>
     <string name="key_setting_camera_qrcodeenabled">setting_camera_qrcodeenabled</string>
     <string name="default_setting_camera_faceenabled">false</string>

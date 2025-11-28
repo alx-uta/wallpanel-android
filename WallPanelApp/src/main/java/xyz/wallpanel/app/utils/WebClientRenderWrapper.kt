@@ -25,7 +25,6 @@ open class WebClientRenderWrapper(private val client: WebViewClient) : WebViewCl
     override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
             client.onRenderProcessGone(view, detail)
-            Timber.d("onRenderProcessGone %s %s", view, detail.didCrash())
             if (view.parent is ViewGroup) {
                 (view.parent as ViewGroup).removeView(view)
                 view.destroy()

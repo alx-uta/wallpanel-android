@@ -172,13 +172,11 @@ class ScreenSaverView : RelativeLayout {
     }
 
     private fun startWebScreenSaver(url: String) {
-        Timber.d("startWebScreenSaver $url")
         loadWebPage(url)
     }
 
     @SuppressLint("ClickableViewAccessibility")
     private fun loadWebPage(url: String) {
-        Timber.d("loadWebPage url ${url}")
         configureWebSettings("")
         clearCache()
         binding.screenSaverWebView.webChromeClient = object : WebChromeClient() {
@@ -253,7 +251,6 @@ class ScreenSaverView : RelativeLayout {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             webSettings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         }
-        Timber.d(webSettings.userAgentString)
     }
 
     private fun clearCache() {

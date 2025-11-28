@@ -120,7 +120,6 @@ constructor(private val context: Context) {
 
     @SuppressLint("MissingPermission")
     fun startCamera(callback: CameraCallback, configuration: Configuration) {
-        Timber.d("startCamera")
         this.cameraCallback = callback
         if (configuration.cameraEnabled) {
             buildDetectors(configuration)
@@ -151,7 +150,6 @@ constructor(private val context: Context) {
     @SuppressLint("MissingPermission")
     @Throws(IOException::class)
     fun startCameraPreview(callback: CameraCallback, configuration: Configuration, preview: CameraSourcePreview?) {
-        Timber.d("startCameraPreview")
         if (configuration.cameraEnabled && preview != null) {
             this.cameraCallback = callback
             this.cameraPreview = preview
@@ -190,7 +188,6 @@ constructor(private val context: Context) {
     @SuppressLint("MissingPermission")
     @Throws(IOException::class)
     fun startCameraPreviewSolo(callback: CameraCallback, configuration: Configuration, preview: CameraSourcePreview?) {
-        Timber.d("startCameraPreviewSolo")
         if (configuration.cameraEnabled && preview != null) {
             this.cameraCallback = callback
             this.cameraPreview = preview
@@ -354,7 +351,6 @@ constructor(private val context: Context) {
                         val faceRotation = if (configuration.cameraFaceRotation) face.eulerY > -12 && face.eulerY < 12 else true;
                         if (detections.detectedItems.size() > 0 && faceSize && faceRotation) {
                             if (cameraCallback != null && configuration.cameraFaceEnabled) {
-                                Timber.d("faceDetected")
                                 cameraCallback?.onFaceDetected()
                             }
                         }
@@ -377,7 +373,6 @@ constructor(private val context: Context) {
                     override fun onUpdate(p0: Detector.Detections<Barcode>, p1: Barcode) {
                         super.onUpdate(p0, p1)
                         if (cameraCallback != null && configuration.cameraQRCodeEnabled) {
-                            Timber.d("Barcode: " + p1.displayValue)
                             cameraCallback?.onQRCode(p1.displayValue)
                         }
                     }
@@ -403,8 +398,6 @@ constructor(private val context: Context) {
         // Use low resolution (320x240) if enabled, otherwise use standard resolution (640x480)
         val width = if (configuration.cameraLowResolution) 320 else 640
         val height = if (configuration.cameraLowResolution) 240 else 480
-        
-        Timber.d("Initializing camera with resolution: ${width}x${height}")
         
         return CameraSource.Builder(context, multiDetector!!)
                 .setRequestedFps(fsp)

@@ -78,7 +78,6 @@ class TextToSpeechModule( base: Context?) : ContextWrapper(base),
 
     fun speakText(message: String) {
         if (textToSpeech != null && isInitialized) {
-            Timber.d("Speak this: $message")
             textToSpeech?.speak(message, TextToSpeech.QUEUE_ADD, null, UTTERANCE_ID)
         }
     }
