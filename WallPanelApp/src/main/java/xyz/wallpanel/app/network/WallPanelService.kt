@@ -100,7 +100,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     lateinit var screenUtils: ScreenUtils
 
     private val mJpegSockets = ArrayList<AsyncHttpServerResponse>()
-    private var partialWakeLock: PowerManager.WakeLock? = null
+    private var cpuWakeLock: PowerManager.WakeLock? = null
+    private var screenWakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
     private var keyguardLock: KeyguardManager.KeyguardLock? = null
     private var audioPlayer: MediaPlayer? = null
@@ -151,11 +152,16 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         // prepare the lock types we may use
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
 
-        //noinspection deprecation
-        partialWakeLock = if (Build.VERSION.SDK_INT > Build.VERSION_CODES.KITKAT) {
-            pm.newWakeLock(PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "wallPanel:partialWakeLock")
+        // CPU wake lock - keeps CPU running for background services (MQTT, sensors, camera)
+        // Held continuously while service is active
+        cpuWakeLock = pm.newWakeLock(PowerManager.PARTIAL_WAKE_LOCK, "wallPanel:cpuWakeLock")
+
+        // Screen wake lock - temporarily wakes screen for commands
+        // Only held during explicit wake requests
+        screenWakeLock = if (Build.VERSION.SDK_INT > Build.VERSION_CODES.KITKAT) {
+            pm.newWakeLock(PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP, "wallPanel:screenWakeLock")
         } else {
-            pm.newWakeLock(PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE, "wallPanel:partialWakeLock")
+            pm.newWakeLock(PowerManager.FULL_WAKE_LOCK or PowerManager.ACQUIRE_CAUSES_WAKEUP or PowerManager.ON_AFTER_RELEASE, "wallPanel:screenWakeLock")
         }
 
         // wifi lock
@@ -286,8 +292,11 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     }
 
     private fun configurePowerOptions() {
-        if (partialWakeLock != null && !partialWakeLock!!.isHeld) {
-            partialWakeLock!!.acquire(3000)
+        // Acquire CPU wake lock to keep background services running
+        cpuWakeLock?.let {
+            if (!it.isHeld) {
+                it.acquire()
+            }
         }
         if (!wifiLock!!.isHeld) {
             wifiLock!!.acquire()
@@ -302,8 +311,17 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     private fun stopPowerOptions() {
         Timber.i("Releasing Screen/WiFi Locks")
-        if (partialWakeLock != null && partialWakeLock!!.isHeld) {
-            partialWakeLock!!.release()
+        // Release CPU wake lock
+        cpuWakeLock?.let {
+            if (it.isHeld) {
+                it.release()
+            }
+        }
+        // Release screen wake lock if held
+        screenWakeLock?.let {
+            if (it.isHeld) {
+                it.release()
+            }
         }
         if (wifiLock != null && wifiLock!!.isHeld) {
             wifiLock!!.release()
@@ -709,11 +727,14 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     @SuppressLint("WakelockTimeout")
     private fun wakeScreenOn(wakeTime: Long) {
-        if (partialWakeLock != null && !partialWakeLock!!.isHeld) {
-            partialWakeLock?.acquire(wakeTime)
-            wakeScreenHandler.postDelayed(clearWakeScreenRunnable, wakeTime)
-            sendWakeScreenOn()
+        // Acquire screen wake lock with timeout to turn screen on temporarily
+        screenWakeLock?.let {
+            if (!it.isHeld) {
+                it.acquire(wakeTime)
+            }
         }
+        wakeScreenHandler.postDelayed(clearWakeScreenRunnable, wakeTime)
+        sendWakeScreenOn()
     }
 
     private val clearWakeScreenRunnable = Runnable {
@@ -722,8 +743,11 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     private fun wakeScreenOff() {
         wakeScreenHandler.removeCallbacks(clearWakeScreenRunnable)
-        if (partialWakeLock != null && partialWakeLock!!.isHeld) {
-            partialWakeLock!!.release()
+        // Release screen wake lock
+        screenWakeLock?.let {
+            if (it.isHeld) {
+                it.release()
+            }
         }
         sendWakeScreenOff()
     }
