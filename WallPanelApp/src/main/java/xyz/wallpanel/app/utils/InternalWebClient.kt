@@ -83,7 +83,7 @@ open class InternalWebClient(val resources: Resources, private val callback: Web
                     resources.getString(R.string.dialog_message_ssl_not_yet_valid)
             }
             message += resources.getString(xyz.wallpanel.app.R.string.dialog_message_ssl_continue)
-            if (dialogUtils.isInitialized) {
+            if (::dialogUtils.isInitialized) {
                 dialogUtils.showAlertDialog(view.context,
                     resources.getString(R.string.dialog_title_ssl_error),
                     resources.getString(R.string.dialog_message_ssl_continue),
