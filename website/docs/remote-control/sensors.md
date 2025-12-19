@@ -35,7 +35,7 @@ sensor:
     name: "WallPanel Battery Level"
     unit_of_measurement: "%"
     value_template: '{{ value_json.value }}'
-    
+
  - platform: mqtt
     state_topic: "wallpanel/mywallpanel/sensor/temperature"
     name: "WallPanel Temperature"
@@ -47,7 +47,7 @@ sensor:
     name: "WallPanel Light Level"
     unit_of_measurement: "lx"
     value_template: '{{ value_json.value }}'
-    
+
   - platform: mqtt
     state_topic: "wallpanel/mywallpanel/sensor/magneticField"
     name: "WallPanel Magnetic Field"
