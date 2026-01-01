@@ -14,16 +14,14 @@
  * limitations under the License.
  */
 
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-        maven {
-            url "https://maven.mozilla.org/maven2/"
-        }
-    }
-}
+package xyz.wallpanel.pro.di
 
-include ':WallPanelPro'
+import androidx.lifecycle.ViewModelProvider
+import dagger.Binds
+import dagger.Module
+
+@Module
+abstract class DaggerViewModelInjectionModule {
+    @Binds
+    internal abstract fun bindViewModelFactory(factory: DaggerViewModelFactory): ViewModelProvider.Factory
+}

@@ -14,16 +14,15 @@
  * limitations under the License.
  */
 
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-        maven {
-            url "https://maven.mozilla.org/maven2/"
-        }
+package xyz.wallpanel.pro.modules
+
+/**
+ * Created by Michael Ritchie on 7/6/18.
+ */
+class Stream {
+    var byteArray: ByteArray? = null
+    var width: Int? = null
+    var height: Int? = null
+    companion object {
     }
 }
-
-include ':WallPanelPro'

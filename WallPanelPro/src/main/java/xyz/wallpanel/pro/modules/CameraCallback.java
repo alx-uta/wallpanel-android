@@ -14,16 +14,13 @@
  * limitations under the License.
  */
 
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-        maven {
-            url "https://maven.mozilla.org/maven2/"
-        }
-    }
-}
+package xyz.wallpanel.pro.modules;
 
-include ':WallPanelPro'
+public interface CameraCallback {
+    void onMotionDetected();
+    void onTooDark();
+    void onFaceDetected();
+    void onQRCode(String data);
+    void onCameraError();
+    void onDetectorError();
+}

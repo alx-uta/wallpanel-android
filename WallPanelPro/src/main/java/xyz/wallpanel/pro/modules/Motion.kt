@@ -14,16 +14,21 @@
  * limitations under the License.
  */
 
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-        maven {
-            url "https://maven.mozilla.org/maven2/"
-        }
+package xyz.wallpanel.pro.modules
+
+/**
+ * Created by Michael Ritchie on 7/6/18.
+ */
+class Motion {
+
+    var type = MOTION_NOT_DETECTED
+    var byteArray: ByteArray? = null
+    var width: Int? = null
+    var height: Int? = null
+
+    companion object {
+        val MOTION_TOO_DARK = "motion_too_dark"
+        val MOTION_DETECTED = "motion_detected"
+        val MOTION_NOT_DETECTED = "motion_not_detected"
     }
 }
-
-include ':WallPanelPro'

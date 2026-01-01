@@ -14,16 +14,25 @@
  * limitations under the License.
  */
 
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-        maven {
-            url "https://maven.mozilla.org/maven2/"
+package xyz.wallpanel.pro.utils;
+
+public class StringUtils {
+
+    private static String strSeparator = ",";
+
+    public static String convertArrayToString(String[] array){
+        StringBuilder str = new StringBuilder();
+        for (int i = 0; i < array.length; i++) {
+            str.append(array[i]);
+            // Do not append comma at the end of last element
+            if(i<array.length-1){
+                str.append(strSeparator);
+            }
         }
+        return str.toString();
+    }
+
+    public static String[] convertStringToArray(String str){
+        return str.split(strSeparator);
     }
 }
-
-include ':WallPanelPro'

@@ -14,16 +14,10 @@
  * limitations under the License.
  */
 
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-        maven {
-            url "https://maven.mozilla.org/maven2/"
-        }
-    }
-}
+package xyz.wallpanel.pro.modules
 
-include ':WallPanelPro'
+import org.json.JSONObject
+
+interface SensorCallback {
+    fun publishSensorData(sensorName: String, sensorData: JSONObject)
+}

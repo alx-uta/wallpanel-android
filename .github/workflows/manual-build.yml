@@ -1,8 +1,7 @@
-name: Build Release APK
+name: Manual Build APK
 
 on:
-  release:
-    types: [published]
+  workflow_dispatch:
 
 jobs:
   build:
@@ -33,9 +32,9 @@ jobs:
         KEY_ALIAS: ${{ secrets.ALIAS }}
         KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
     
-    - name: Upload All APKs to Release
-      uses: softprops/action-gh-release@v1
+    - name: Upload APK as Artifact
+      uses: actions/upload-artifact@v4
       with:
-        files: WallPanelPro/build/outputs/apk/prod/release/*.apk
-      env:
-        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        name: WallPanel-${{ github.ref_name }}-${{ github.sha }}
+        path: WallPanelPro/build/outputs/apk/prod/release/*.apk
+        retention-days: 30
