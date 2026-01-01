@@ -98,7 +98,7 @@ Or MQTT publish to `wallpanel/[baseTopic]/command`
 - Activities: `<Feature>Activity` extends `DaggerAppCompatActivity`
 - Fragments: `<Feature>Fragment` extends `BaseSettingsFragment` (for settings)
 - Utils: Static-like classes with `@Inject constructor`
-- Modules: Service-layer classes in `xyz.wallpanel.app.modules` (MQTTModule, SensorReader, etc.)
+- Modules: Service-layer classes in `xyz.wallpanel.pro.modules` (MQTTModule, SensorReader, etc.)
 
 ### Resource Naming
 - Preference keys: `R.string.key_setting_<category>_<name>` (e.g., `key_setting_mqtt_enabled`)
@@ -118,7 +118,7 @@ Timber.e("Error: ${e.message}") // Errors
 - `WallPanelService.kt` (1120 lines): MQTT/HTTP server, command processing, sensor publishing
 - `Configuration.kt` (418 lines): All app settings accessor methods
 - `MQTTModule.kt`: MQTT lifecycle management, dual protocol handling
-- `build.gradle` (WallPanelApp): Dependencies, flavors, GeckoView integration
+- `build.gradle` (WallPanelPro): Dependencies, flavors, GeckoView integration
 
 ## Common Pitfalls
 1. **Build flavor confusion**: Dev builds fail without `local.properties`, use `prodDebug` for quick testing

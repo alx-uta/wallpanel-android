@@ -1,0 +1,82 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!--
+  ~ Copyright (C) 2017 The Android Open Source Project
+  ~ Licensed under the Apache License, Version 2.0 (the "License");
+  ~ you may not use this file except in compliance with the License.
+  ~ You may obtain a copy of the License at
+  ~      http://www.apache.org/licenses/LICENSE-2.0
+  ~ Unless required by applicable law or agreed to in writing, software
+  ~ distributed under the License is distributed on an "AS IS" BASIS,
+  ~ WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+  ~ See the License for the specific language governing permissions and
+  ~ limitations under the License.
+  -->
+<navigation xmlns:android="http://schemas.android.com/apk/res/android"
+            xmlns:app="http://schemas.android.com/apk/res-auto"
+            app:startDestination="@+id/settings_fragment">
+
+    <fragment android:id="@+id/settings_fragment"
+              android:label="@string/title_settings"
+              android:name="xyz.wallpanel.pro.ui.fragments.SettingsFragment" >
+        <action android:id="@+id/camera_action" app:destination="@id/camera_fragment"/>
+        <action android:id="@+id/mqtt_action" app:destination="@id/mqtt_fragment"/>
+        <action android:id="@+id/http_action" app:destination="@id/http_fragment"/>
+        <action android:id="@+id/sensors_action" app:destination="@id/sensors_fragment"/>
+        <action android:id="@+id/about_action" app:destination="@id/about_fragment"/>
+    </fragment>
+
+    <fragment android:id="@+id/camera_fragment"
+              android:label="@string/title_camera_settings"
+              android:name="xyz.wallpanel.pro.ui.fragments.CameraSettingsFragment" >
+        <action android:id="@+id/settings_action" app:destination="@id/settings_fragment"/>
+        <action android:id="@+id/motion_action" app:destination="@id/motion_fragment"/>
+        <action android:id="@+id/face_action" app:destination="@id/face_fragment"/>
+        <action android:id="@+id/qrcode_action" app:destination="@id/qrcode_fragment"/>
+        <action
+            android:id="@+id/action_camera_fragment_to_http_fragment"
+            app:destination="@id/http_fragment"/>
+    </fragment>
+
+    <fragment android:id="@+id/about_fragment"
+        android:label="@string/pref_about_title"
+        android:name="xyz.wallpanel.pro.ui.fragments.AboutFragment" >
+        <action android:id="@+id/settings_action" app:destination="@id/settings_fragment"/>
+    </fragment>
+
+    <fragment android:id="@+id/sensors_fragment"
+        android:label="@string/title_sensor_settings"
+        android:name="xyz.wallpanel.pro.ui.fragments.SensorsSettingsFragment" >
+        <action android:id="@+id/settings_action" app:destination="@id/settings_fragment"/>
+    </fragment>
+
+    <fragment android:id="@+id/mqtt_fragment"
+        android:label="@string/title_mqtt_settings"
+        android:name="xyz.wallpanel.pro.ui.fragments.MqttSettingsFragment" >
+        <action android:id="@+id/settings_action" app:destination="@id/settings_fragment"/>
+    </fragment>
+
+    <fragment android:id="@+id/http_fragment"
+        android:label="@string/title_http_settings"
+        android:name="xyz.wallpanel.pro.ui.fragments.HttpSettingsFragment" >
+        <action android:id="@+id/settings_action" app:destination="@id/settings_fragment"/>
+    </fragment>
+
+    <fragment android:id="@+id/motion_fragment"
+        android:label="@string/title_motion_settings"
+        android:name="xyz.wallpanel.pro.ui.fragments.MotionSettingsFragment" >
+        <action android:id="@+id/camera_action" app:destination="@id/camera_fragment"/>
+    </fragment>
+
+    <fragment android:id="@+id/face_fragment"
+        android:label="@string/title_facedetection_settings"
+        android:name="xyz.wallpanel.pro.ui.fragments.FaceSettingsFragment" >
+        <action android:id="@+id/camera_action" app:destination="@id/camera_fragment"/>
+    </fragment>
+
+    <fragment android:id="@+id/qrcode_fragment"
+        android:label="@string/title_qrcode_settings"
+        android:name="xyz.wallpanel.pro.ui.fragments.QrCodeSettingsFragment" >
+        <action android:id="@+id/camera_action" app:destination="@id/camera_fragment"/>
+    </fragment>
+
+</navigation>

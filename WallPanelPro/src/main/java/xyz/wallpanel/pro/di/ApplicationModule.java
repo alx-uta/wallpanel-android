@@ -14,16 +14,28 @@
  * limitations under the License.
  */
 
-dependencyResolutionManagement {
-    repositoriesMode.set(RepositoriesMode.PREFER_PROJECT)
-    repositories {
-        google()
-        mavenCentral()
-        gradlePluginPortal()
-        maven {
-            url "https://maven.mozilla.org/maven2/"
-        }
+package xyz.wallpanel.pro.di;
+
+import android.app.Application;
+import android.content.Context;
+
+import xyz.wallpanel.pro.WallPanel;
+
+import javax.inject.Singleton;
+
+import dagger.Binds;
+import dagger.Module;
+import dagger.Provides;
+
+@Module
+abstract class ApplicationModule {
+
+    @Binds
+    abstract Application application(WallPanel baseApplication);
+
+    @Provides
+    @Singleton
+    static Context provideContext(Application application) {
+        return application;
     }
 }
-
-include ':WallPanelPro'
