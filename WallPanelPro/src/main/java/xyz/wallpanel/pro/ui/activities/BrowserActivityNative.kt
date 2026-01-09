@@ -154,7 +154,6 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
 
         if (configuration.browserRefresh) {
             binding.swipeContainer.setOnRefreshListener {
-                clearCache()
                 initWebPageLoad()
             }
             mOnScrollChangedListener = ViewTreeObserver.OnScrollChangedListener {
