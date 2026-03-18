@@ -19,6 +19,7 @@ plugins {
     id 'kotlin-android'
     id 'kotlin-parcelize'
     id 'kotlin-kapt' // Allows for Kotlin annotation processors
+    id 'com.github.sgtsilvio.gradle.android-retrofix' version '0.5.0'
 }
 
 def versionMajor = 1
@@ -224,8 +225,11 @@ dependencies {
     // MQTT
     implementation 'com.hivemq:hivemq-mqtt-client:1.3.2'
     implementation 'com.koushikdutta.async:androidasync:2.1.9'
-    implementation 'net.sourceforge.streamsupport:android-retrostreams:1.7.4'
-    implementation 'net.sourceforge.streamsupport:android-retrofuture:1.7.4'
+    
+    // RetroFix backport for HiveMQ on Android API < 24 (Android 6 and below)
+    // Backports CompletableFuture, Streams, and other Java 8 APIs
+    retrofix 'net.sourceforge.streamsupport:android-retrostreams:1.7.4'
+    retrofix 'net.sourceforge.streamsupport:android-retrofuture:1.7.4'
 
     // Logging
     implementation 'com.jakewharton.timber:timber:4.7.1'

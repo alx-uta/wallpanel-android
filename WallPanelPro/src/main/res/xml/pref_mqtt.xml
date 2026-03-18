@@ -95,6 +95,12 @@
             android:summary="@string/preference_summary_client_id"
             android:title="@string/title_setting_mqtt_clientid" />
 
+        <Preference
+            android:key="@string/key_setting_mqtt_test_connection"
+            android:title="@string/title_setting_mqtt_test_connection"
+            android:summary="@string/summary_setting_mqtt_test_connection"
+            android:dependency="@string/key_setting_mqtt_enabled" />
+
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/pref_category_mqtt_discovery">
