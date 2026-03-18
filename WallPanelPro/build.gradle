@@ -24,7 +24,7 @@ plugins {
 
 def versionMajor = 1
 def versionMinor = 1
-def versionPatch = 3
+def versionPatch = 4
 def versionBuild = 0 // bump for dog food builds, public betas, etc.
 
 def CODE() {
