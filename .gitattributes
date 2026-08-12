@@ -1,0 +1,18 @@
+# Shell scripts must keep LF endings -- gradlew is executed by /bin/sh inside the
+# Linux build container, and CRLF makes it fail with "gradlew: 2: : not found".
+gradlew         text eol=lf
+*.sh            text eol=lf
+
+# Windows scripts keep CRLF.
+*.bat           text eol=crlf
+*.cmd           text eol=crlf
+*.ps1           text eol=crlf
+
+# Never touch these.
+*.jar           binary
+*.keystore      binary
+*.jks           binary
+*.png           binary
+*.jpg           binary
+*.webp          binary
+*.hprof         binary

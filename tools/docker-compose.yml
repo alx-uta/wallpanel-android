@@ -1,0 +1,41 @@
+name: wallpanel-tools
+
+volumes:
+  # Gradle's caches live in a named volume rather than a bind mount -- it keeps
+  # dependency resolution off the shared filesystem and survives `run --rm`.
+  gradle-cache:
+
+  # Holds ~/.android/debug.keystore and adbkey. The keystore keeps app and test APKs
+  # signed with the same debug key across separate `run --rm` invocations -- otherwise
+  # instrumentation fails with "does not have a signature matching the target". The adb
+  # key keeps the container's identity stable, so each device only has to authorise
+  # "always allow from this computer" once.
+  android-config:
+
+services:
+  android:
+    build:
+      context: ./android
+    volumes:
+      - ..:/project
+      - gradle-cache:/root/.gradle
+      - android-config:/root/.android
+      # Gradle prefers sdk.dir in local.properties over ANDROID_HOME, so the host file
+      # is shadowed with one pointing at the container SDK. The host file is untouched.
+      - ./android/container.local.properties:/project/local.properties:ro
+    working_dir: /project
+    environment:
+      GRADLE_USER_HOME: /root/.gradle
+    # The test devices are reachable over the LAN, so this container runs its own adb
+    # server and connects to them directly -- no host adb, no socket forwarding.
+    # Default bridge networking routes to LAN addresses fine. See tools/instrument.sh.
+
+  node:
+    build:
+      context: ./node
+    volumes:
+      - ..:/project
+    working_dir: /project/website
+    ports:
+      # docusaurus start
+      - "3000:3000"

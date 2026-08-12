@@ -1,3 +1,9 @@
+# Claude Code (machine-specific overrides only; .claude/settings.json is shared)
+.claude/settings.local.json
+
+# Real test-device addresses; tools/devices.example.json is the committed template
+tools/devices.json
+
 # IntelliJ
 *.iml
 .idea/
@@ -13,6 +19,10 @@ build/
 # Local configuration file (sdk path, etc)
 local.properties
 reports
+
+# Real HA/MQTT test credentials for dev-flavor builds; local.testconfig.properties.example
+# is the committed template.
+local.testconfig.properties
 
 # Apple
 .DS_Store
