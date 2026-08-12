@@ -1,0 +1,32 @@
+{
+  "_comment": "Copy to tools/devices.json and fill in your real devices. That file is gitignored. JSON has no comment syntax, so use the per-device 'notes' field, and set 'enabled' to false rather than deleting or commenting out an entry.",
+  "devices": [
+    {
+      "name": "kitchen",
+      "host": "192.168.1.42",
+      "port": 5555,
+      "enabled": true,
+      "android": "11",
+      "engine": "webview",
+      "notes": "primary kiosk, wall mounted, always on"
+    },
+    {
+      "name": "hallway",
+      "host": "192.168.1.43",
+      "port": 5555,
+      "enabled": true,
+      "android": "8.1",
+      "engine": "webview",
+      "notes": "oldest device - the one that catches minSdk regressions"
+    },
+    {
+      "name": "garage",
+      "host": "192.168.1.44",
+      "port": 5555,
+      "enabled": false,
+      "android": "13",
+      "engine": "geckoview",
+      "notes": "powered off most of the time; flip enabled to true before use"
+    }
+  ]
+}

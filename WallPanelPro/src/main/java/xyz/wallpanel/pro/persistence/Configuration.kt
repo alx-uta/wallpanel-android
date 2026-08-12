@@ -191,8 +191,11 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     val httpMJPEGMaxStreams: Int
         get() = getStringPref(R.string.key_setting_http_mjpegmaxstreams, R.string.default_setting_http_mjpegmaxstreams).trim().toInt()
 
-    val mqttEnabled: Boolean
+    var mqttEnabled: Boolean
         get() = getBoolPref(R.string.key_setting_mqtt_enabled, R.string.default_setting_mqtt_enabled)
+        set(value) {
+            sharedPreferences.edit().putBoolean(context.getString(R.string.key_setting_mqtt_enabled), value).apply()
+        }
 
     var mqttVersion: String
         get() = getStringPref(R.string.key_setting_mqtt_version, R.string.default_setting_mqtt_version)
@@ -210,16 +213,25 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         set(value) =
             sharedPreferences.edit().putString(context.getString(R.string.key_setting_mqtt_servername), value).apply()
 
-    val mqttServerPort: Int
+    var mqttServerPort: Int
         get() = getStringPref(R.string.key_setting_mqtt_serverport, R.string.default_setting_mqtt_serverport).trim().toInt()
+        set(value) {
+            sharedPreferences.edit().putString(context.getString(R.string.key_setting_mqtt_serverport), value.toString()).apply()
+        }
 
-    val mqttBaseTopic: String
+    var mqttBaseTopic: String
         get() = getStringPref(R.string.key_setting_mqtt_basetopic,
                 R.string.default_setting_mqtt_basetopic)
+        set(value) {
+            sharedPreferences.edit().putString(context.getString(R.string.key_setting_mqtt_basetopic), value).apply()
+        }
 
-    val mqttClientId: String
+    var mqttClientId: String
         get() = getStringPref(R.string.key_setting_mqtt_clientid,
                 R.string.default_setting_mqtt_clientid)
+        set(value) {
+            sharedPreferences.edit().putString(context.getString(R.string.key_setting_mqtt_clientid), value).apply()
+        }
 
     var mqttUsername: String
         get() = getStringPref(R.string.key_setting_mqtt_username,

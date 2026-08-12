@@ -1,0 +1,31 @@
+# Copy to local.testconfig.properties (repo root) and fill in real values. That file
+# is gitignored. Only the `dev` build flavor reads these -- `qa` and `prod` hard-code
+# empty/default credentials and ignore this file entirely.
+#
+# local.properties is reserved for Gradle/SDK configuration (see
+# tools/android/container.local.properties). Test credentials live here instead, so
+# they read the same whether you build on the host or through ./tools/run.sh in Docker.
+#
+# On BuildConfig.DEBUG's first launch (BrowserActivityNative.onCreate), these are
+# used to seed Configuration (the app's SharedPreferences) once, so a freshly
+# installed dev-flavor debug build already has your test Home Assistant URL and
+# MQTT broker filled in instead of the built-in defaults. After that first launch
+# they're just normal user-editable settings -- delete/reinstall the app to reseed.
+
+# Home Assistant dashboard URL the kiosk should open.
+hassUrl=http://homeassistant.local:8123/lovelace/default_view
+
+# MQTT broker connection. Leave broker empty to skip MQTT auto-seeding entirely
+# (mqttEnabled only gets set to true if broker is non-blank).
+broker=192.168.1.50
+brokerPort=1883
+brokerTls=false
+brokerUsername=wallpanel
+brokerPass=changeme
+
+# MQTT client ID and base topic (wallpanel/<baseTopic>/... command/state topics).
+clientId=mywallpanel
+baseTopic=wallpanel/mywallpanel/
+
+# 4-digit code that unlocks the in-app settings screen.
+code=1234

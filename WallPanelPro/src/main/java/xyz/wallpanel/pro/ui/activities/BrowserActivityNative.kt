@@ -99,8 +99,13 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         if (BuildConfig.DEBUG && configuration.isFirstTime) {
             // Only set debug defaults on first run, don't overwrite user settings
             configuration.mqttBroker = BuildConfig.BROKER
+            configuration.mqttServerPort = BuildConfig.BROKER_PORT
+            configuration.mqttTlsEnabled = BuildConfig.BROKER_TLS
+            configuration.mqttClientId = BuildConfig.CLIENT_ID
+            configuration.mqttBaseTopic = BuildConfig.BASE_TOPIC
             configuration.mqttUsername = BuildConfig.BROKER_USERNAME
             configuration.mqttPassword = BuildConfig.BROKER_PASS
+            configuration.mqttEnabled = BuildConfig.BROKER.isNotBlank()
             configuration.appLaunchUrl = BuildConfig.HASS_URL
             configuration.isFirstTime = false
             configuration.settingsCode = BuildConfig.CODE.toString()
