@@ -37,6 +37,8 @@ import xyz.wallpanel.pro.AppExceptionHandler
 import xyz.wallpanel.pro.network.MQTTOptions
 import xyz.wallpanel.pro.network.WallPanelService
 import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_ALERT_MESSAGE
+import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_BROWSER_ENGINE_PAUSE
+import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_BROWSER_ENGINE_RESUME
 import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_CLEAR_ALERT_MESSAGE
 import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_EVENT_SCREEN_TOUCH
 import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_SCREEN_BRIGHTNESS_CHANGE
@@ -123,6 +125,12 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
                 hasWakeScreen = false
                 resetInactivityTimer()
                 window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            } else if (BROADCAST_BROWSER_ENGINE_PAUSE == intent.action) {
+                Timber.d("Screen off, pausing the browser engine")
+                pauseBrowserEngine()
+            } else if (BROADCAST_BROWSER_ENGINE_RESUME == intent.action && !isFinishing) {
+                Timber.d("Screen on, resuming the browser engine")
+                resumeBrowserEngine()
             } else if (BROADCAST_ACTION_RELOAD_PAGE == intent.action && !isFinishing) {
                 hideScreenSaver()
             } else if (BROADCAST_SERVICE_STARTED == intent.action && !isFinishing) {
@@ -166,9 +174,14 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         filter.addAction(BROADCAST_SCREEN_WAKE)
         filter.addAction(BROADCAST_SCREEN_WAKE_ON)
         filter.addAction(BROADCAST_SCREEN_WAKE_OFF)
+        filter.addAction(BROADCAST_BROWSER_ENGINE_PAUSE)
+        filter.addAction(BROADCAST_BROWSER_ENGINE_RESUME)
         filter.addAction(BROADCAST_SERVICE_STARTED)
         val bm = LocalBroadcastManager.getInstance(this)
         bm.registerReceiver(mBroadcastReceiver, filter)
+        // The screen may have been off while the activity was paused, so make sure the
+        // engine is running again before anything else touches the page.
+        resumeBrowserEngine()
         resetInactivityTimer()
     }
 
@@ -176,6 +189,9 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         super.onPause()
         val bm = LocalBroadcastManager.getInstance(this)
         bm.unregisterReceiver(mBroadcastReceiver)
+        // The receiver is gone at this point, so the screen off broadcast can no longer arrive.
+        // Pausing here also covers being backgrounded by another activity.
+        pauseBrowserEngine()
     }
 
     override fun onStart() {
@@ -370,6 +386,18 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     protected abstract fun reload()
     protected abstract fun complete()
     protected abstract fun openSettings()
+
+    /**
+     * Tell the browser engine its content is no longer visible, so it stops compositing and
+     * throttles the page's timers. A dashboard left running at full rate behind a dark
+     * screen is what gets the browser process killed for background CPU usage.
+     */
+    protected abstract fun pauseBrowserEngine()
+
+    /**
+     * Undo [pauseBrowserEngine] once the content is visible again.
+     */
+    protected abstract fun resumeBrowserEngine()
 
     companion object {
         const val BROADCAST_ACTION_LOAD_URL = "BROADCAST_ACTION_LOAD_URL"

@@ -21,6 +21,11 @@ interface WebClientCallback {
 
     fun stopReloadDelay()
 
+    /**
+     * Rebuild the GeckoView session after its content process died and reload the page
+     */
+    fun recreateGeckoSession()
+
     fun certPermissionsShown() : Boolean
 
 }

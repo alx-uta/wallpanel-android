@@ -4,6 +4,7 @@ import android.annotation.SuppressLint
 import android.content.Context
 import android.text.TextUtils
 import com.hivemq.client.mqtt.MqttClient
+import com.hivemq.client.mqtt.MqttClientBuilder
 import com.hivemq.client.mqtt.MqttGlobalPublishFilter
 import com.hivemq.client.mqtt.datatypes.MqttQos
 import com.hivemq.client.mqtt.lifecycle.MqttClientConnectedContext
@@ -137,8 +138,7 @@ class MQTT5Service(
         try {
             mqttOptions?.let { mqttOptions ->
 
-                val mqttBuilder = MqttClient.builder().identifier(mqttOptions.getClientId())
-                    .serverHost(mqttOptions.getBroker()).serverPort(mqttOptions.getPort())
+                val mqttBuilder = buildTransportConfiguredBuilder(mqttOptions)
                 mqttBuilder.addConnectedListener { context: MqttClientConnectedContext? ->
                     subscribeToTopics(mqttOptions.getStateTopics())
 
@@ -240,6 +240,20 @@ class MQTT5Service(
         private const val ONLINE = "online"
         private const val OFFLINE = "offline"
         private const val CONNECTION = "connection"
+
+        /**
+         * Builds the client transport (host, port, TLS) from [mqttOptions], before MQTT
+         * version selection. Exposed for testing -- getTlsConnection() must actually
+         * reach the client builder, not just the log line above.
+         */
+        internal fun buildTransportConfiguredBuilder(mqttOptions: MQTTOptions): MqttClientBuilder {
+            val builder = MqttClient.builder().identifier(mqttOptions.getClientId())
+                .serverHost(mqttOptions.getBroker()).serverPort(mqttOptions.getPort())
+            if (mqttOptions.getTlsConnection()) {
+                builder.sslWithDefaultConfig()
+            }
+            return builder
+        }
     }
 }
 

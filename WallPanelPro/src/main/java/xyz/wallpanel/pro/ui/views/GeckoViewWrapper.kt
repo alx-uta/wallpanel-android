@@ -17,6 +17,7 @@
 package xyz.wallpanel.pro.ui.views
 
 import android.content.Context
+import androidx.annotation.UiThread
 import org.mozilla.geckoview.GeckoRuntime
 import org.mozilla.geckoview.GeckoRuntimeSettings
 import org.mozilla.geckoview.GeckoSession
@@ -34,6 +35,14 @@ class GeckoViewWrapper(
 
     var geckoSession: GeckoSession? = null
         private set
+
+    // Delegates are retained so they can be re-applied to a replacement session, which
+    // happens when the content process dies (crash, or an OS kill for resource usage).
+    private var navigationDelegate: GeckoSession.NavigationDelegate? = null
+    private var progressDelegate: GeckoSession.ProgressDelegate? = null
+    private var permissionDelegate: GeckoSession.PermissionDelegate? = null
+    private var promptDelegate: GeckoSession.PromptDelegate? = null
+    private var contentDelegate: GeckoSession.ContentDelegate? = null
 
     companion object {
         private var runtime: GeckoRuntime? = null
@@ -93,14 +102,77 @@ class GeckoViewWrapper(
      */
     private fun initializeSession() {
         try {
-            val rt = getRuntime(context)
-            val session = GeckoSession()
-            session.open(rt)
-            geckoView.setSession(session)
-            geckoSession = session
+            geckoSession = openSession()
         } catch (e: Exception) {
             Timber.e(e, "Error initializing GeckoSession")
         }
+    }
+
+    /**
+     * Replace the current session with a fresh one and attach it to the view.
+     *
+     * The content process (:tabXX) can be terminated independently of the app, either by a
+     * Gecko crash or by Android killing it for excessive background CPU while the screen is off.
+     * The session left behind is dead and renders nothing, so the only recovery is to
+     * build a new one, re-apply the delegates and re-attach it.
+     *
+     * @return true when a new session was successfully attached.
+     */
+    @UiThread
+    fun recreateSession(): Boolean {
+        return try {
+            closeSessionQuietly()
+            try {
+                geckoView.releaseSession()
+            } catch (e: Exception) {
+                Timber.e(e, "Error releasing dead GeckoSession from the view")
+            }
+            geckoSession = openSession()
+            Timber.i("GeckoSession recreated after content process death")
+            true
+        } catch (e: Exception) {
+            Timber.e(e, "Error recreating GeckoSession")
+            false
+        }
+    }
+
+    /**
+     * Create a session, apply the retained delegates, open it against the shared runtime
+     * and attach it to the view.
+     */
+    private fun openSession(): GeckoSession {
+        val runtime = getRuntime(context)
+        val session = GeckoSession()
+        applyDelegates(session)
+        session.open(runtime)
+        geckoView.setSession(session)
+        return session
+    }
+
+    /**
+     * Apply every delegate configured so far to the given session
+     */
+    private fun applyDelegates(session: GeckoSession) {
+        navigationDelegate?.let { session.navigationDelegate = it }
+        progressDelegate?.let { session.progressDelegate = it }
+        permissionDelegate?.let { session.permissionDelegate = it }
+        promptDelegate?.let { session.promptDelegate = it }
+        contentDelegate?.let { session.contentDelegate = it }
+    }
+
+    /**
+     * Close the current session, tolerating one that is already dead
+     */
+    private fun closeSessionQuietly() {
+        val session = geckoSession ?: return
+        try {
+            if (session.isOpen) {
+                session.close()
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error closing GeckoSession")
+        }
+        geckoSession = null
     }
 
     /**
@@ -146,9 +218,30 @@ class GeckoViewWrapper(
     }
 
     /**
+     * Mark the session as visible or hidden.
+     *
+     * An inactive session stops compositing and Gecko throttles the page's timers and
+     * animations, which is what keeps a live dashboard from burning CPU while the screen is off.
+     * Without this Gecko treats the session as permanently visible and keeps running
+     * the page at full foreground rate, which is what gets the content process killed for
+     * excessive background CPU.
+     */
+    fun setActive(active: Boolean) {
+        val session = geckoSession ?: return
+        try {
+            if (session.isOpen) {
+                session.setActive(active)
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error setting the GeckoSession active state to $active")
+        }
+    }
+
+    /**
      * Set navigation delegate
      */
     fun setNavigationDelegate(delegate: GeckoSession.NavigationDelegate) {
+        navigationDelegate = delegate
         geckoSession?.navigationDelegate = delegate
     }
 
@@ -156,6 +249,7 @@ class GeckoViewWrapper(
      * Set progress delegate
      */
     fun setProgressDelegate(delegate: GeckoSession.ProgressDelegate) {
+        progressDelegate = delegate
         geckoSession?.progressDelegate = delegate
     }
 
@@ -163,6 +257,7 @@ class GeckoViewWrapper(
      * Set permission delegate
      */
     fun setPermissionDelegate(delegate: GeckoSession.PermissionDelegate) {
+        permissionDelegate = delegate
         geckoSession?.permissionDelegate = delegate
     }
 
@@ -170,7 +265,16 @@ class GeckoViewWrapper(
      * Set prompt delegate
      */
     fun setPromptDelegate(delegate: GeckoSession.PromptDelegate) {
+        promptDelegate = delegate
         geckoSession?.promptDelegate = delegate
+    }
+
+    /**
+     * Set content delegate, which reports content process crashes and kills
+     */
+    fun setContentDelegate(delegate: GeckoSession.ContentDelegate) {
+        contentDelegate = delegate
+        geckoSession?.contentDelegate = delegate
     }
 
     /**
@@ -184,8 +288,12 @@ class GeckoViewWrapper(
      * Clean up resources
      */
     fun destroy() {
-        geckoSession?.close()
-        geckoView.releaseSession()
+        closeSessionQuietly()
+        try {
+            geckoView.releaseSession()
+        } catch (e: Exception) {
+            Timber.e(e, "Error releasing GeckoSession from the view")
+        }
     }
 
     /**

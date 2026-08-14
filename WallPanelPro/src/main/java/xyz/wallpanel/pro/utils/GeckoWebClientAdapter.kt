@@ -36,7 +36,7 @@ class GeckoWebClientAdapter(
     private val resources: Resources,
     private val callback: WebClientCallback,
     private val configuration: Configuration
-) : NavigationDelegate {
+) : NavigationDelegate, GeckoSession.ContentDelegate {
 
     private var currentUrl = ""
     private var pageLoaded = false
@@ -182,5 +182,38 @@ class GeckoWebClientAdapter(
             callback.isConnected = false
             callback.startReloadDelay()
         }
+    }
+
+    /**
+     * The content process crashed inside Gecko.
+     * The session is dead and shows nothing until it is replaced.
+     */
+    @UiThread
+    override fun onCrash(session: GeckoSession) {
+        Timber.e("GeckoView content process crashed, recreating the session")
+        handleContentProcessDeath()
+    }
+
+    /**
+     * The content process was killed by Android, typically for excessive background CPU use
+     * while the screen is off.
+     * Same recovery as a crash.
+     */
+    @UiThread
+    override fun onKill(session: GeckoSession) {
+        Timber.e("GeckoView content process was killed by the system, recreating the session")
+        handleContentProcessDeath()
+    }
+
+    /**
+     * Recover from a dead content process. Unlike a network error this is not worth backing
+     * off for: nothing will come back on its own, so rebuild the session immediately.
+     */
+    private fun handleContentProcessDeath() {
+        if (callback.isFinishing()) {
+            return
+        }
+        callback.isConnected = false
+        callback.recreateGeckoSession()
     }
 }
