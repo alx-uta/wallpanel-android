@@ -128,6 +128,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     private var mqttAlertMessageShown = false
     private var mqttConnecting = false
     private var mqttInitConnection = AtomicBoolean(true)
+    private var systemReceiverRegistered = false
 
     private val restartMqttRunnable = Runnable {
         clearAlertMessage() // clear any dialogs
@@ -192,11 +193,41 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         filter.addAction(BROADCAST_EVENT_SCREEN_TOUCH)
         filter.addAction(BROADCAST_CAMERA_START_SCREENSAVER)
         filter.addAction(BROADCAST_CAMERA_STOP_SCREENSAVER)
+        localBroadCastManager = LocalBroadcastManager.getInstance(this)
+        localBroadCastManager?.registerReceiver(mBroadcastReceiver, filter)
+
+        registerSystemBroadcastReceiver()
+    }
+
+    /**
+     * Screen on/off and user present are broadcast by the system, so they have to be
+     * registered globally.
+     * LocalBroadcastManager only dispatches what the app itself sends
+     * through it and never sees these, which is why they went unnoticed until now.
+     */
+    private fun registerSystemBroadcastReceiver() {
+        val filter = IntentFilter()
         filter.addAction(Intent.ACTION_SCREEN_ON)
         filter.addAction(Intent.ACTION_SCREEN_OFF)
         filter.addAction(Intent.ACTION_USER_PRESENT)
-        localBroadCastManager = LocalBroadcastManager.getInstance(this)
-        localBroadCastManager?.registerReceiver(mBroadcastReceiver, filter)
+        try {
+            registerReceiver(mBroadcastReceiver, filter)
+            systemReceiverRegistered = true
+        } catch (e: Exception) {
+            Timber.e(e, "Error registering the system broadcast receiver")
+        }
+    }
+
+    private fun unregisterSystemBroadcastReceiver() {
+        if (systemReceiverRegistered.not()) {
+            return
+        }
+        systemReceiverRegistered = false
+        try {
+            unregisterReceiver(mBroadcastReceiver)
+        } catch (e: IllegalArgumentException) {
+            Timber.e(e, "Error unregistering the system broadcast receiver")
+        }
     }
 
     override fun onDestroy() {
@@ -208,6 +239,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         if (localBroadCastManager != null) {
             localBroadCastManager?.unregisterReceiver(mBroadcastReceiver)
         }
+        unregisterSystemBroadcastReceiver()
         cameraReader?.stopCamera()
         sensorReader.stopReadings()
         stopHttp()
@@ -1031,6 +1063,23 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         bm.sendBroadcast(intent)
     }
 
+    /**
+     * Tell the browser activity the display is off so it can stop the page from running at
+     * full foreground rate, which is what gets the browser process killed for background
+     * CPU usage after a few minutes of screen-off.
+     */
+    private fun sendBrowserEnginePause() {
+        val intent = Intent(BROADCAST_BROWSER_ENGINE_PAUSE)
+        val bm = LocalBroadcastManager.getInstance(applicationContext)
+        bm.sendBroadcast(intent)
+    }
+
+    private fun sendBrowserEngineResume() {
+        val intent = Intent(BROADCAST_BROWSER_ENGINE_RESUME)
+        val bm = LocalBroadcastManager.getInstance(applicationContext)
+        bm.sendBroadcast(intent)
+    }
+
     private fun sendScreenBrightnessChange() {
         val intent = Intent(BROADCAST_SCREEN_BRIGHTNESS_CHANGE)
         val bm = LocalBroadcastManager.getInstance(applicationContext)
@@ -1059,10 +1108,16 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                     Timber.i("Url changed to $appLaunchUrl")
                     publishApplicationState()
                 }
-            } else if (Intent.ACTION_SCREEN_OFF == intent.action ||
-                    intent.action == Intent.ACTION_SCREEN_ON ||
-                    intent.action == Intent.ACTION_USER_PRESENT) {
-                Timber.i("Screen state changed")
+            } else if (Intent.ACTION_SCREEN_OFF == intent.action) {
+                Timber.i("Screen turned off")
+                publishApplicationState()
+                sendBrowserEnginePause()
+            } else if (Intent.ACTION_SCREEN_ON == intent.action) {
+                Timber.i("Screen turned on")
+                publishApplicationState()
+                sendBrowserEngineResume()
+            } else if (Intent.ACTION_USER_PRESENT == intent.action) {
+                Timber.i("User present")
                 publishApplicationState()
             } else if (BROADCAST_EVENT_SCREEN_TOUCH == intent.action) {
                 Timber.i("Screen touched")
@@ -1149,6 +1204,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         const val BROADCAST_SCREEN_WAKE_ON = "BROADCAST_SCREEN_WAKE_ON"
         const val BROADCAST_SCREEN_WAKE_OFF = "BROADCAST_SCREEN_WAKE_OFF"
         const val BROADCAST_SCREEN_BRIGHTNESS_CHANGE = "BROADCAST_SCREEN_BRIGHTNESS_CHANGE"
+        const val BROADCAST_BROWSER_ENGINE_PAUSE = "BROADCAST_BROWSER_ENGINE_PAUSE"
+        const val BROADCAST_BROWSER_ENGINE_RESUME = "BROADCAST_BROWSER_ENGINE_RESUME"
         const val BROADCAST_CAMERA_START_SCREENSAVER = "BROADCAST_CAMERA_START_SCREENSAVER"
         const val BROADCAST_CAMERA_STOP_SCREENSAVER = "BROADCAST_CAMERA_STOP_SCREENSAVER"
         const val BROADCAST_CONNTED = "BROADCAST_SCREEN_BRIGHTNESS_CHANGE"

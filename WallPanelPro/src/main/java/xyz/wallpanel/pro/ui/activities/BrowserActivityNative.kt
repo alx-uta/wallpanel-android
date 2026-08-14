@@ -56,6 +56,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
 
     private var webView: WebView? = null
     private var geckoViewWrapper: GeckoViewWrapper? = null
+    private var geckoClientAdapter: GeckoWebClientAdapter? = null
     private var usingGeckoView = false
 
     private lateinit var binding: ActivityBrowserBinding
@@ -69,6 +70,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     override var isConnected = true
     private var webkitPermissionRequest: PermissionRequest? = null
     private var awaitingReconnect = false
+    private var browserEnginePaused = false
 
     private val reloadPageRunnable = Runnable {
         initWebPageLoad()
@@ -190,6 +192,32 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     override fun onDestroy() {
         super.onDestroy()
         codeBottomSheet?.dismiss()
+    }
+
+    /**
+     * Stop the page from running while nothing is on screen. Gecko keeps a session it was
+     * never told about compositing and running the page's timers at full foreground rate,
+     * and the WebView does the same, so a live dashboard keeps burning CPU behind a dark
+     * screen until Android kills the process for background CPU usage.
+     */
+    override fun pauseBrowserEngine() {
+        browserEnginePaused = true
+        if (usingGeckoView) {
+            geckoViewWrapper?.setActive(false)
+        } else {
+            webView?.onPause()
+            webView?.pauseTimers()
+        }
+    }
+
+    override fun resumeBrowserEngine() {
+        browserEnginePaused = false
+        if (usingGeckoView) {
+            geckoViewWrapper?.setActive(true)
+        } else {
+            webView?.onResume()
+            webView?.resumeTimers()
+        }
     }
 
     override fun openSettings() {
@@ -358,6 +386,36 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         reconnectionHandler.removeCallbacks(reloadPageRunnable)
     }
 
+    /**
+     * Recover from the death of the GeckoView content process, which Android kills after a
+     * few minutes of screen-off for background CPU usage.
+     */
+    override fun recreateGeckoSession() {
+        if (!usingGeckoView || isFinishing) {
+            return
+        }
+        // Post so the session is rebuilt after the GeckoView delegate callback has returned
+        reconnectionHandler.post {
+            if (isFinishing) {
+                return@post
+            }
+            val wrapper = geckoViewWrapper
+            if (wrapper == null) {
+                Timber.e("Unable to recreate the GeckoSession, GeckoView is not initialized")
+                return@post
+            }
+            if (wrapper.recreateSession()) {
+                wrapper.geckoSession?.let { session ->
+                    geckoClientAdapter?.setGeckoSession(session)
+                }
+                // A fresh session starts out visible, so a kill that happens while the
+                // screen is off would otherwise leave the page running at full rate again
+                wrapper.setActive(browserEnginePaused.not())
+                initWebPageLoad()
+            }
+        }
+    }
+
     @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
     override fun askForWebkitPermission(permission: String, requestCode: Int) {
         if (ContextCompat.checkSelfPermission(
@@ -456,15 +514,18 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     }
 
     private fun configureGeckoViewDelegates() {
-        val geckoClientAdapter = GeckoWebClientAdapter(resources, this, configuration)
+        val clientAdapter = GeckoWebClientAdapter(resources, this, configuration)
         val geckoChromeAdapter = GeckoWebChromeClientAdapter(resources, this)
+        geckoClientAdapter = clientAdapter
 
         // Pass the GeckoSession to the adapter for JavaScript execution
         geckoViewWrapper?.geckoSession?.let { session ->
-            geckoClientAdapter.setGeckoSession(session)
+            clientAdapter.setGeckoSession(session)
         }
 
-        geckoViewWrapper?.setNavigationDelegate(geckoClientAdapter)
+        geckoViewWrapper?.setNavigationDelegate(clientAdapter)
+        // The content delegate reports crashes and OS kills of the content process
+        geckoViewWrapper?.setContentDelegate(clientAdapter)
         geckoViewWrapper?.setProgressDelegate(geckoChromeAdapter)
         geckoViewWrapper?.setPermissionDelegate(geckoChromeAdapter)
         geckoViewWrapper?.setPromptDelegate(geckoChromeAdapter)
