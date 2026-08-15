@@ -77,6 +77,12 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
             sharedPreferences.edit().putBoolean(PREF_CAMERA_PERMISSIONS, value).apply()
         }
 
+    var shellPermissionsShown: Boolean
+        get() = sharedPreferences.getBoolean(PREF_SHELL_PERMISSIONS, false)
+        set(value) {
+            sharedPreferences.edit().putBoolean(PREF_SHELL_PERMISSIONS, value).apply()
+        }
+
     var cameraRotate: Float
         get() = this.sharedPreferences.getString(PREF_CAMERA_ROTATE, "0f")!!.toFloat()
         set(value) = this.sharedPreferences.edit().putString(PREF_CAMERA_ROTATE, value.toString()).apply()
@@ -431,6 +437,7 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         const val PREF_FIRST_TIME = "pref_first_time"
         const val PREF_WRITE_SCREEN_PERMISSIONS = "pref_write_screen_permissions"
         const val PREF_CAMERA_PERMISSIONS = "pref_camera_permissions"
+        const val PREF_SHELL_PERMISSIONS = "pref_shell_permissions"
         const val PREF_CAMERA_ROTATE = "pref_camera_rotate"
         const val PREF_BROWSER_REFRESH_DISCONNECT = "pref_browser_refresh_disconnect"
         const val PREF_SCREEN_BRIGHTNESS = "pref_use_screen_brightness"

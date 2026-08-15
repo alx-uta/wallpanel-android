@@ -695,8 +695,24 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     private fun executeShellCommand(command: String) {
         try {
-            val process = Runtime.getRuntime().exec(arrayOf("sh", "-c", command))
+            // stderr is merged into stdout so a single reader can drain the process, draining one
+            // pipe at a time would deadlock a command that fills the other pipe's buffer.
+            val process = ProcessBuilder("sh", "-c", command)
+                    .redirectErrorStream(true)
+                    .start()
+            // Drain the output before waiting, otherwise a full pipe buffer blocks the process.
+            val output = try {
+                process.inputStream.bufferedReader().use { it.readText() }.trim()
+            } catch (e: Exception) {
+                Timber.e(e, "Failed to read output of shell command: $command")
+                ""
+            }
             val exitCode = process.waitFor()
+            if (exitCode == 0) {
+                Timber.i("Shell command [$command] exited with code $exitCode, output: $output")
+            } else {
+                Timber.w("Shell command [$command] failed with exit code $exitCode, output: $output")
+            }
         } catch (e: Exception) {
             Timber.e(e, "Failed to execute shell command: $command")
         }

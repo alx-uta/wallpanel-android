@@ -100,6 +100,8 @@
     <string name="button_launch_settings">Launch Settings</string>
     <string name="toast_camera_permission_granted">Camera permission granted.</string>
     <string name="toast_camera_permission_denied">Camera permission not granted.</string>
+    <string name="toast_shell_permission_granted">Storage permission granted.</string>
+    <string name="toast_shell_permission_denied">Storage permission not granted. Shell commands remain enabled, but commands that read or write shared storage may not work.</string>
     <string name="dialog_write_permissions_title">Permissions Required</string>
     <string name="dialog_write_permissions_description">Do you want to grant permission to modify the system settings for screen brightness?</string>
     <string name="pref_title_screen_brightness">Screen Brightness</string>
