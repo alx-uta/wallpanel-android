@@ -49,6 +49,9 @@ constructor(private val context: Context){
     private var callback: SensorCallback? = null
     private var sensorsPublished: Boolean = false
     private var lightSensorEvent: SensorEvent? = null
+    // Some devices' SELinux policy denies untrusted apps read access to /proc/stat.
+    // Once that's confirmed, stop retrying every cycle instead of failing forever.
+    private var cpuUsageUnavailable: Boolean = false
 
     private val sensorUpdateRunnable = object : Runnable {
         override fun run() {
@@ -56,7 +59,9 @@ constructor(private val context: Context){
                 getBatteryReading()
                 // Run CPU and memory reading on background thread to avoid StrictMode violations
                 Thread {
-                    getCpuUsage()
+                    if (!cpuUsageUnavailable) {
+                        getCpuUsage()
+                    }
                     getMemoryUsage()
                 }.start()
                 sensorHandler.postDelayed(this, updateFrequencyMilliSeconds.toLong())
@@ -294,6 +299,9 @@ constructor(private val context: Context){
                     publishSensorData(CPU_USAGE, data)
                 }
             }
+        } catch (e: java.io.FileNotFoundException) {
+            cpuUsageUnavailable = true
+            Timber.w("CPU usage unavailable on this device (cannot read /proc/stat): ${e.message}")
         } catch (e: Exception) {
             Timber.e(e, "Error reading CPU usage")
         }

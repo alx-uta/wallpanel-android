@@ -18,7 +18,7 @@ wake | true | ```{"wake": true, "wakeTime": 180}``` | Wakes the screen if it is 
 wake | false | ```{"wake": false}``` | Release screen wake (Note: screen will not turn off before Androids Display Timeout finished)
 speak | data | ```{"speak": "Hello!"}``` | Uses the devices TTS to speak the message
 settings | data | ```{"settings": true}``` | Opens the settings screen remotely.
-brightness | data | ```{"brightness": 1}``` | Changes the screens brightness, value 1-255.
+brightness | data | ```{"brightness": 1}``` | Changes the screens brightness, value 0-255 (0 turns the backlight off).
 camera | data | ```{"camera": true}``` | Turns on/off camera, this will also disable streaming, motion, QRCode, and face detection.
 volume | data | ```{"volume": 100}``` | Changes the audio volume, value 0-100 (in %. Does not effect TTS volume).
 shell | command | ```{"shell": "log -t WallPanel hello-from-wallpanel"}``` | Runs a shell command on the device. Opt-in and unprivileged -- see [Shell Command](#shell-command) below before relying on this.

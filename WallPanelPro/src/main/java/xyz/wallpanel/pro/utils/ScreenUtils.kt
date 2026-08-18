@@ -67,9 +67,9 @@ constructor(context: Context, private val configuration: Configuration): Context
             val screenBrightness = configuration.screenBrightness
             val screenScreenBrightness = configuration.screenScreenSaverBrightness
             try {
-                if (screenBrightness in 1..255 && !screenSaver) {
+                if (screenBrightness in 0..255 && !screenSaver) {
                     Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, screenBrightness)
-                } else if (screenScreenBrightness in 1..255 && screenSaver) {
+                } else if (screenScreenBrightness in 0..255 && screenSaver) {
                     Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, screenScreenBrightness)
                 }
             } catch (e: SecurityException) {
@@ -82,7 +82,7 @@ constructor(context: Context, private val configuration: Configuration): Context
     fun updateScreenBrightness(brightness: Int) {
         if(canWriteScreenSetting()) {
             try {
-                if (brightness in 1..255) {
+                if (brightness in 0..255) {
                     Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, brightness)
                     configuration.screenBrightness = brightness
                     if(configuration.screenSaverDimValue > 0) {
