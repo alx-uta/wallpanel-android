@@ -22,6 +22,7 @@ import androidx.preference.PreferenceManager
 import androidx.test.core.app.ApplicationProvider
 import io.mockk.every
 import io.mockk.mockk
+import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Before
@@ -76,5 +77,34 @@ class ConfigurationTest {
         every { fake.getBoolean(any(), any()) } returns false
 
         assertFalse(Configuration(context, fake).isFirstTime)
+    }
+
+    @Test
+    fun `geckoViewSuspendSeconds defaults to 30`() {
+        assertEquals(30, configuration.geckoViewSuspendSeconds)
+    }
+
+    @Test
+    fun `geckoViewSuspendSeconds round-trips through SharedPreferences`() {
+        val key = context.getString(xyz.wallpanel.pro.R.string.key_use_geckoview_suspend_seconds)
+        preferences.edit().putString(key, "10").commit()
+
+        assertEquals(10, configuration.geckoViewSuspendSeconds)
+    }
+
+    @Test
+    fun `geckoViewSuspendSeconds of 0 disables suspension without falling back to the default`() {
+        val key = context.getString(xyz.wallpanel.pro.R.string.key_use_geckoview_suspend_seconds)
+        preferences.edit().putString(key, "0").commit()
+
+        assertEquals(0, configuration.geckoViewSuspendSeconds)
+    }
+
+    @Test
+    fun `geckoViewSuspendSeconds falls back to 30 on a malformed value`() {
+        val key = context.getString(xyz.wallpanel.pro.R.string.key_use_geckoview_suspend_seconds)
+        preferences.edit().putString(key, "not-a-number").commit()
+
+        assertEquals(30, configuration.geckoViewSuspendSeconds)
     }
 }

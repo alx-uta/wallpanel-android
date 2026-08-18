@@ -100,6 +100,8 @@
     <string name="button_launch_settings">Launch Settings</string>
     <string name="toast_camera_permission_granted">Camera permission granted.</string>
     <string name="toast_camera_permission_denied">Camera permission not granted.</string>
+    <string name="toast_shell_permission_granted">Storage permission granted.</string>
+    <string name="toast_shell_permission_denied">Storage permission not granted. Shell commands remain enabled, but commands that read or write shared storage may not work.</string>
     <string name="dialog_write_permissions_title">Permissions Required</string>
     <string name="dialog_write_permissions_description">Do you want to grant permission to modify the system settings for screen brightness?</string>
     <string name="pref_title_screen_brightness">Screen Brightness</string>
@@ -328,6 +330,11 @@
     <string name="default_use_geckoview">false</string>
     <string name="title_use_geckoview">Use GeckoView</string>
     <string name="summary_use_geckoview">Mozilla browser engine with modern web standards. Restart required.</string>
+
+    <string name="key_use_geckoview_suspend_seconds">pref_use_geckoview_suspend_seconds</string>
+    <string name="default_use_geckoview_suspend_seconds">30</string>
+    <string name="title_use_geckoview_suspend_seconds">GeckoView Background Suspend Delay</string>
+    <string name="summary_use_geckoview_suspend_seconds">Suspends GeckoView to stop background CPU use after the screen has been off this many seconds. Currently %1$s. 0 disables suspension.</string>
 
 
     <string-array name="flip_directions">

@@ -83,6 +83,7 @@ class SettingsFragment : BaseSettingsFragment() {
     private var screenBrightness: SwitchPreference? = null
     private var dimPreference: ListPreference? = null
     private var rotationPreference: EditTextPreference? = null
+    private var geckoSuspendPreference: EditTextPreference? = null
 
     private val fullScreenPreference: SwitchPreference by lazy {
         findPreference<SwitchPreference>(PREF_SETTINGS_FULL_SCREEN) as SwitchPreference
@@ -259,6 +260,11 @@ class SettingsFragment : BaseSettingsFragment() {
         rotationPreference?.summary = getString(R.string.preference_summary_image_rotation, configuration.imageRotation.toString())
         rotationPreference?.setDefaultValue(configuration.imageRotation.toString())
 
+        geckoSuspendPreference = findPreference(getString(R.string.key_use_geckoview_suspend_seconds))
+        geckoSuspendPreference?.text = configuration.geckoViewSuspendSeconds.toString()
+        geckoSuspendPreference?.summary = getString(R.string.summary_use_geckoview_suspend_seconds, configuration.geckoViewSuspendSeconds.toString())
+        geckoSuspendPreference?.setDefaultValue(configuration.geckoViewSuspendSeconds.toString())
+
         // Setup additional screensaver options
         webScreenSaver.isChecked = configuration.webScreenSaver
         dimScreensaver.isChecked = configuration.hasDimScreenSaver
@@ -429,6 +435,16 @@ class SettingsFragment : BaseSettingsFragment() {
                     if (rotation != null) {
                         configuration.imageRotation = rotation
                         rotationPreference?.summary = getString(R.string.preference_summary_image_rotation, rotation.toString())
+                    } else {
+                        Toast.makeText(requireContext(), getString(R.string.toast_error_bad_decimal), Toast.LENGTH_SHORT).show()
+                    }
+                }
+            }
+            getString(R.string.key_use_geckoview_suspend_seconds) -> {
+                geckoSuspendPreference?.text?.let {
+                    val seconds = it.toIntOrNull()
+                    if (seconds != null && seconds >= 0) {
+                        geckoSuspendPreference?.summary = getString(R.string.summary_use_geckoview_suspend_seconds, seconds.toString())
                     } else {
                         Toast.makeText(requireContext(), getString(R.string.toast_error_bad_decimal), Toast.LENGTH_SHORT).show()
                     }

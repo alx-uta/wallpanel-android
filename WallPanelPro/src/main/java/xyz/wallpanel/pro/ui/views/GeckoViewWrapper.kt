@@ -285,15 +285,24 @@ class GeckoViewWrapper(
     }
 
     /**
-     * Clean up resources
+     * Tear down the content process without opening a replacement. Unlike setActive(false),
+     * which merely throttles the page, this leaves no process behind to burn background CPU
+     * or be killed by Android. Call recreateSession() to bring the session back.
      */
-    fun destroy() {
+    fun suspend() {
         closeSessionQuietly()
         try {
             geckoView.releaseSession()
         } catch (e: Exception) {
             Timber.e(e, "Error releasing GeckoSession from the view")
         }
+    }
+
+    /**
+     * Clean up resources
+     */
+    fun destroy() {
+        suspend()
     }
 
     /**

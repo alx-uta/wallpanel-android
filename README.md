@@ -67,7 +67,7 @@ For issues, feature requests, use the [Github issues tracker](https://github.com
 - MQTT or HTTP commands to remotely control device and application (url, brightness, wake, etc.).
 - Sensor data reporting for the device (temperature, light, pressure, battery, CPU usage, memory usage).
 - System resource monitoring with CPU and memory sensors for device health tracking.
-- Remote shell command execution via MQTT/HTTP (opt-in, security warning).
+- Remote shell command execution via MQTT/HTTP (opt-in, security warning, runs unprivileged -- see the [Shell Command docs](https://wallpanel.xyz/docs/remote-control/commands#shell-command) for what does and doesn't work).
 - Streaming MJPEG server support using the device camera.
 - Screensaver feature that can be dismissed with motion or face detection.
 - Support for Android 4.4 (API level 19) and greater devices.

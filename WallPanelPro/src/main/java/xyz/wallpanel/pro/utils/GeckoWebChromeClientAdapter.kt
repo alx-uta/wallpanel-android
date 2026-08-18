@@ -103,6 +103,12 @@ class GeckoWebChromeClientAdapter(
             GeckoSession.PermissionDelegate.PERMISSION_PERSISTENT_STORAGE -> {
                 return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW)
             }
+            GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_INAUDIBLE -> {
+                return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW)
+            }
+            GeckoSession.PermissionDelegate.PERMISSION_AUTOPLAY_AUDIBLE -> {
+                return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_ALLOW)
+            }
             else -> {
                 return GeckoResult.fromValue(GeckoSession.PermissionDelegate.ContentPermission.VALUE_DENY)
             }
