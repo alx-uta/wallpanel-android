@@ -83,6 +83,13 @@
             android:title="@string/title_use_geckoview"
             android:summary="@string/summary_use_geckoview"/>
 
+        <EditTextPreference
+            android:defaultValue="@string/default_use_geckoview_suspend_seconds"
+            android:key="@string/key_use_geckoview_suspend_seconds"
+            android:title="@string/title_use_geckoview_suspend_seconds"
+            android:summary="@string/summary_use_geckoview_suspend_seconds"
+            android:inputType="number"/>
+
         <SwitchPreference
             android:defaultValue="@string/default_setting_ignore_ssl_errors"
             android:key="@string/key_setting_ignore_ssl_errors"

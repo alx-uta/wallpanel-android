@@ -331,6 +331,11 @@
     <string name="title_use_geckoview">Use GeckoView</string>
     <string name="summary_use_geckoview">Mozilla browser engine with modern web standards. Restart required.</string>
 
+    <string name="key_use_geckoview_suspend_seconds">pref_use_geckoview_suspend_seconds</string>
+    <string name="default_use_geckoview_suspend_seconds">30</string>
+    <string name="title_use_geckoview_suspend_seconds">GeckoView Background Suspend Delay</string>
+    <string name="summary_use_geckoview_suspend_seconds">Suspends GeckoView to stop background CPU use after the screen has been off this many seconds. Currently %1$s. 0 disables suspension.</string>
+
 
     <string-array name="flip_directions">
         <item>None</item>

@@ -302,6 +302,18 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
             settingsUpdated()
         }
 
+    // How long the screen can stay off before the GeckoView session is torn down to stop
+    // background CPU use.
+    val geckoViewSuspendSeconds: Int
+        get() = try {
+            getStringPref(
+                R.string.key_use_geckoview_suspend_seconds,
+                R.string.default_use_geckoview_suspend_seconds
+            ).trim().toInt()
+        } catch (e: Exception) {
+            30
+        }
+
     val cameraFPS: Float
         get() = try {
             getStringPref(R.string.key_setting_camera_fps, R.string.default_camera_fps).trim().toFloat()

@@ -71,9 +71,21 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     private var webkitPermissionRequest: PermissionRequest? = null
     private var awaitingReconnect = false
     private var browserEnginePaused = false
+    private var pendingGeckoReloadOnResume = false
 
     private val reloadPageRunnable = Runnable {
         initWebPageLoad()
+    }
+
+    // Android kills a cached GeckoView content process for excessive background CPU after
+    // about 5 minutes; setActive(false) alone doesn't stop a websocket-driven dashboard from
+    // burning that CPU. Rather than wait to be killed, tear the session down deliberately
+    // once the screen has been off longer than the configured grace period.
+    private val geckoSuspendRunnable = Runnable {
+        if (!isFinishing && usingGeckoView && browserEnginePaused) {
+            geckoViewWrapper?.suspend()
+            pendingGeckoReloadOnResume = true
+        }
     }
 
     // To save current index
@@ -204,6 +216,14 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         browserEnginePaused = true
         if (usingGeckoView) {
             geckoViewWrapper?.setActive(false)
+            reconnectionHandler.removeCallbacks(geckoSuspendRunnable)
+            val suspendDelaySeconds = configuration.geckoViewSuspendSeconds
+            if (suspendDelaySeconds > 0) {
+                reconnectionHandler.postDelayed(
+                    geckoSuspendRunnable,
+                    TimeUnit.SECONDS.toMillis(suspendDelaySeconds.toLong())
+                )
+            }
         } else {
             webView?.onPause()
             webView?.pauseTimers()
@@ -213,11 +233,33 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     override fun resumeBrowserEngine() {
         browserEnginePaused = false
         if (usingGeckoView) {
+            reconnectionHandler.removeCallbacks(geckoSuspendRunnable)
             geckoViewWrapper?.setActive(true)
+            reloadGeckoIfPending()
         } else {
             webView?.onResume()
             webView?.resumeTimers()
         }
+    }
+
+    /**
+     * Bring the page back after either a deliberate suspend() (no session at all) or a
+     * recreateGeckoSession() that deferred its reload while the screen was off (an empty
+     * but open session).
+     * Either way the dashboard needs loading once the screen wakes.
+     */
+    private fun reloadGeckoIfPending() {
+        if (!pendingGeckoReloadOnResume) {
+            return
+        }
+        pendingGeckoReloadOnResume = false
+        val wrapper = geckoViewWrapper ?: return
+        if (wrapper.geckoSession == null && wrapper.recreateSession()) {
+            wrapper.geckoSession?.let { session ->
+                geckoClientAdapter?.setGeckoSession(session)
+            }
+        }
+        initWebPageLoad()
     }
 
     override fun openSettings() {
@@ -411,7 +453,14 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
                 // A fresh session starts out visible, so a kill that happens while the
                 // screen is off would otherwise leave the page running at full rate again
                 wrapper.setActive(browserEnginePaused.not())
-                initWebPageLoad()
+                if (browserEnginePaused) {
+                    // Reloading the dashboard behind a dark screen re-arms the CPU burn that
+                    // got the content process killed, so the empty session is left alone until
+                    // the screen comes back
+                    pendingGeckoReloadOnResume = true
+                } else {
+                    initWebPageLoad()
+                }
             }
         }
     }
