@@ -16,6 +16,7 @@
 
 package xyz.wallpanel.pro.ui.activities
 
+import android.Manifest
 import android.annotation.SuppressLint
 import android.content.Intent
 import android.content.pm.PackageManager
@@ -38,6 +39,7 @@ import androidx.lifecycle.LifecycleObserver
 import xyz.wallpanel.pro.databinding.ActivityBrowserBinding
 import xyz.wallpanel.pro.network.ConnectionLiveData
 import xyz.wallpanel.pro.ui.fragments.CodeBottomSheetFragment
+import xyz.wallpanel.pro.utils.AppRestartHelper
 import xyz.wallpanel.pro.utils.InternalWebChromeClient
 import xyz.wallpanel.pro.ui.views.WebClientCallback
 import xyz.wallpanel.pro.utils.InternalWebClient
@@ -149,6 +151,55 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         configureConnection()
         configureWebView(binding.root)
         initWebPageLoad()
+        requestNotificationPermissions()
+    }
+
+    override fun onResume() {
+        super.onResume()
+        // The browser is back, so the notification offering to reopen it has served its purpose
+        AppRestartHelper.cancelRestartNotification(this)
+    }
+
+    /**
+     * A restart posts a notification to bring the browser back, which on API 33 and above is
+     * silently dropped without this permission. It is asked for once, and the application
+     * carries on either way.
+     */
+    private fun requestNotificationPermissions() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.TIRAMISU || configuration.notificationPermissionsShown) {
+            return
+        }
+        configuration.notificationPermissionsShown = true
+        if (PackageManager.PERMISSION_DENIED == ContextCompat.checkSelfPermission(
+                this,
+                Manifest.permission.POST_NOTIFICATIONS
+            )
+        ) {
+            ActivityCompat.requestPermissions(
+                this,
+                arrayOf(Manifest.permission.POST_NOTIFICATIONS),
+                PERMISSIONS_REQUEST_NOTIFICATIONS
+            )
+        }
+    }
+
+    override fun onRequestPermissionsResult(
+        requestCode: Int,
+        permissions: Array<String>,
+        grantResults: IntArray
+    ) {
+        super.onRequestPermissionsResult(requestCode, permissions, grantResults)
+        if (requestCode == PERMISSIONS_REQUEST_NOTIFICATIONS) {
+            // If request is cancelled, the result arrays are empty.
+            if (grantResults.isEmpty() || grantResults.any { it != PackageManager.PERMISSION_GRANTED }) {
+                Timber.d("Notification permission was not granted")
+                Toast.makeText(
+                    this,
+                    R.string.toast_notification_permission_denied,
+                    Toast.LENGTH_LONG
+                ).show()
+            }
+        }
     }
 
     override fun onStart() {
@@ -703,4 +754,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
     }
 
+    companion object {
+        const val PERMISSIONS_REQUEST_NOTIFICATIONS = 220
+    }
 }

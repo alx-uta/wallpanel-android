@@ -73,6 +73,7 @@ class SettingsFragment : BaseSettingsFragment() {
     private var mqttPreference: Preference? = null
     private var httpPreference: Preference? = null
     private var sensorsPreference: Preference? = null
+    private var scheduledTasksPreference: Preference? = null
     private var aboutPreference: Preference? = null
     private var brightnessPreference: Preference? = null
     private var clearCachePreference: Preference? = null
@@ -251,6 +252,7 @@ class SettingsFragment : BaseSettingsFragment() {
         mqttPreference = findPreference("button_key_mqtt")
         httpPreference = findPreference("button_key_http")
         sensorsPreference = findPreference("button_key_sensors")
+        scheduledTasksPreference = findPreference("button_key_scheduled_tasks")
         aboutPreference = findPreference("button_key_about")
         brightnessPreference = findPreference("button_key_brightness")
         clearCachePreference = findPreference("button_clear_cache")
@@ -296,6 +298,10 @@ class SettingsFragment : BaseSettingsFragment() {
             }
             sensorsPreference?.onPreferenceClickListener = Preference.OnPreferenceClickListener { preference ->
                 view.let { Navigation.findNavController(it).navigate(R.id.sensors_action) }
+                false
+            }
+            scheduledTasksPreference?.onPreferenceClickListener = Preference.OnPreferenceClickListener { preference ->
+                view.let { Navigation.findNavController(it).navigate(R.id.scheduled_tasks_action) }
                 false
             }
             codePreference.onPreferenceClickListener = Preference.OnPreferenceClickListener {

@@ -17,31 +17,13 @@
 package xyz.wallpanel.pro
 
 import android.app.Activity
-import android.app.AlarmManager
-import android.app.PendingIntent
-import android.content.Context
-import android.content.Intent
-import android.os.Build
-import xyz.wallpanel.pro.ui.activities.BrowserActivityNative
-import kotlin.system.exitProcess
+import timber.log.Timber
+import xyz.wallpanel.pro.utils.AppRestartHelper
 
 class AppExceptionHandler(private val activity: Activity) : Thread.UncaughtExceptionHandler {
     override fun uncaughtException(thread: Thread, ex: Throwable) {
-        val intent = Intent(activity, BrowserActivityNative::class.java)
-        intent.addFlags(Intent.FLAG_ACTIVITY_CLEAR_TOP
-                or Intent.FLAG_ACTIVITY_CLEAR_TASK
-                or Intent.FLAG_ACTIVITY_NEW_TASK)
-        
-        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            PendingIntent.FLAG_ONE_SHOT or PendingIntent.FLAG_IMMUTABLE
-        } else {
-            PendingIntent.FLAG_ONE_SHOT
-        }
-        val pendingIntent = PendingIntent.getActivity(activity.applicationContext, 0, intent, flags)
-        
-        val mgr = activity.applicationContext.getSystemService(Context.ALARM_SERVICE) as AlarmManager
-        mgr[AlarmManager.RTC, System.currentTimeMillis() + 1000] = pendingIntent
+        Timber.e(ex, "Uncaught exception on thread ${thread.name}, restarting the application")
         activity.finish()
-        exitProcess(2)
+        AppRestartHelper.restartApplication(activity)
     }
 }

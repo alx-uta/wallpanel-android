@@ -18,6 +18,13 @@
         tools:ignore="ProtectedPermissions" /> <!-- Optional supported features -->
     <uses-permission android:name="android.permission.HIGH_SAMPLING_RATE_SENSORS" />
     <!--
+      A restart ends the process, and from API 29 a background application may not start an
+      activity, so the browser is brought back by a full screen intent on a high importance
+      notification. POST_NOTIFICATIONS is requested at runtime on API 33 and above.
+    -->
+    <uses-permission android:name="android.permission.USE_FULL_SCREEN_INTENT" />
+    <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!--
       Only requested when the optional shell command feature is enabled, and only useful on
       API 23-28. From API 29 scoped storage applies (targetSdkVersion 33), so these grant no
       broad file access and are capped with maxSdkVersion.
@@ -109,6 +116,12 @@
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
             </intent-filter>
         </receiver>
+
+        <!-- Only the application's own alarms target this receiver. -->
+        <receiver
+            android:name="xyz.wallpanel.pro.ScheduledTaskReceiver"
+            android:enabled="true"
+            android:exported="false" />
 
         <meta-data
             android:name="com.google.android.gms.vision.DEPENDENCIES"

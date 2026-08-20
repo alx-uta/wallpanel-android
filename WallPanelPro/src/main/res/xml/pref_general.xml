@@ -230,6 +230,11 @@
             android:key="button_key_sensors"
             android:title="@string/title_sensor_settings"/>
 
+        <Preference
+            android:key="button_key_scheduled_tasks"
+            android:title="@string/title_scheduled_tasks"
+            android:summary="@string/summary_scheduled_tasks"/>
+
     </PreferenceCategory>
 
     <Preference

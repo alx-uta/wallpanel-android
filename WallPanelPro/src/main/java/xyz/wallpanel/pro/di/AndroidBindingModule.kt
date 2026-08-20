@@ -79,4 +79,7 @@ internal abstract class AndroidBindingModule {
 
     @ContributesAndroidInjector
     internal abstract fun sensorsSettings(): SensorsSettingsFragment
+
+    @ContributesAndroidInjector
+    internal abstract fun scheduledTasksSettings(): ScheduledTasksFragment
 }

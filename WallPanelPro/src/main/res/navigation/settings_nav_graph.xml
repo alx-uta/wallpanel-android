@@ -22,6 +22,7 @@
         <action android:id="@+id/mqtt_action" app:destination="@id/mqtt_fragment"/>
         <action android:id="@+id/http_action" app:destination="@id/http_fragment"/>
         <action android:id="@+id/sensors_action" app:destination="@id/sensors_fragment"/>
+        <action android:id="@+id/scheduled_tasks_action" app:destination="@id/scheduled_tasks_fragment"/>
         <action android:id="@+id/about_action" app:destination="@id/about_fragment"/>
     </fragment>
 
@@ -58,6 +59,12 @@
     <fragment android:id="@+id/http_fragment"
         android:label="@string/title_http_settings"
         android:name="xyz.wallpanel.pro.ui.fragments.HttpSettingsFragment" >
+        <action android:id="@+id/settings_action" app:destination="@id/settings_fragment"/>
+    </fragment>
+
+    <fragment android:id="@+id/scheduled_tasks_fragment"
+        android:label="@string/title_scheduled_tasks"
+        android:name="xyz.wallpanel.pro.ui.fragments.ScheduledTasksFragment" >
         <action android:id="@+id/settings_action" app:destination="@id/settings_fragment"/>
     </fragment>
 

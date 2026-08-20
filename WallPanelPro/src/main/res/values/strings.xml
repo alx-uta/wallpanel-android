@@ -102,6 +102,7 @@
     <string name="toast_camera_permission_denied">Camera permission not granted.</string>
     <string name="toast_shell_permission_granted">Storage permission granted.</string>
     <string name="toast_shell_permission_denied">Storage permission not granted. Shell commands remain enabled, but commands that read or write shared storage may not work.</string>
+    <string name="toast_notification_permission_denied">Notification permission not granted. The application may stay closed after it restarts itself.</string>
     <string name="dialog_write_permissions_title">Permissions Required</string>
     <string name="dialog_write_permissions_description">Do you want to grant permission to modify the system settings for screen brightness?</string>
     <string name="pref_title_screen_brightness">Screen Brightness</string>
@@ -185,6 +186,10 @@
     <string name="error_mqtt_subscription">Couldn\'t subscribe to the MQTT topics, check the MQTT broker settings or your connection.</string>
     <string name="text_android_channel_name">WallPanel Pro Running</string>
     <string name="text_android_channel_description">WallPanel Pro Running…</string>
+    <string name="text_restart_channel_name">WallPanel Pro Restarting</string>
+    <string name="text_restart_channel_description">Reopens the dashboard after the application restarts.</string>
+    <string name="text_restart_notification_title">WallPanel Pro Restarting</string>
+    <string name="text_restart_notification_message">Tap to reopen the dashboard.</string>
     <string name="text_camera_front">Front</string>
     <string name="text_camera_back">Back</string>
     <string name="toast_camera_source_error">Could not start camera source, you may want to try again.</string>
@@ -336,6 +341,52 @@
     <string name="title_use_geckoview_suspend_seconds">GeckoView Background Suspend Delay</string>
     <string name="summary_use_geckoview_suspend_seconds">Suspends GeckoView to stop background CPU use after the screen has been off this many seconds. Currently %1$s. 0 disables suspension.</string>
 
+
+    <!-- Scheduled Tasks -->
+    <string name="key_setting_schedules">pref_scheduled_tasks</string>
+    <string name="title_scheduled_tasks">Scheduled Tasks</string>
+    <string name="summary_scheduled_tasks">Run an action at a set time on the days you choose.</string>
+    <string name="text_no_scheduled_tasks">No scheduled tasks yet. Use the + button to add one.</string>
+    <string name="menu_title_add_schedule">Add Task</string>
+    <string name="content_description_delete_schedule">Delete task</string>
+    <string name="dialog_title_add_schedule">Add Task</string>
+    <string name="dialog_title_edit_schedule">Edit Task</string>
+    <string name="schedule_label_time">Time</string>
+    <string name="schedule_label_days">Days</string>
+    <string name="schedule_label_action">Action</string>
+    <string name="schedule_label_enabled">Enabled</string>
+    <string name="schedule_hint_url">Dashboard or page URL</string>
+    <string name="schedule_hint_shell">Shell command</string>
+    <string name="schedule_summary_every_day">Every day</string>
+    <string name="schedule_summary_separator">" · "</string>
+    <string name="schedule_summary_disabled">Disabled</string>
+    <string name="schedule_time_format">%1$02d:%2$02d</string>
+    <string name="schedule_shell_disabled_warning">Shell commands are turned off. Turn on Shell Commands in HTTP Settings for this task to run.</string>
+    <string name="button_delete">Delete</string>
+    <string name="button_save">Save</string>
+    <string name="toast_schedule_saved">Task saved.</string>
+    <string name="toast_schedule_deleted">Task deleted.</string>
+    <string name="toast_schedule_no_days">Choose at least one day.</string>
+    <string name="toast_schedule_payload_required">Enter a value for this action.</string>
+
+    <string-array name="schedule_action_names">
+        <item>Restart Application</item>
+        <item>Reload Page</item>
+        <item>Clear Cache</item>
+        <item>Relaunch Dashboard</item>
+        <item>Browse To URL</item>
+        <item>Shell Command</item>
+    </string-array>
+
+    <string-array name="schedule_day_names_short">
+        <item>Sun</item>
+        <item>Mon</item>
+        <item>Tue</item>
+        <item>Wed</item>
+        <item>Thu</item>
+        <item>Fri</item>
+        <item>Sat</item>
+    </string-array>
 
     <string-array name="flip_directions">
         <item>None</item>

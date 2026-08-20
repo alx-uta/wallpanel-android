@@ -13,6 +13,7 @@ eval | JavaScript | ```{"eval": "alert('Hello World!');"}``` | Evaluates Javascr
 audio | URL | ```{"audio": "http://<url>"}``` | Play the audio specified by the URL immediately
 relaunch | true | ```{"relaunch": true}``` | Relaunches the dashboard from configured launchUrl
 reload | true | ```{"reload": true}``` | Reloads the current page immediately
+restartApp | true | ```{"restartApp": true}``` | Restarts the WallPanel app (kills and relaunches the process) -- this is not a device reboot
 url | URL | ```{"url": "http://<url>"}``` | Browse to a new URL immediately
 wake | true | ```{"wake": true, "wakeTime": 180}``` | Wakes the screen if it is asleep. Optional wakeTime (in seconds). If no wake time provided, screen will wake but return to screensaver mode on user inactivity.  Sending false value will return app to normal screensaver mode and display screensaver on user inactivity.
 wake | false | ```{"wake": false}``` | Release screen wake (Note: screen will not turn off before Androids Display Timeout finished)
