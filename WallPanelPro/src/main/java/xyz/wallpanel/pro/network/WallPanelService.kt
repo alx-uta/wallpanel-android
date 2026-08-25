@@ -47,11 +47,13 @@ import timber.log.Timber
 import xyz.wallpanel.pro.R
 import xyz.wallpanel.pro.modules.*
 import xyz.wallpanel.pro.persistence.Configuration
+import xyz.wallpanel.pro.persistence.ScheduleRepository
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_CLEAR_BROWSER_CACHE
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_JS_EXEC
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_LOAD_URL
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_OPEN_SETTINGS
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_RELOAD_PAGE
+import xyz.wallpanel.pro.utils.AppRestartHelper
 import xyz.wallpanel.pro.utils.MqttUtils
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_AUDIO
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_BRIGHTNESS
@@ -60,6 +62,7 @@ import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CLEAR_CACHE
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_EVAL
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELAUNCH
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELOAD
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RESTART_APP
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR_FACE
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR_MOTION
@@ -74,6 +77,7 @@ import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_WAKE
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_WAKETIME
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.VALUE
 import xyz.wallpanel.pro.utils.NotificationUtils
+import xyz.wallpanel.pro.utils.ScheduledTaskAlarmScheduler
 import xyz.wallpanel.pro.utils.ScreenUtils
 import java.io.IOException
 import java.nio.ByteBuffer
@@ -98,6 +102,9 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     @Inject
     lateinit var screenUtils: ScreenUtils
+
+    @Inject
+    lateinit var scheduleRepository: ScheduleRepository
 
     private val mJpegSockets = ArrayList<AsyncHttpServerResponse>()
     private var cpuWakeLock: PowerManager.WakeLock? = null
@@ -197,6 +204,29 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         localBroadCastManager?.registerReceiver(mBroadcastReceiver, filter)
 
         registerSystemBroadcastReceiver()
+
+        // Safety net for the alarms: they are dropped on reboot and on a system initiated
+        // clear of the application's data, so they are re-armed whenever the service starts.
+        ScheduledTaskAlarmScheduler.scheduleAll(applicationContext, scheduleRepository)
+    }
+
+    /**
+     * Commands sent from outside the service, currently by the scheduled task receiver,
+     * arrive here as an [ACTION_RUN_COMMAND] intent and go through the same command
+     * handling as MQTT and HTTP.
+     */
+    override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
+        val result = super.onStartCommand(intent, flags, startId)
+        if (intent?.action == ACTION_RUN_COMMAND) {
+            val command = intent.getStringExtra(EXTRA_COMMAND_JSON)
+            if (command.isNullOrEmpty()) {
+                Timber.w("Received a run command intent without a command")
+            } else {
+                Timber.i("Running command from an intent: $command")
+                processCommand(command)
+            }
+        }
+        return result
     }
 
     /**
@@ -492,8 +522,19 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             Timber.i("Started HTTP server on " + configuration.httpPort)
         }
 
-        if (httpServer != null && configuration.httpRestEnabled) {
+        if (httpServer != null) {
+            // Registered whenever the HTTP server itself is running, but gated on
+            // configuration.httpRestEnabled inside each handler rather than at registration
+            // time: the server is only (re)started from onCreate(), so a route that checked
+            // the flag just once here would keep answering with its startup value for the
+            // life of the process, ignoring the setting being switched off afterward -- the
+            // same live-check approach the shell command already uses for its own toggle.
             httpServer?.addAction("POST", "/api/command") { request, response ->
+                if (!configuration.httpRestEnabled) {
+                    response.code(403)
+                    response.send("REST API is disabled")
+                    return@addAction
+                }
                 var result = false
                 if (request.body is JSONObjectBody) {
                     Timber.i("POST Json Arrived (command)")
@@ -513,10 +554,15 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             }
 
             httpServer?.addAction("GET", "/api/state") { request, response ->
+                if (!configuration.httpRestEnabled) {
+                    response.code(403)
+                    response.send("REST API is disabled")
+                    return@addAction
+                }
                 Timber.i("GET Arrived (/api/state)")
                 response.send(state)
             }
-            Timber.i("Enabled REST Endpoints")
+            Timber.i("Registered REST endpoints")
         }
 
         if (httpServer != null && configuration.httpMJPEGEnabled) {
@@ -685,12 +731,27 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             if (commandJson.has(COMMAND_SHELL) && configuration.httpShellEnabled) {
                 executeShellCommand(commandJson.getString(COMMAND_SHELL))
             }
+            // Kept last, it does not return.
+            if (commandJson.has(COMMAND_RESTART_APP)) {
+                if (commandJson.getBoolean(COMMAND_RESTART_APP)) {
+                    restartApplication()
+                }
+            }
         } catch (ex: JSONException) {
             Timber.e("Invalid JSON passed as a command: " + commandJson.toString())
             return false
         }
 
         return true
+    }
+
+    /**
+     * Ends the process and books the browser to come back, the same way the application
+     * recovers from an uncaught exception. Alarms held by the system, including the
+     * scheduled tasks, are unaffected by the process ending.
+     */
+    private fun restartApplication() {
+        AppRestartHelper.restartApplication(applicationContext, RESTART_EXIT_DELAY_MS)
     }
 
     private fun executeShellCommand(command: String) {
@@ -1225,5 +1286,16 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         const val BROADCAST_CAMERA_START_SCREENSAVER = "BROADCAST_CAMERA_START_SCREENSAVER"
         const val BROADCAST_CAMERA_STOP_SCREENSAVER = "BROADCAST_CAMERA_STOP_SCREENSAVER"
         const val BROADCAST_CONNTED = "BROADCAST_SCREEN_BRIGHTNESS_CHANGE"
+        const val ACTION_RUN_COMMAND = "xyz.wallpanel.pro.action.RUN_COMMAND"
+        const val EXTRA_COMMAND_JSON = "EXTRA_COMMAND_JSON"
+
+        /**
+         * The process exit is delayed rather than immediate: when a restart is reached from
+         * onStartCommand(), a scheduled task, exiting before that call returns kills the
+         * process mid Binder-transaction, which the system reads as an incomplete start and
+         * redelivers the same command to the relaunched process -- observed on-device as
+         * three restarts in a row instead of one. The delay lets onStartCommand() return.
+         */
+        const val RESTART_EXIT_DELAY_MS = 300L
     }
 }

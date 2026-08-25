@@ -21,13 +21,23 @@ import android.content.Context
 import android.content.Intent
 import androidx.preference.PreferenceManager
 import xyz.wallpanel.pro.R
+import xyz.wallpanel.pro.persistence.ScheduleRepository
 import xyz.wallpanel.pro.ui.activities.BrowserActivityNative
+import xyz.wallpanel.pro.utils.ScheduledTaskAlarmScheduler
 
 class BootUpReceiver : BroadcastReceiver() {
 
     override fun onReceive(context: Context, intent: Intent) {
         if (Intent.ACTION_BOOT_COMPLETED.equals(intent.action)) {
             val sharedPreferences = PreferenceManager.getDefaultSharedPreferences(context.applicationContext)
+
+            // AlarmManager drops every alarm on reboot, so the scheduled tasks are armed again
+            // whether or not the application itself opens on boot.
+            ScheduledTaskAlarmScheduler.scheduleAll(
+                context.applicationContext,
+                ScheduleRepository(context.applicationContext, sharedPreferences)
+            )
+
             val startOnBoot = sharedPreferences.getBoolean(context.getString(R.string.key_setting_android_startonboot), false)
             if (startOnBoot) {
                 val i = Intent(context, BrowserActivityNative::class.java)
