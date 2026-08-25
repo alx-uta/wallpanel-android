@@ -24,6 +24,7 @@ import android.content.Intent
 import android.content.IntentFilter
 import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
+import android.content.pm.ServiceInfo
 import android.hardware.display.DisplayManager
 import android.media.MediaPlayer
 import android.net.wifi.WifiManager
@@ -286,7 +287,15 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         // make a continuously running notification
         val notificationUtils = NotificationUtils(applicationContext, application.resources)
         val notification = notificationUtils.createNotification(getString(R.string.wallpanel_service_notification_title), getString(R.string.wallpanel_service_notification_message))
-        startForeground(ONGOING_NOTIFICATION_ID, notification)
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.Q) {
+            startForeground(
+                ONGOING_NOTIFICATION_ID,
+                notification,
+                ServiceInfo.FOREGROUND_SERVICE_TYPE_CAMERA
+            )
+        } else {
+            startForeground(ONGOING_NOTIFICATION_ID, notification)
+        }
 
         // listen for network connectivity changes
         connectionLiveData = ConnectionLiveData(this)
@@ -1174,7 +1183,10 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             Timber.i("Motion detected")
             if (configuration.cameraMotionWake) {
                 configurePowerOptions()
-                wakeScreen()
+                // Motion must acquire the screen wake lock as well as notify the UI.
+                // BROADCAST_SCREEN_WAKE alone only resets the screensaver/inactivity timer
+                // and cannot wake a physically sleeping display on modern Android.
+                wakeScreenOn(SCREEN_WAKE_TIME)
             }
             publishMotionDetected()
         }
@@ -1192,7 +1204,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             Timber.i("Face detected")
             if (configuration.cameraFaceWake) {
                 configurePowerOptions()
-                wakeScreen() // temp turn on screen
+                wakeScreenOn(SCREEN_WAKE_TIME) // temporarily turn on the physical display
             }
             publishFaceDetected()
         }
