@@ -42,6 +42,7 @@
         <item name="android:backgroundDimEnabled">false</item>
         <item name="buttonBarNegativeButtonStyle">@style/DialogButtonStyle</item>
         <item name="buttonBarPositiveButtonStyle">@style/DialogButtonStyle</item>
+        <item name="buttonBarNeutralButtonStyle">@style/DialogButtonStyle</item>
         <item name="android:background">@color/dialogBackgroundColor</item>
     </style>
 

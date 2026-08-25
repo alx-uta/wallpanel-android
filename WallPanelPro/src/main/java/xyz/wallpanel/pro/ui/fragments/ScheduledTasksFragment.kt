@@ -104,6 +104,8 @@ class ScheduledTasksFragment : Fragment() {
             list.adapter = adapter
         }
 
+        binding?.addScheduleFab?.setOnClickListener { showEditDialog(null) }
+
         showSchedules()
     }
 

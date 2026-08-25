@@ -19,7 +19,7 @@
 
     <item
         android:id="@+id/action_add_schedule"
-        app:showAsAction="ifRoom"
+        app:showAsAction="always"
         android:icon="@drawable/ic_baseline_add"
         android:title="@string/menu_title_add_schedule">
     </item>
