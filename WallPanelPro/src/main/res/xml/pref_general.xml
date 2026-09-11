@@ -123,6 +123,12 @@
     <PreferenceCategory android:title="Settings Button">
 
         <SwitchPreference
+            android:defaultValue="@string/default_setting_settings_code_required"
+            android:key="@string/key_setting_settings_code_required"
+            android:title="@string/preference_title_settings_code_required"
+            android:summary="@string/preference_summary_settings_code_required" />
+
+        <SwitchPreference
             android:defaultValue="false"
             android:title="Settings Disabled"
             android:summary="Disable and removes the settings button from screen. (Warning!! settings can only be opened with MQTT command 'settings')"
@@ -242,4 +248,3 @@
         android:title="@string/pref_about_title"/>
 
 </PreferenceScreen>
-

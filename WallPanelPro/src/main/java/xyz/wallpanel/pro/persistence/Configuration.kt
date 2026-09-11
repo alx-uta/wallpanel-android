@@ -49,6 +49,12 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         }
         set(value) = this.sharedPreferences.edit().putString(PREF_SETTINGS_CODE_STRING, value).apply()
 
+    val settingsCodeRequired: Boolean
+        get() = getBoolPref(
+            R.string.key_setting_settings_code_required,
+            R.string.default_setting_settings_code_required
+        )
+
     var fullScreen: Boolean
         get() = this.sharedPreferences.getBoolean(PREF_FULL_SCREEN, true)
         set(value) = this.sharedPreferences.edit().putBoolean(PREF_FULL_SCREEN, value).apply()

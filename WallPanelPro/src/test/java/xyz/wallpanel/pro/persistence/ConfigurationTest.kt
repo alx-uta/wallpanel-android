@@ -64,6 +64,19 @@ class ConfigurationTest {
     }
 
     @Test
+    fun `settings code is required by default`() {
+        assertTrue(configuration.settingsCodeRequired)
+    }
+
+    @Test
+    fun `settings code requirement reads persisted preference value`() {
+        val key = context.getString(xyz.wallpanel.pro.R.string.key_setting_settings_code_required)
+        preferences.edit().putBoolean(key, false).commit()
+
+        assertFalse(configuration.settingsCodeRequired)
+    }
+
+    @Test
     fun `reads a boolean preference that was set externally`() {
         val key = context.getString(xyz.wallpanel.pro.R.string.key_setting_app_preventsleep)
         preferences.edit().putBoolean(key, true).commit()
