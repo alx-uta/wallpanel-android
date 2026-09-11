@@ -18,14 +18,21 @@ package xyz.wallpanel.pro.network
 
 import android.annotation.SuppressLint
 import android.app.KeyguardManager
+import android.app.admin.DevicePolicyManager
 import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
+import android.media.AudioManager
 import android.media.MediaPlayer
+import android.net.ConnectivityManager
+import android.net.LinkProperties
+import android.net.Network
+import android.net.NetworkCapabilities
+import android.net.NetworkRequest
+import android.net.wifi.WifiInfo
 import android.net.wifi.WifiManager
 import android.os.*
 import android.view.Display
@@ -54,6 +61,7 @@ import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_A
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_OPEN_SETTINGS
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_RELOAD_PAGE
 import xyz.wallpanel.pro.utils.AppRestartHelper
+import xyz.wallpanel.pro.utils.MqttDiscoverySensors
 import xyz.wallpanel.pro.utils.MqttUtils
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_AUDIO
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_BRIGHTNESS
@@ -80,6 +88,7 @@ import xyz.wallpanel.pro.utils.NotificationUtils
 import xyz.wallpanel.pro.utils.ScheduledTaskAlarmScheduler
 import xyz.wallpanel.pro.utils.ScreenUtils
 import java.io.IOException
+import java.net.Inet4Address
 import java.nio.ByteBuffer
 import java.util.*
 import java.util.concurrent.atomic.AtomicBoolean
@@ -126,6 +135,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     private var hasNetwork = AtomicBoolean(true)
     private var motionDetected: Boolean = false
     private var appStatePublished: Boolean = false
+    private var appStatePublishPending: Boolean = false
     private var qrCodeRead: Boolean = false
     private var isScreenSaverActive: Boolean = false
     private var faceDetected: Boolean = false
@@ -136,6 +146,42 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     private var mqttConnecting = false
     private var mqttInitConnection = AtomicBoolean(true)
     private var systemReceiverRegistered = false
+    @Volatile private var wifiNetworkState = WifiNetworkState()
+    @Volatile private var activeIpAddress: String? = null
+    private val wifiNetworkStateLock = Any()
+    private val networkStateRefreshLock = Any()
+    private var wifiNetworkCallbackRegistered = false
+    private var activeNetworkCallbackRegistered = false
+    private var networkStateRefreshPending = false
+    private var wifiSsidUnavailableLogged = false
+
+    private data class WifiNetworkState(
+        val network: Network? = null,
+        val signal: Int? = null,
+        val ssid: String? = null
+    )
+
+    private val appVersion: String by lazy {
+        try {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
+                packageManager.getPackageInfo(packageName, PackageManager.PackageInfoFlags.of(0)).versionName.orEmpty()
+            } else {
+                @Suppress("DEPRECATION")
+                packageManager.getPackageInfo(packageName, 0).versionName.orEmpty()
+            }
+        } catch (e: Exception) {
+            Timber.w(e, "Unable to read application version")
+            ""
+        }
+    }
+
+    private val appStateCooldownRunnable = Runnable {
+        appStatePublished = false
+        if (appStatePublishPending) {
+            appStatePublishPending = false
+            publishApplicationState()
+        }
+    }
 
     private val restartMqttRunnable = Runnable {
         clearAlertMessage() // clear any dialogs
@@ -156,6 +202,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         AndroidInjection.inject(this)
 
         startForeground()
+        registerWifiNetworkCallback()
+        registerActiveNetworkCallback()
 
         // prepare the lock types we may use
         val pm = getSystemService(Context.POWER_SERVICE) as PowerManager
@@ -200,6 +248,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         filter.addAction(BROADCAST_EVENT_SCREEN_TOUCH)
         filter.addAction(BROADCAST_CAMERA_START_SCREENSAVER)
         filter.addAction(BROADCAST_CAMERA_STOP_SCREENSAVER)
+        filter.addAction(BROADCAST_EVENT_MQTT_SENSOR_SETTINGS_CHANGED)
         localBroadCastManager = LocalBroadcastManager.getInstance(this)
         localBroadCastManager?.registerReceiver(mBroadcastReceiver, filter)
 
@@ -270,11 +319,14 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             localBroadCastManager?.unregisterReceiver(mBroadcastReceiver)
         }
         unregisterSystemBroadcastReceiver()
+        unregisterWifiNetworkCallback()
+        unregisterActiveNetworkCallback()
         cameraReader?.stopCamera()
         sensorReader.stopReadings()
         stopHttp()
         stopPowerOptions()
         reconnectHandler.removeCallbacksAndMessages(null)
+        appStateClearHandler.removeCallbacksAndMessages(null)
     }
 
     override fun onBind(intent: Intent): IBinder {
@@ -299,17 +351,195 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         }
 
     private val state: JSONObject
-        get() {
-            val state = JSONObject()
-            try {
-                state.put(MqttUtils.STATE_CURRENT_URL, appLaunchUrl)
-                state.put(MqttUtils.STATE_SCREEN_ON, isScreenOn)
-                state.put(MqttUtils.STATE_CAMERA, configuration.cameraEnabled)
-                state.put(MqttUtils.STATE_BRIGHTNESS, screenUtils.getCurrentScreenBrightness())
-            } catch (e: JSONException) {
-                e.printStackTrace()
+        get() = JSONObject().also { state ->
+            putStateValue(state, MqttUtils.STATE_CURRENT_URL, "") { appLaunchUrl.orEmpty() }
+            putStateValue(state, MqttUtils.STATE_SCREEN_ON, false) { isScreenOn }
+            putStateValue(state, MqttUtils.STATE_CAMERA, false) { configuration.cameraEnabled }
+            putStateValue(state, MqttUtils.STATE_BRIGHTNESS, JSONObject.NULL) { screenUtils.getCurrentScreenBrightness() }
+            putStateValue(state, MqttUtils.STATE_ANDROID_VERSION, "") { Build.VERSION.RELEASE.orEmpty() }
+            putStateValue(state, MqttUtils.STATE_APP_VERSION, "") { appVersion }
+            putStateValue(state, MqttUtils.STATE_DEVICE_OWNER, false) { isDeviceOwner }
+            putStateValue(state, MqttUtils.STATE_IP_ADDRESS, "") { activeIpAddress.orEmpty() }
+            putStateValue(state, MqttUtils.STATE_MANUFACTURER, "") { Build.MANUFACTURER.orEmpty() }
+            putStateValue(state, MqttUtils.STATE_MODEL, "") { Build.MODEL.orEmpty() }
+            putStateValue(state, MqttUtils.STATE_SCREEN_SAVER, false) { isScreenSaverActive }
+            putStateValue(state, MqttUtils.STATE_STORAGE_FREE, JSONObject.NULL) {
+                StatFs(filesDir.absolutePath).availableBytes / (1024 * 1024)
             }
-            return state
+            putStateValue(state, MqttUtils.STATE_UPTIME, JSONObject.NULL) { SystemClock.elapsedRealtime() / 1000 }
+            putStateValue(state, MqttUtils.STATE_VOLUME, JSONObject.NULL) { mediaVolume }
+            putStateValue(state, MqttUtils.STATE_WIFI_SIGNAL, JSONObject.NULL) { wifiNetworkState.signal }
+            putStateValue(state, MqttUtils.STATE_WIFI_SSID, "") { wifiNetworkState.ssid.orEmpty() }
+        }
+
+    private fun putStateValue(state: JSONObject, fieldName: String, fallback: Any, value: () -> Any?) {
+        try {
+            state.put(fieldName, value() ?: fallback)
+        } catch (e: Exception) {
+            Timber.w(e, "Unable to read MQTT state field: $fieldName")
+            state.put(fieldName, fallback)
+        }
+    }
+
+    private val wifiNetworkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) {
+            if (!networkCapabilities.hasTransport(NetworkCapabilities.TRANSPORT_WIFI)) {
+                return
+            }
+
+            val wifiInfo = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+                networkCapabilities.transportInfo as? WifiInfo
+            } else {
+                legacyWifiInfo()
+            }
+            val ssid = wifiInfo?.ssid
+                ?.takeUnless { it == WifiManager.UNKNOWN_SSID }
+                ?.removeSurrounding("\"")
+            val signal = wifiInfo?.rssi?.takeUnless { it == WIFI_RSSI_UNAVAILABLE }
+
+            if (wifiInfo != null && ssid == null && !wifiSsidUnavailableLogged) {
+                wifiSsidUnavailableLogged = true
+                Timber.w("Wi-Fi SSID is unavailable. Android may require location permission and location services.")
+            }
+
+            synchronized(wifiNetworkStateLock) {
+                wifiNetworkState = wifiNetworkState.copy(network = network, signal = signal, ssid = ssid)
+            }
+            scheduleNetworkStateRefresh()
+        }
+
+        override fun onLost(network: Network) {
+            synchronized(wifiNetworkStateLock) {
+                if (wifiNetworkState.network == network) {
+                    wifiNetworkState = WifiNetworkState()
+                }
+            }
+            scheduleNetworkStateRefresh()
+        }
+    }
+
+    private val activeNetworkCallback = object : ConnectivityManager.NetworkCallback() {
+        override fun onAvailable(network: Network) = scheduleNetworkStateRefresh()
+
+        override fun onCapabilitiesChanged(network: Network, networkCapabilities: NetworkCapabilities) =
+            scheduleNetworkStateRefresh()
+
+        override fun onLinkPropertiesChanged(network: Network, linkProperties: LinkProperties) =
+            scheduleNetworkStateRefresh()
+
+        override fun onLost(network: Network) = scheduleNetworkStateRefresh()
+    }
+
+    private fun scheduleNetworkStateRefresh() {
+        synchronized(networkStateRefreshLock) {
+            if (networkStateRefreshPending) {
+                return
+            }
+            networkStateRefreshPending = true
+        }
+        appStateClearHandler.post {
+            synchronized(networkStateRefreshLock) {
+                networkStateRefreshPending = false
+            }
+            refreshActiveIpAddress()
+            publishApplicationState()
+        }
+    }
+
+    private fun refreshActiveIpAddress() {
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M) {
+            activeIpAddress = null
+            return
+        }
+        try {
+            val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val linkProperties = connectivityManager.activeNetwork?.let(connectivityManager::getLinkProperties)
+            activeIpAddress = linkProperties?.linkAddresses
+                ?.map { it.address }
+                ?.filterIsInstance<Inet4Address>()
+                ?.firstOrNull { !it.isLoopbackAddress && !it.isLinkLocalAddress }
+                ?.hostAddress
+        } catch (e: Exception) {
+            Timber.w(e, "Unable to read active network IP address")
+            activeIpAddress = null
+        }
+    }
+
+    @Suppress("DEPRECATION")
+    private fun legacyWifiInfo(): WifiInfo? = try {
+        (applicationContext.getSystemService(Context.WIFI_SERVICE) as WifiManager).connectionInfo
+    } catch (e: Exception) {
+        Timber.w(e, "Unable to read legacy Wi-Fi information")
+        null
+    }
+
+    private fun registerWifiNetworkCallback() {
+        try {
+            val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val request = NetworkRequest.Builder()
+                .addTransportType(NetworkCapabilities.TRANSPORT_WIFI)
+                .build()
+            connectivityManager.registerNetworkCallback(request, wifiNetworkCallback)
+            wifiNetworkCallbackRegistered = true
+        } catch (e: Exception) {
+            Timber.w(e, "Unable to observe Wi-Fi network state")
+        }
+    }
+
+    private fun registerActiveNetworkCallback() {
+        try {
+            val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager
+            val request = NetworkRequest.Builder()
+                .addCapability(NetworkCapabilities.NET_CAPABILITY_INTERNET)
+                .build()
+            connectivityManager.registerNetworkCallback(request, activeNetworkCallback)
+            activeNetworkCallbackRegistered = true
+        } catch (e: Exception) {
+            Timber.w(e, "Unable to observe active network state")
+        }
+    }
+
+    private fun unregisterWifiNetworkCallback() {
+        if (!wifiNetworkCallbackRegistered) {
+            return
+        }
+        wifiNetworkCallbackRegistered = false
+        try {
+            (getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(wifiNetworkCallback)
+        } catch (e: Exception) {
+            Timber.w(e, "Unable to unregister Wi-Fi network callback")
+        }
+    }
+
+    private fun unregisterActiveNetworkCallback() {
+        if (!activeNetworkCallbackRegistered) {
+            return
+        }
+        activeNetworkCallbackRegistered = false
+        try {
+            (getSystemService(Context.CONNECTIVITY_SERVICE) as ConnectivityManager).unregisterNetworkCallback(activeNetworkCallback)
+        } catch (e: Exception) {
+            Timber.w(e, "Unable to unregister active network callback")
+        }
+    }
+
+    private val isDeviceOwner: Boolean
+        get() = try {
+            val manager = getSystemService(Context.DEVICE_POLICY_SERVICE) as DevicePolicyManager
+            manager.isDeviceOwnerApp(packageName)
+        } catch (e: Exception) {
+            Timber.w(e, "Unable to determine device-owner status")
+            false
+        }
+
+    private val mediaVolume: Int?
+        get() = try {
+            val manager = getSystemService(Context.AUDIO_SERVICE) as AudioManager
+            val maximum = manager.getStreamMaxVolume(AudioManager.STREAM_MUSIC)
+            if (maximum == 0) 0 else manager.getStreamVolume(AudioManager.STREAM_MUSIC) * 100 / maximum
+        } catch (e: Exception) {
+            Timber.w(e, "Unable to read media volume")
+            null
         }
 
     private fun startForeground() {
@@ -338,6 +568,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             }
         }
         hasNetwork.set(true)
+        scheduleNetworkStateRefresh()
     }
 
     private fun handleNetworkDisconnect() {
@@ -347,6 +578,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             }
         }
         hasNetwork.set(false)
+        scheduleNetworkStateRefresh()
     }
 
     private fun hasNetwork(): Boolean {
@@ -908,16 +1140,18 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         }
     }
 
-    private fun publishApplicationState(delay: Int = 300) {
+    private fun publishApplicationState() {
         if (!appStatePublished) {
             appStatePublished = true
-            publishCommand(COMMAND_STATE, state)
-            appStateClearHandler.postDelayed({ clearPublishApplicationState() }, delay.toLong())
+            try {
+                publishCommand(COMMAND_STATE, state)
+            } catch (e: Exception) {
+                Timber.e(e, "Unable to publish MQTT application state")
+            }
+            appStateClearHandler.postDelayed(appStateCooldownRunnable, APP_STATE_PUBLISH_THROTTLE_MS)
+        } else {
+            appStatePublishPending = true
         }
-    }
-
-    private fun clearPublishApplicationState() {
-        appStatePublished = false
     }
 
     private fun publishFaceDetected() {
@@ -945,7 +1179,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         return deviceJson
     }
 
-    private fun getSensorDiscoveryDef(displayName: String, stateTopic: String, deviceClass: String?, unit: String?, sensorId: String): JSONObject {
+    private fun getSensorDiscoveryDef(displayName: String, stateTopic: String, deviceClass: String?, unit: String?, sensorId: String, valueTemplate: String = "{{ value_json.value | float }}", entityCategory: String? = null, stateClass: String? = null, icon: String? = null): JSONObject {
         val discoveryDef = JSONObject()
         if (configuration.mqttLegacyDiscoveryEntities) {
             discoveryDef.put("name", "${configuration.mqttDiscoveryDeviceName} ${displayName}")
@@ -953,23 +1187,129 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             discoveryDef.put("name", displayName)
         }
         val originDef = JSONObject()
-        var version = ""
-        try {
-            val pInfo: PackageInfo =
-                applicationContext.packageManager.getPackageInfo(applicationContext.packageName, 0)
-            version = pInfo.versionName ?: ""
-        } catch (e: PackageManager.NameNotFoundException) {
-            e.printStackTrace()
-        }
         originDef.put("name", "WallPanel")
-        originDef.put("sw", version)
+        originDef.put("sw", appVersion)
         originDef.put("url", "https://wallpanel.xyz")
         discoveryDef.put("origin", originDef)
         discoveryDef.put("state_topic", "${configuration.mqttBaseTopic}${stateTopic}")
         if (unit != null) {
             discoveryDef.put("unit_of_measurement", unit)
         }
-        discoveryDef.put("value_template", "{{ value_json.value | float }}")
+        discoveryDef.put("value_template", valueTemplate)
+        if (deviceClass != null) {
+            discoveryDef.put("device_class", deviceClass)
+        }
+        if (entityCategory != null) {
+            discoveryDef.put("entity_category", entityCategory)
+        }
+        if (stateClass != null) {
+            discoveryDef.put("state_class", stateClass)
+        }
+        if (icon != null) {
+            discoveryDef.put("icon", icon)
+        }
+        discoveryDef.put("unique_id", "wallpanel_${configuration.mqttClientId}_${sensorId}")
+        discoveryDef.put("device", getDeviceDiscoveryDef())
+        discoveryDef.put("availability_topic", "${configuration.mqttBaseTopic}connection")
+
+        return discoveryDef
+    }
+
+    private fun publishStateSensorDiscovery(displayName: Int, fieldName: String, deviceClass: String? = null, unit: String? = null, numeric: Boolean = false, diagnostic: Boolean = false, icon: String? = null, valueTemplate: String? = null) {
+        val defaultValueTemplate = if (numeric) {
+            "{{ value_json.$fieldName if value_json.$fieldName is number else '' }}"
+        } else {
+            "{{ value_json.$fieldName }}"
+        }
+        val discovery = getSensorDiscoveryDef(
+            getString(displayName),
+            COMMAND_STATE,
+            deviceClass,
+            unit,
+            fieldName,
+            valueTemplate ?: defaultValueTemplate,
+            if (diagnostic) "diagnostic" else null,
+            if (numeric) "measurement" else null,
+            icon
+        )
+        publishOrClearDiscovery(fieldName, discovery)
+    }
+
+    private fun publishStateBinarySensorDiscovery(displayName: Int, fieldName: String, deviceClass: String?, diagnostic: Boolean = false) {
+        val discovery = getBinarySensorDiscoveryDef(getString(displayName), COMMAND_STATE, fieldName, deviceClass, fieldName)
+        if (diagnostic) {
+            discovery.put("entity_category", "diagnostic")
+        }
+        publishOrClearDiscovery(fieldName, discovery)
+    }
+
+    private fun clearDiscovery(sensorId: String) {
+        val component = MqttDiscoverySensors.componentFor(sensorId).mqttComponent
+        publishMessage(
+            "${configuration.mqttDiscoveryTopic}/$component/${configuration.mqttClientId}/$sensorId/config",
+            "",
+            true
+        )
+    }
+
+    private fun publishOrClearDiscovery(sensorId: String, discovery: JSONObject) {
+        val component = MqttDiscoverySensors.componentFor(sensorId).mqttComponent
+        if (configuration.mqttDiscoverySensorEnabled(sensorId)) {
+            publishMessage(
+                "${configuration.mqttDiscoveryTopic}/$component/${configuration.mqttClientId}/$sensorId/config",
+                discovery.toString(),
+                true
+            )
+        } else {
+            clearDiscovery(sensorId)
+        }
+    }
+
+    private fun publishStateSensorDiscoveries() {
+        publishStateSensorDiscovery(R.string.mqtt_sensor_android_version, MqttUtils.STATE_ANDROID_VERSION, diagnostic = true, icon = "mdi:android")
+        publishStateSensorDiscovery(R.string.mqtt_sensor_app_version, MqttUtils.STATE_APP_VERSION, diagnostic = true)
+        publishStateSensorDiscovery(R.string.mqtt_sensor_brightness, MqttUtils.STATE_BRIGHTNESS, numeric = true)
+        publishStateSensorDiscovery(R.string.mqtt_sensor_current_url, MqttUtils.STATE_CURRENT_URL, icon = "mdi:web")
+        publishStateSensorDiscovery(R.string.mqtt_sensor_ip_address, MqttUtils.STATE_IP_ADDRESS, diagnostic = true, icon = "mdi:ip-network")
+        publishStateSensorDiscovery(R.string.mqtt_sensor_manufacturer, MqttUtils.STATE_MANUFACTURER, diagnostic = true)
+        publishStateSensorDiscovery(R.string.mqtt_sensor_model, MqttUtils.STATE_MODEL, diagnostic = true)
+        publishStateSensorDiscovery(R.string.mqtt_sensor_storage_free, MqttUtils.STATE_STORAGE_FREE, "data_size", "MB", true, true)
+        publishStateSensorDiscovery(R.string.mqtt_sensor_uptime, MqttUtils.STATE_UPTIME, "duration", "s", true, true)
+        publishStateSensorDiscovery(R.string.mqtt_sensor_volume, MqttUtils.STATE_VOLUME, null, "%", true, false, "mdi:volume-high")
+        publishStateSensorDiscovery(R.string.mqtt_sensor_wifi_signal, MqttUtils.STATE_WIFI_SIGNAL, "signal_strength", "dBm", true, true)
+        publishStateSensorDiscovery(R.string.mqtt_sensor_wifi_ssid, MqttUtils.STATE_WIFI_SSID, diagnostic = true)
+        publishStateBinarySensorDiscovery(R.string.mqtt_sensor_device_owner, MqttUtils.STATE_DEVICE_OWNER, null, true)
+        publishStateBinarySensorDiscovery(R.string.mqtt_sensor_screen, MqttUtils.STATE_SCREEN_ON, "power")
+        publishStateBinarySensorDiscovery(R.string.mqtt_sensor_screensaver, MqttUtils.STATE_SCREEN_SAVER, "running")
+    }
+
+    private fun clearStateSensorDiscoveries() {
+        listOf(
+            MqttUtils.STATE_ANDROID_VERSION, MqttUtils.STATE_APP_VERSION, MqttUtils.STATE_BRIGHTNESS,
+            MqttUtils.STATE_CURRENT_URL, MqttUtils.STATE_IP_ADDRESS, MqttUtils.STATE_MANUFACTURER,
+            MqttUtils.STATE_MODEL, MqttUtils.STATE_STORAGE_FREE, MqttUtils.STATE_UPTIME,
+            MqttUtils.STATE_VOLUME, MqttUtils.STATE_WIFI_SIGNAL, MqttUtils.STATE_WIFI_SSID
+        ).forEach(::clearDiscovery)
+        listOf(MqttUtils.STATE_DEVICE_OWNER, MqttUtils.STATE_SCREEN_ON, MqttUtils.STATE_SCREEN_SAVER)
+            .forEach(::clearDiscovery)
+    }
+
+    private fun getBinarySensorDiscoveryDef(displayName: String, stateTopic: String, fieldName: String, deviceClass: String?, sensorId: String): JSONObject {
+        val discoveryDef = JSONObject()
+        if (configuration.mqttLegacyDiscoveryEntities) {
+            discoveryDef.put("name", "${configuration.mqttDiscoveryDeviceName} ${displayName}")
+        } else {
+            discoveryDef.put("name", displayName)
+        }
+        val originDef = JSONObject()
+        originDef.put("name", "WallPanel")
+        originDef.put("sw", appVersion)
+        originDef.put("url", "https://wallpanel.xyz")
+        discoveryDef.put("origin", originDef)
+        discoveryDef.put("state_topic", "${configuration.mqttBaseTopic}${stateTopic}")
+        discoveryDef.put("payload_on", "ON")
+        discoveryDef.put("payload_off", "OFF")
+        discoveryDef.put("value_template", "{{ 'ON' if value_json.${fieldName} else 'OFF' }}")
         if (deviceClass != null) {
             discoveryDef.put("device_class", deviceClass)
         }
@@ -980,81 +1320,51 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         return discoveryDef
     }
 
-    private fun getBinarySensorDiscoveryDef(displayName: String, stateTopic: String, fieldName: String, deviceClass: String, sensorId: String): JSONObject {
-        val discoveryDef = JSONObject()
-        if (configuration.mqttLegacyDiscoveryEntities) {
-            discoveryDef.put("name", "${configuration.mqttDiscoveryDeviceName} ${displayName}")
-        } else {
-            discoveryDef.put("name", displayName)
-        }
-        val originDef = JSONObject()
-        var version = ""
-        try {
-            val pInfo: PackageInfo =
-                applicationContext.packageManager.getPackageInfo(applicationContext.packageName, 0)
-            version = pInfo.versionName ?: ""
-        } catch (e: PackageManager.NameNotFoundException) {
-            e.printStackTrace()
-        }
-        originDef.put("name", "WallPanel")
-        originDef.put("sw", version)
-        originDef.put("url", "https://wallpanel.xyz")
-        discoveryDef.put("origin", originDef)
-        discoveryDef.put("state_topic", "${configuration.mqttBaseTopic}${stateTopic}")
-        discoveryDef.put("payload_on", true)
-        discoveryDef.put("payload_off", false)
-        discoveryDef.put("value_template", "{{ value_json.${fieldName} }}")
-        discoveryDef.put("device_class", deviceClass)
-        discoveryDef.put("unique_id", "wallpanel_${configuration.mqttClientId}_${sensorId}")
-        discoveryDef.put("device", getDeviceDiscoveryDef())
-        discoveryDef.put("availability_topic", "${configuration.mqttBaseTopic}connection")
-
-        return discoveryDef
-    }
-
     private fun publishDiscovery() {
         if (configuration.sensorsEnabled) {
             val batteryDiscovery = getSensorDiscoveryDef(getString(R.string.mqtt_sensor_battery_level), "sensor/battery", "battery", "%", "battery")
-            publishMessage("${configuration.mqttDiscoveryTopic}/sensor/${configuration.mqttClientId}/battery/config", batteryDiscovery.toString(), true)
+            publishOrClearDiscovery("battery", batteryDiscovery)
             val usbPluggedDiscovery = getBinarySensorDiscoveryDef(getString(R.string.mqtt_sensor_usb_plugged), "sensor/battery", "usbPlugged", "power", "usbPlugged")
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/usbPlugged/config", usbPluggedDiscovery.toString(), true)
+            publishOrClearDiscovery("usbPlugged", usbPluggedDiscovery)
             val acPluggedDiscovery = getBinarySensorDiscoveryDef(getString(R.string.mqtt_sensor_ac_plugged), "sensor/battery", "acPlugged", "power", "acPlugged")
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/acPlugged/config", acPluggedDiscovery.toString(), true)
+            publishOrClearDiscovery("acPlugged", acPluggedDiscovery)
             val chargeDiscovery = getBinarySensorDiscoveryDef(getString(R.string.mqtt_sensor_charging), "sensor/battery", "charging", "battery_charging", "charging")
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/charging/config", chargeDiscovery.toString(), true)
+            publishOrClearDiscovery("charging", chargeDiscovery)
             val sensors = sensorReader.getSensors()
             for (sensor in sensors) {
                 if (sensor.sensorType != null) {
                     val sensorDiscoveryDef = getSensorDiscoveryDef(sensor.displayName!!, "sensor/${sensor.sensorType!!}", sensor.deviceClass, sensor.unit, sensor.sensorType!!)
-                    publishMessage("${configuration.mqttDiscoveryTopic}/sensor/${configuration.mqttClientId}/${sensor.sensorType!!}/config", sensorDiscoveryDef.toString(), true)
+                    publishOrClearDiscovery(sensor.sensorType!!, sensorDiscoveryDef)
                 }
             }
+            publishStateSensorDiscoveries()
 
         } else {
-            publishMessage("${configuration.mqttDiscoveryTopic}/sensor/${configuration.mqttClientId}/battery/config", "", false)
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/usbPlugged/config", "", false)
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/acPlugged/config", "", false)
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/charging/config", "", false)
+            clearDiscovery("battery")
+            clearDiscovery("usbPlugged")
+            clearDiscovery("acPlugged")
+            clearDiscovery("charging")
             val sensors = sensorReader.getSensors()
             for (sensor in sensors) {
                 if (sensor.sensorType != null) {
-                    publishMessage("${configuration.mqttDiscoveryTopic}/sensor/${configuration.mqttClientId}/${sensor.sensorType!!}/config", "", false)
+                    clearDiscovery(sensor.sensorType!!)
                 }
             }
+            clearStateSensorDiscoveries()
         }
 
         if (configuration.cameraFaceEnabled && configuration.cameraEnabled) {
             val faceDiscovery = getBinarySensorDiscoveryDef(getString(R.string.mqtt_sensor_face_detected), COMMAND_SENSOR_FACE, "value", "occupancy", "face")
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/face/config", faceDiscovery.toString(), true)
+            publishOrClearDiscovery("face", faceDiscovery)
         } else {
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/face/config", "", false)
+            clearDiscovery("face")
         }
 
         if (configuration.cameraMotionEnabled && configuration.cameraEnabled) {
             val motionDiscovery = getBinarySensorDiscoveryDef(getString(R.string.mqtt_sensor_motion_detected), COMMAND_SENSOR_MOTION, "value", "motion", "motion")
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/motion/config", motionDiscovery.toString(), true)
+            publishOrClearDiscovery("motion", motionDiscovery)
         } else {
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/motion/config", "", false)
+            clearDiscovery("motion")
         }
 
         if (configuration.cameraQRCodeEnabled && configuration.cameraEnabled) {
@@ -1062,9 +1372,9 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             qrDiscovery.put("topic", "${configuration.mqttBaseTopic}${COMMAND_SENSOR_QR_CODE}")
             qrDiscovery.put("value_template", "{{ value_json.value }}")
             qrDiscovery.put("device", getDeviceDiscoveryDef())
-            publishMessage("${configuration.mqttDiscoveryTopic}/tag/${configuration.mqttClientId}/qr/config", qrDiscovery.toString(), true)
+            publishOrClearDiscovery("qr", qrDiscovery)
         } else {
-            publishMessage("${configuration.mqttDiscoveryTopic}/tag/${configuration.mqttClientId}/qr/config", "", false)
+            clearDiscovery("qr")
         }
     }
 
@@ -1201,9 +1511,16 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             } else if (BROADCAST_CAMERA_START_SCREENSAVER == intent.action) {
                 Timber.i("Screensaver started - enabling camera processing")
                 isScreenSaverActive = true
+                publishApplicationState()
             } else if (BROADCAST_CAMERA_STOP_SCREENSAVER == intent.action) {
                 Timber.i("Screensaver stopped - disabling camera processing")
                 isScreenSaverActive = false
+                publishApplicationState()
+            } else if (BROADCAST_EVENT_MQTT_SENSOR_SETTINGS_CHANGED == intent.action) {
+                Timber.i("MQTT discovery sensor settings changed - republishing discovery")
+                if (configuration.mqttDiscovery) {
+                    publishDiscovery()
+                }
             }
         }
     }
@@ -1285,9 +1602,12 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         const val BROADCAST_BROWSER_ENGINE_RESUME = "BROADCAST_BROWSER_ENGINE_RESUME"
         const val BROADCAST_CAMERA_START_SCREENSAVER = "BROADCAST_CAMERA_START_SCREENSAVER"
         const val BROADCAST_CAMERA_STOP_SCREENSAVER = "BROADCAST_CAMERA_STOP_SCREENSAVER"
+        const val BROADCAST_EVENT_MQTT_SENSOR_SETTINGS_CHANGED = "BROADCAST_EVENT_MQTT_SENSOR_SETTINGS_CHANGED"
         const val BROADCAST_CONNTED = "BROADCAST_SCREEN_BRIGHTNESS_CHANGE"
         const val ACTION_RUN_COMMAND = "xyz.wallpanel.pro.action.RUN_COMMAND"
         const val EXTRA_COMMAND_JSON = "EXTRA_COMMAND_JSON"
+        const val APP_STATE_PUBLISH_THROTTLE_MS = 300L
+        const val WIFI_RSSI_UNAVAILABLE = -127
 
         /**
          * The process exit is delayed rather than immediate: when a restart is reached from

@@ -16,7 +16,7 @@
 
 <PreferenceScreen xmlns:android="http://schemas.android.com/apk/res/android">
 
-    <PreferenceCategory android:title="Sensors">
+    <PreferenceCategory android:title="@string/title_sensor_settings">
 
         <SwitchPreference
             android:key="@string/key_setting_sensors_enabled"
@@ -34,70 +34,44 @@
 
     </PreferenceCategory>
 
-    <PreferenceCategory android:title="Sensor List">
+    <PreferenceCategory
+        android:key="pref_category_hardware_sensors"
+        android:title="@string/pref_category_hardware_sensors">
 
-        <EditTextPreference
-            android:paddingTop="0dp"
-            android:selectable="false"
-            android:summary="@string/pref_sensor_list_summary"
+        <Preference
             android:textColor="@color/light_gray"
-            android:textSize="12sp"/>
+            android:textSize="12sp"
+            android:selectable="false"
+            android:paddingTop="0dp"
+            android:dependency="@string/key_setting_sensors_enabled"
+            android:summary="@string/pref_description_hardware_sensors"/>
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="pref_category_state_sensors"
+        android:title="@string/pref_category_state_sensors">
 
         <Preference
-            android:key="@string/key_setting_battery"
+            android:textColor="@color/light_gray"
+            android:textSize="12sp"
             android:selectable="false"
-            android:summary="@string/pref_summary_battery"
-            android:title="@string/pref_title_battery"
-            android:dependency="@string/key_setting_sensors_enabled"/>
+            android:paddingTop="0dp"
+            android:dependency="@string/key_setting_sensors_enabled"
+            android:summary="@string/pref_description_state_sensors"/>
+
+    </PreferenceCategory>
+
+    <PreferenceCategory
+        android:key="pref_category_camera_sensors"
+        android:title="@string/pref_category_camera_sensors">
 
         <Preference
-            android:key="@string/key_settings_sensors_temperature"
+            android:textColor="@color/light_gray"
+            android:textSize="12sp"
             android:selectable="false"
-            android:summary="@string/summary_setting_sensors_default"
-            android:title="@string/title_setting_sensors_temperature"
-            android:dependency="@string/key_setting_sensors_enabled"/>
-
-        <Preference
-            android:key="@string/key_settings_sensors_light"
-            android:summary="@string/summary_setting_sensors_default"
-            android:selectable="false"
-            android:title="@string/title_setting_sensors_light"
-            android:dependency="@string/key_setting_sensors_enabled"/>
-
-        <Preference
-            android:key="@string/key_settings_sensors_magneticField"
-            android:summary="@string/summary_setting_sensors_default"
-            android:selectable="false"
-            android:title="@string/title_setting_sensors_magneticField"
-            android:dependency="@string/key_setting_sensors_enabled"/>
-
-        <Preference
-            android:key="@string/key_settings_sensors_pressure"
-            android:summary="@string/summary_setting_sensors_default"
-            android:selectable="false"
-            android:title="@string/title_setting_sensors_pressure"
-            android:dependency="@string/key_setting_sensors_enabled"/>
-
-        <Preference
-            android:key="@string/key_settings_sensors_humidity"
-            android:summary="@string/summary_setting_sensors_default"
-            android:selectable="false"
-            android:title="@string/title_setting_sensors_humidity"
-            android:dependency="@string/key_setting_sensors_enabled"/>
-
-        <Preference
-            android:key="@string/key_settings_sensors_cpu"
-            android:summary="@string/pref_summary_cpu"
-            android:selectable="false"
-            android:title="@string/pref_title_cpu"
-            android:dependency="@string/key_setting_sensors_enabled"/>
-
-        <Preference
-            android:key="@string/key_settings_sensors_memory"
-            android:summary="@string/pref_summary_memory"
-            android:selectable="false"
-            android:title="@string/pref_title_memory"
-            android:dependency="@string/key_setting_sensors_enabled"/>
+            android:paddingTop="0dp"
+            android:summary="@string/pref_description_camera_sensors"/>
 
     </PreferenceCategory>
 

@@ -107,4 +107,20 @@ class ConfigurationTest {
 
         assertEquals(30, configuration.geckoViewSuspendSeconds)
     }
+
+    @Test
+    fun `mqttDiscoverySensorEnabled defaults to true`() {
+        assertTrue(configuration.mqttDiscoverySensorEnabled("battery"))
+        assertTrue(configuration.mqttDiscoverySensorEnabled("androidVersion"))
+    }
+
+    @Test
+    fun `mqttDiscoverySensorEnabled round-trips through SharedPreferences`() {
+        configuration.setMqttDiscoverySensorEnabled("battery", false)
+
+        assertFalse(configuration.mqttDiscoverySensorEnabled("battery"))
+        assertTrue(configuration.mqttDiscoverySensorEnabled("androidVersion"))
+        // Other instances see the same persisted value.
+        assertFalse(Configuration(context, preferences).mqttDiscoverySensorEnabled("battery"))
+    }
 }

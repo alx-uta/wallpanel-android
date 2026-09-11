@@ -277,6 +277,13 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         get() = getBoolPref(R.string.key_setting_sensors_enabled,
                 R.string.default_setting_sensors_value)
 
+    fun mqttDiscoverySensorEnabled(sensorId: String): Boolean =
+        sharedPreferences.getBoolean("$PREF_MQTT_DISCOVERY_SENSOR_PREFIX$sensorId", true)
+
+    fun setMqttDiscoverySensorEnabled(sensorId: String, enabled: Boolean) {
+        sharedPreferences.edit().putBoolean("$PREF_MQTT_DISCOVERY_SENSOR_PREFIX$sensorId", enabled).apply()
+    }
+
     val hardwareAccelerated: Boolean
         get() = getBoolPref(R.string.key_hadware_accelerated_enabled,
                 R.string.default_hardware_accelerated_value)
@@ -444,6 +451,7 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     }
 
     companion object {
+        const val PREF_MQTT_DISCOVERY_SENSOR_PREFIX = "setting_mqtt_discovery_sensor_"
         private const val PREF_BROWSER_SETTINGS_UPDATED = "pref_browser_settings_updated"
         private const val PREF_DARK_THEME = "pref_dark_theme"
         private const val PREF_FULL_SCREEN = "pref_full_screen"

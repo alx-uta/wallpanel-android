@@ -111,7 +111,19 @@ Key | Value | Example | Description
 -|-|-|-
 currentUrl | URL String | ```{"currentUrl":"http://hasbian:8123/states"}``` | Current URL the Dashboard is displaying
 screenOn | true/false | ```{"screenOn":true}``` | If the screen is currently on.
-brightness | true/false | ```{"brightness":100}``` | Current brightness value of the screen.
+brightness | number | ```{"brightness":100}``` | Current brightness value of the screen.
+androidVersion | string | ```{"androidVersion":"14"}``` | Android release reported by the device.
+appVersion | string | ```{"appVersion":"1.1.7"}``` | WallPanel application version.
+deviceOwner | true/false | ```{"deviceOwner":true}``` | Whether WallPanel is the Android device owner.
+ipAddress | string | ```{"ipAddress":"192.168.1.20"}``` | IPv4 address of the active network connection (Wi-Fi or Ethernet).
+manufacturer | string | ```{"manufacturer":"Amazon"}``` | Device manufacturer.
+model | string | ```{"model":"Fire HD 10"}``` | Device model.
+screenSaver | true/false | ```{"screenSaver":false}``` | Whether the WallPanel screensaver is active.
+storageFree | number | ```{"storageFree":2048}``` | Free application storage in MB.
+uptime | number | ```{"uptime":86400}``` | Device uptime in seconds.
+volume | number | ```{"volume":50}``` | Media volume as a percentage.
+wifiSignal | number or null | ```{"wifiSignal":-58}``` | Wi-Fi RSSI in dBm; null when unavailable.
+wifiSsid | string | ```{"wifiSsid":"Office"}``` | Wi-Fi SSID when Android permits access.
 
 * State values are presented together as a JSON block
   * eg, ```{"currentUrl":"http://hasbian:8123/states","screenOn":true}```
@@ -120,3 +132,16 @@ brightness | true/false | ```{"brightness":100}``` | Current brightness value of
 * For MQTT
   * WallPanel publishes state to topic ```[baseTopic]state```
     * Default Topic: ```wallpanel/mywallpanel/state```
+
+:::note
+On newer Android versions, Android can redact the Wi-Fi SSID unless location-related
+permissions and system location services are enabled. WallPanel does not request those
+permissions solely for MQTT telemetry, so `wifiSsid` can be empty and `wifiSignal` can
+be unavailable on affected devices.
+:::
+
+## Selecting sensors for MQTT Discovery
+
+In Sensors Settings each sensor listed above can be turned on or off
+individually (battery &amp; hardware sensors, application state, face/motion/QR). Turning a
+sensor off deletes its retained discovery message, so Home Assistant removes the entity.
