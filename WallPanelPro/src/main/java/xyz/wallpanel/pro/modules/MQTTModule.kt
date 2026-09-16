@@ -18,6 +18,7 @@ package xyz.wallpanel.pro.modules
 
 import android.content.Context
 import android.content.ContextWrapper
+import androidx.annotation.VisibleForTesting
 import androidx.lifecycle.*
 import com.hivemq.client.mqtt.mqtt3.exceptions.Mqtt3MessageException
 import com.hivemq.client.mqtt.mqtt5.exceptions.Mqtt5MessageException
@@ -32,8 +33,12 @@ class MQTTModule (base: Context?, var mqttOptions: MQTTOptions, private val list
         LifecycleObserver,
         IMqttManagerListener, DefaultLifecycleObserver {
 
-    private var mqtt3Service: MQTT3Service? = null
-    private var mqtt5Service: MQTT5Service? = null
+    @VisibleForTesting
+    internal var mqtt3Service: MQTT3Service? = null
+        private set
+    @VisibleForTesting
+    internal var mqtt5Service: MQTT5Service? = null
+        private set
 
     override fun onStart(owner: LifecycleOwner) {
         startMqtt()
@@ -94,7 +99,7 @@ class MQTTModule (base: Context?, var mqttOptions: MQTTOptions, private val list
             } catch (e: Mqtt3MessageException) {
                 e.printStackTrace()
             }
-            mqtt5Service = null
+            mqtt3Service = null
         }
     }
 
@@ -106,6 +111,14 @@ class MQTTModule (base: Context?, var mqttOptions: MQTTOptions, private val list
     fun pause() {
         stopMqtt()
     }
+
+    /**
+     * Whether a publish would reach the broker right now. [publish] drops messages without
+     * a word while the client is still connecting, so anything that records a publish as
+     * done has to check this first.
+     */
+    val isConnected: Boolean
+        get() = mqtt5Service?.isReady == true || mqtt3Service?.isReady == true
 
     fun publish(topic: String, message : String, retain: Boolean) {
         mqtt5Service?.publish(topic, message, retain)

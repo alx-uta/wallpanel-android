@@ -22,7 +22,6 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
-import android.content.pm.PackageInfo
 import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
 import android.media.MediaPlayer
@@ -53,6 +52,8 @@ import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_A
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_LOAD_URL
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_OPEN_SETTINGS
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_RELOAD_PAGE
+import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_HIDE_SCREENSAVER
+import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_SHOW_SCREENSAVER
 import xyz.wallpanel.pro.utils.AppRestartHelper
 import xyz.wallpanel.pro.utils.MqttUtils
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_AUDIO
@@ -63,13 +64,16 @@ import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_EVAL
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELAUNCH
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELOAD
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RESTART_APP
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SCREENSAVER
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR_FACE
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR_MOTION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR_QR_CODE
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR_SHELL
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SETTINGS
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SPEAK
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_STATE
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_TOAST
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_URL
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SHELL
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_VOLUME
@@ -79,6 +83,7 @@ import xyz.wallpanel.pro.utils.MqttUtils.Companion.VALUE
 import xyz.wallpanel.pro.utils.NotificationUtils
 import xyz.wallpanel.pro.utils.ScheduledTaskAlarmScheduler
 import xyz.wallpanel.pro.utils.ScreenUtils
+import xyz.wallpanel.pro.utils.VolumeUtils
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.util.*
@@ -106,6 +111,12 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     @Inject
     lateinit var scheduleRepository: ScheduleRepository
 
+    @Inject
+    lateinit var mqttDiscovery: MqttDiscovery
+
+    @Inject
+    lateinit var volumeUtils: VolumeUtils
+
     private val mJpegSockets = ArrayList<AsyncHttpServerResponse>()
     private var cpuWakeLock: PowerManager.WakeLock? = null
     private var screenWakeLock: PowerManager.WakeLock? = null
@@ -126,6 +137,9 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     private var hasNetwork = AtomicBoolean(true)
     private var motionDetected: Boolean = false
     private var appStatePublished: Boolean = false
+    private var appStatePublishPending: Boolean = false
+    // The discovery payloads by topic as last sent to the broker.
+    private var publishedDiscovery: Map<String, String>? = null
     private var qrCodeRead: Boolean = false
     private var isScreenSaverActive: Boolean = false
     private var faceDetected: Boolean = false
@@ -198,8 +212,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         val filter = IntentFilter()
         filter.addAction(BROADCAST_EVENT_URL_CHANGE)
         filter.addAction(BROADCAST_EVENT_SCREEN_TOUCH)
-        filter.addAction(BROADCAST_CAMERA_START_SCREENSAVER)
-        filter.addAction(BROADCAST_CAMERA_STOP_SCREENSAVER)
+        filter.addAction(BROADCAST_SCREENSAVER_STARTED)
+        filter.addAction(BROADCAST_SCREENSAVER_STOPPED)
         localBroadCastManager = LocalBroadcastManager.getInstance(this)
         localBroadCastManager?.registerReceiver(mBroadcastReceiver, filter)
 
@@ -217,6 +231,13 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
      */
     override fun onStartCommand(intent: Intent?, flags: Int, startId: Int): Int {
         val result = super.onStartCommand(intent, flags, startId)
+        // Opening settings normally stops the service, so a reconnect republishes. The
+        // launcher shortcut goes straight to the settings screen and leaves the service
+        // running, so any setting that changed what the configs say is caught here instead.
+        if (discoveryPayloads() != publishedDiscovery) {
+            publishDiscovery()
+            publishApplicationState()
+        }
         if (intent?.action == ACTION_RUN_COMMAND) {
             val command = intent.getStringExtra(EXTRA_COMMAND_JSON)
             if (command.isNullOrEmpty()) {
@@ -304,8 +325,17 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             try {
                 state.put(MqttUtils.STATE_CURRENT_URL, appLaunchUrl)
                 state.put(MqttUtils.STATE_SCREEN_ON, isScreenOn)
+                // What the Keep Screen Awake switch reads. Releasing the lock doesn't blank
+                // the display, so screenOn would keep that switch showing on.
+                state.put(MqttUtils.STATE_SCREEN_AWAKE, screenWakeLock?.isHeld == true)
                 state.put(MqttUtils.STATE_CAMERA, configuration.cameraEnabled)
+                // The live screen value and the configured level are not the same number
+                // while the screensaver is dimming, so both are reported: a slider that
+                // reads the dimmed value back would jump away from whatever was just set.
                 state.put(MqttUtils.STATE_BRIGHTNESS, screenUtils.getCurrentScreenBrightness())
+                state.put(MqttUtils.STATE_BRIGHTNESS_SETPOINT, configuration.screenBrightness)
+                state.put(MqttUtils.STATE_VOLUME, volumeUtils.getVolumePercent())
+                state.put(MqttUtils.STATE_SCREENSAVER_ON, isScreenSaverActive)
             } catch (e: JSONException) {
                 e.printStackTrace()
             }
@@ -417,12 +447,12 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         }
         clearFaceDetected()
         clearMotionDetected()
+        // Discovery first: Home Assistant subscribes to the state topic only after it has
+        // built the entities, so state published ahead of the configs arrives nowhere.
+        publishDiscovery()
         publishApplicationState()
         if (configuration.sensorsEnabled) {
             sensorReader.refreshSensors()
-        }
-        if (configuration.mqttDiscovery) {
-            publishDiscovery()
         }
         mqttInitConnection.set(false)
     }
@@ -504,70 +534,71 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     }
 
     // TODO text to speech requies content type 'Content-Type': 'application/json; charset=UTF-8'
+    // Does nothing while the server is already running, so the routes are registered once.
     private fun startHttp() {
-        if (httpServer == null && configuration.httpEnabled) {
-            // TODO this is a hack to get utf-8 working, we need to switch http server libraries
-            val charsetsClass = Charsets::class.java
-            val us_ascii = charsetsClass.getDeclaredField("US_ASCII")
-            us_ascii.isAccessible = true
-            us_ascii.set(Charsets::class.java, Charsets.UTF_8)
-            httpServer = AsyncHttpServer()
+        if (httpServer != null || !configuration.httpEnabled) {
+            return
+        }
+        // TODO this is a hack to get utf-8 working, we need to switch http server libraries
+        val charsetsClass = Charsets::class.java
+        val us_ascii = charsetsClass.getDeclaredField("US_ASCII")
+        us_ascii.isAccessible = true
+        us_ascii.set(Charsets::class.java, Charsets.UTF_8)
+        val server = AsyncHttpServer()
+        httpServer = server
 
-            httpServer?.addAction("*", "*") { request, response ->
-                Timber.i("Unhandled Request Arrived")
-                response.code(404)
-                response.send("")
+        server.addAction("*", "*") { request, response ->
+            Timber.i("Unhandled Request Arrived")
+            response.code(404)
+            response.send("")
+        }
+        server.listen(AsyncServer.getDefault(), configuration.httpPort)
+        Timber.i("Started HTTP server on " + configuration.httpPort)
+
+        // Registered whenever the HTTP server itself is running, but gated on
+        // configuration.httpRestEnabled inside each handler rather than at registration
+        // time: the server is only (re)started from onCreate(), so a route that checked
+        // the flag just once here would keep answering with its startup value for the
+        // life of the process, ignoring the setting being switched off afterward -- the
+        // same live-check approach the shell command already uses for its own toggle.
+        server.addAction("POST", "/api/command") { request, response ->
+            if (!configuration.httpRestEnabled) {
+                response.code(403)
+                response.send("REST API is disabled")
+                return@addAction
             }
-            httpServer?.listen(AsyncServer.getDefault(), configuration.httpPort)
-            Timber.i("Started HTTP server on " + configuration.httpPort)
+            var result = false
+            if (request.body is JSONObjectBody) {
+                Timber.i("POST Json Arrived (command)")
+                val body = (request.body as JSONObjectBody).get()
+                result = processCommand(body)
+            } else if (request.body is StringBody) {
+                Timber.i("POST String Arrived (command)")
+                result = processCommand((request.body as StringBody).get())
+            }
+            val j = JSONObject()
+            try {
+                j.put("result", result)
+            } catch (e: JSONException) {
+                e.printStackTrace()
+            }
+            response.send(j)
         }
 
-        if (httpServer != null) {
-            // Registered whenever the HTTP server itself is running, but gated on
-            // configuration.httpRestEnabled inside each handler rather than at registration
-            // time: the server is only (re)started from onCreate(), so a route that checked
-            // the flag just once here would keep answering with its startup value for the
-            // life of the process, ignoring the setting being switched off afterward -- the
-            // same live-check approach the shell command already uses for its own toggle.
-            httpServer?.addAction("POST", "/api/command") { request, response ->
-                if (!configuration.httpRestEnabled) {
-                    response.code(403)
-                    response.send("REST API is disabled")
-                    return@addAction
-                }
-                var result = false
-                if (request.body is JSONObjectBody) {
-                    Timber.i("POST Json Arrived (command)")
-                    val body = (request.body as JSONObjectBody).get()
-                    result = processCommand(body)
-                } else if (request.body is StringBody) {
-                    Timber.i("POST String Arrived (command)")
-                    result = processCommand((request.body as StringBody).get())
-                }
-                val j = JSONObject()
-                try {
-                    j.put("result", result)
-                } catch (e: JSONException) {
-                    e.printStackTrace()
-                }
-                response.send(j)
+        server.addAction("GET", "/api/state") { request, response ->
+            if (!configuration.httpRestEnabled) {
+                response.code(403)
+                response.send("REST API is disabled")
+                return@addAction
             }
-
-            httpServer?.addAction("GET", "/api/state") { request, response ->
-                if (!configuration.httpRestEnabled) {
-                    response.code(403)
-                    response.send("REST API is disabled")
-                    return@addAction
-                }
-                Timber.i("GET Arrived (/api/state)")
-                response.send(state)
-            }
-            Timber.i("Registered REST endpoints")
+            Timber.i("GET Arrived (/api/state)")
+            response.send(state)
         }
+        Timber.i("Registered REST endpoints")
 
-        if (httpServer != null && configuration.httpMJPEGEnabled) {
+        if (configuration.httpMJPEGEnabled) {
             startMJPEG()
-            httpServer?.addAction("GET", "/camera/stream") { _, response ->
+            server.addAction("GET", "/camera/stream") { _, response ->
                 Timber.i("GET Arrived (/camera/stream)")
                 startMJPEG(response)
             }
@@ -583,73 +614,77 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         }
     }
 
+    // Observing again with the same observer is a no-op, so this is safe to repeat.
     private fun startMJPEG() {
-        cameraReader?.let {
-            it.getJpeg().observe(this, Observer { jpeg ->
-                if (mJpegSockets.size > 0 && jpeg != null) {
-                    var i = 0
-                    while (i < mJpegSockets.size) {
-                        val s = mJpegSockets[i]
-                        val bb = ByteBufferList()
-                        if (s.isOpen) {
-                            bb.recycle()
-                            bb.add(ByteBuffer.wrap("--jpgboundary\r\nContent-Type: image/jpeg\r\n".toByteArray()))
-                            bb.add(ByteBuffer.wrap(("Content-Length: " + jpeg.size + "\r\n\r\n").toByteArray()))
-                            bb.add(ByteBuffer.wrap(jpeg))
-                            bb.add(ByteBuffer.wrap("\r\n".toByteArray()))
-                            s.write(bb)
-                        } else {
-                            mJpegSockets.removeAt(i)
-                            i--
-                            Timber.i("MJPEG Session Count is " + mJpegSockets.size)
-                        }
-                        i++
-                    }
+        cameraReader?.getJpeg()?.observe(this, jpegObserver)
+    }
+
+    private val jpegObserver = Observer<ByteArray> { jpeg ->
+        if (mJpegSockets.size > 0 && jpeg != null) {
+            var i = 0
+            while (i < mJpegSockets.size) {
+                val s = mJpegSockets[i]
+                val bb = ByteBufferList()
+                if (s.isOpen) {
+                    bb.recycle()
+                    bb.add(ByteBuffer.wrap("--jpgboundary\r\nContent-Type: image/jpeg\r\n".toByteArray()))
+                    bb.add(ByteBuffer.wrap(("Content-Length: " + jpeg.size + "\r\n\r\n").toByteArray()))
+                    bb.add(ByteBuffer.wrap(jpeg))
+                    bb.add(ByteBuffer.wrap("\r\n".toByteArray()))
+                    s.write(bb)
+                } else {
+                    mJpegSockets.removeAt(i)
+                    i--
+                    Timber.i("MJPEG Session Count is " + mJpegSockets.size)
                 }
-            })
+                i++
+            }
         }
     }
 
-    // Attempt to restart camera and any optional camera options such as motion and streaming
+    // Enable the camera in settings and start it, along with motion, face, QR and streaming
     private fun restartCamera() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && configuration.cameraPermissionsShown) {
-            configuration.cameraEnabled = true
-            configureCamera()
-            startHttp()
-            publishDiscovery()
-            publishApplicationState()
-        } else {
-            configuration.cameraEnabled = true
-            configureCamera()
-            startHttp()
-            publishDiscovery()
-            publishApplicationState()
+        configuration.cameraEnabled = true
+        configureCamera()
+        startHttp()
+        if (configuration.httpMJPEGEnabled) {
+            startMJPEG()
         }
+        publishDiscovery()
+        publishApplicationState()
     }
 
-    // Attempt to stop camera and any optional camera options such as motion and streaming
-    private fun stopCamera() {
-        cameraReader?.stopCamera()
-    }
-
-    // Stop camera and disable it permanently in settings
+    /**
+     * Disables the camera in settings and stops it. The HTTP server stays up: it also
+     * carries the REST API, and the stream endpoint turns requests away while the camera
+     * is off.
+     */
     private fun stopCameraCompletely() {
         configuration.cameraEnabled = false
         stopMJPEG()
-        stopHttp()
         cameraReader?.stopCamera()
         publishDiscovery()
         publishApplicationState()
     }
 
-    // TODO we stop entire camera not just streaming
+    // Ends the open streams. The endpoint itself stays registered.
     private fun stopMJPEG() {
+        for (socket in mJpegSockets) {
+            try {
+                socket.end()
+            } catch (e: Exception) {
+                Timber.w(e, "Could not close an MJPEG stream")
+            }
+        }
         mJpegSockets.clear()
-        //cameraReader?.getJpeg()?.removeObservers(this)
-        httpServer?.removeAction("GET", "/camera/stream")
     }
 
     private fun startMJPEG(response: AsyncHttpServerResponse) {
+        if (!configuration.cameraEnabled) {
+            response.code(503)
+            response.send("Camera is disabled")
+            return
+        }
         if (mJpegSockets.size < configuration.httpMJPEGMaxStreams) {
             Timber.i("Starting new MJPEG stream")
             response.headers.add("Cache-Control", "no-cache")
@@ -671,10 +706,10 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         try {
             if (commandJson.has(COMMAND_CAMERA)) {
                 val enableCamera = commandJson.getBoolean(COMMAND_CAMERA)
-                if (!enableCamera) {
-                    stopCamera()
-                } else if (enableCamera) {
+                if (enableCamera) {
                     restartCamera()
+                } else {
+                    stopCameraCompletely()
                 }
             }
             if (commandJson.has(COMMAND_URL)) {
@@ -722,11 +757,17 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             if (commandJson.has(COMMAND_SPEAK)) {
                 speakMessage(commandJson.getString(COMMAND_SPEAK))
             }
+            if (commandJson.has(COMMAND_TOAST)) {
+                sendToastMessage(commandJson.getString(COMMAND_TOAST))
+            }
+            if (commandJson.has(COMMAND_SCREENSAVER)) {
+                setScreenSaver(commandJson.getBoolean(COMMAND_SCREENSAVER))
+            }
             if (commandJson.has(COMMAND_SETTINGS)) {
                 openSettings()
             }
             if (commandJson.has(COMMAND_VOLUME)) {
-                setVolume((commandJson.getInt(COMMAND_VOLUME).toFloat() / 100))
+                setVolume(commandJson.getInt(COMMAND_VOLUME))
             }
             if (commandJson.has(COMMAND_SHELL) && configuration.httpShellEnabled) {
                 executeShellCommand(commandJson.getString(COMMAND_SHELL))
@@ -774,9 +815,31 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             } else {
                 Timber.w("Shell command [$command] failed with exit code $exitCode, output: $output")
             }
+            publishShellResult(command, exitCode, output)
         } catch (e: Exception) {
             Timber.e(e, "Failed to execute shell command: $command")
+            publishShellResult(command, SHELL_EXIT_CODE_FAILED_TO_START, e.message.orEmpty())
         }
+    }
+
+    /**
+     * Publishes what a shell command actually did, which is the only feedback a caller
+     * gets -- the HTTP response only confirms the request parsed as JSON.
+     *
+     * The reported value is truncated because Home Assistant rejects a state longer than
+     * 255 characters outright; the untruncated output stays available as an attribute.
+     */
+    private fun publishShellResult(command: String, exitCode: Int, output: String) {
+        val data = JSONObject()
+        try {
+            data.put(VALUE, output.take(SHELL_RESULT_MAX_LENGTH))
+            data.put("command", command)
+            data.put("exitCode", exitCode)
+            data.put("output", output.take(SHELL_OUTPUT_MAX_LENGTH))
+        } catch (ex: JSONException) {
+            ex.printStackTrace()
+        }
+        publishCommand(COMMAND_SENSOR_SHELL, data)
     }
 
     private fun processCommand(command: String): Boolean {
@@ -814,8 +877,16 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         audioPlayer?.prepareAsync()
     }
 
-    private fun setVolume(vol: Float) {
-        audioPlayer?.setVolume(vol, vol)
+    /**
+     * Sets the device's media volume, which is the stream the audio command and the text
+     * to speech both play through. This used to attenuate the MediaPlayer instance
+     * instead, which the player resets after every clip, so the level never survived
+     * more than one playback and never applied to speech at all.
+     */
+    private fun setVolume(volumePercent: Int) {
+        if (volumeUtils.setVolumePercent(volumePercent)) {
+            publishApplicationState()
+        }
     }
 
     // TODO we need to url decode incoming strings to support other languages
@@ -836,14 +907,19 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     @SuppressLint("WakelockTimeout")
     private fun wakeScreenOn(wakeTime: Long) {
-        // Acquire screen wake lock with timeout to turn screen on temporarily
+        // Acquire screen wake lock with timeout to turn screen on temporarily. A repeat
+        // command restarts the timeout, so the lock and the runnable that reports its
+        // release always end together.
         screenWakeLock?.let {
-            if (!it.isHeld) {
-                it.acquire(wakeTime)
+            if (it.isHeld) {
+                it.release()
             }
+            it.acquire(wakeTime)
         }
+        wakeScreenHandler.removeCallbacks(clearWakeScreenRunnable)
         wakeScreenHandler.postDelayed(clearWakeScreenRunnable, wakeTime)
         sendWakeScreenOn()
+        publishApplicationState()
     }
 
     private val clearWakeScreenRunnable = Runnable {
@@ -859,12 +935,25 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             }
         }
         sendWakeScreenOff()
+        // Releasing the lock lets the display time out; it does not blank it. The state
+        // goes out either way so Home Assistant shows what the screen is actually doing
+        // rather than what was asked for.
+        publishApplicationState()
     }
 
     private fun changeScreenBrightness(brightness: Int) {
-        if (configuration.screenBrightness != brightness && configuration.useScreenBrightness) {
+        if (!configuration.useScreenBrightness) {
+            Timber.w("Ignoring brightness command: screen brightness control is switched off in the settings")
+            return
+        }
+        if (!screenUtils.canWriteScreenSetting()) {
+            Timber.w("Ignoring brightness command: the app is not allowed to modify system settings")
+            return
+        }
+        if (configuration.screenBrightness != brightness) {
             screenUtils.updateScreenBrightness(brightness)
             sendScreenBrightnessChange()
+            publishApplicationState()
         }
     }
 
@@ -893,6 +982,17 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         bm.sendBroadcast(intent)
     }
 
+    /**
+     * Asks the browser to show or dismiss the screensaver. Showing it does nothing if no
+     * screensaver is configured, so the reported state comes back from the browser rather
+     * than being assumed here.
+     */
+    private fun setScreenSaver(show: Boolean) {
+        val action = if (show) BROADCAST_ACTION_SHOW_SCREENSAVER else BROADCAST_ACTION_HIDE_SCREENSAVER
+        val bm = LocalBroadcastManager.getInstance(applicationContext)
+        bm.sendBroadcast(Intent(action))
+    }
+
     private fun publishMotionDetected() {
         val delay = (configuration.motionResetTime * 1000).toLong()
         if (!motionDetected) {
@@ -908,16 +1008,34 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         }
     }
 
+    /**
+     * Publishes the application state, rate limited to one message per [delay].
+     *
+     * A change that lands inside the window is remembered rather than dropped, and goes
+     * out as a fresh snapshot when the window closes. Home Assistant reads the switches
+     * and sliders off this topic, so a dropped update leaves a control showing a value
+     * the device no longer has.
+     *
+     * The message is retained. Home Assistant only subscribes once it has processed the
+     * discovery config, so an unretained state published before that point is never seen
+     * and every control comes up as unknown.
+     */
     private fun publishApplicationState(delay: Int = 300) {
-        if (!appStatePublished) {
-            appStatePublished = true
-            publishCommand(COMMAND_STATE, state)
-            appStateClearHandler.postDelayed({ clearPublishApplicationState() }, delay.toLong())
+        if (appStatePublished) {
+            appStatePublishPending = true
+            return
         }
+        appStatePublished = true
+        publishMessage("${configuration.mqttBaseTopic}$COMMAND_STATE", state.toString(), true)
+        appStateClearHandler.postDelayed({ clearPublishApplicationState(delay) }, delay.toLong())
     }
 
-    private fun clearPublishApplicationState() {
+    private fun clearPublishApplicationState(delay: Int = 300) {
         appStatePublished = false
+        if (appStatePublishPending) {
+            appStatePublishPending = false
+            publishApplicationState(delay)
+        }
     }
 
     private fun publishFaceDetected() {
@@ -936,136 +1054,32 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         faceClearHandler.postDelayed({ clearFaceDetected() }, 3000)
     }
 
-    private fun getDeviceDiscoveryDef(): JSONObject {
-        val deviceJson = JSONObject()
-        deviceJson.put("identifiers", listOf("wallpanel_${configuration.mqttClientId}"))
-        deviceJson.put("name", configuration.mqttDiscoveryDeviceName)
-        deviceJson.put("manufacturer", Build.MANUFACTURER.toLowerCase().capitalize())
-        deviceJson.put("model", Build.MODEL)
-        return deviceJson
+    private fun discoveryPayloads(): Map<String, String> {
+        return mqttDiscovery.payloads(sensorReader.getSensors())
     }
 
-    private fun getSensorDiscoveryDef(displayName: String, stateTopic: String, deviceClass: String?, unit: String?, sensorId: String): JSONObject {
-        val discoveryDef = JSONObject()
-        if (configuration.mqttLegacyDiscoveryEntities) {
-            discoveryDef.put("name", "${configuration.mqttDiscoveryDeviceName} ${displayName}")
-        } else {
-            discoveryDef.put("name", displayName)
-        }
-        val originDef = JSONObject()
-        var version = ""
-        try {
-            val pInfo: PackageInfo =
-                applicationContext.packageManager.getPackageInfo(applicationContext.packageName, 0)
-            version = pInfo.versionName ?: ""
-        } catch (e: PackageManager.NameNotFoundException) {
-            e.printStackTrace()
-        }
-        originDef.put("name", "WallPanel")
-        originDef.put("sw", version)
-        originDef.put("url", "https://wallpanel.xyz")
-        discoveryDef.put("origin", originDef)
-        discoveryDef.put("state_topic", "${configuration.mqttBaseTopic}${stateTopic}")
-        if (unit != null) {
-            discoveryDef.put("unit_of_measurement", unit)
-        }
-        discoveryDef.put("value_template", "{{ value_json.value | float }}")
-        if (deviceClass != null) {
-            discoveryDef.put("device_class", deviceClass)
-        }
-        discoveryDef.put("unique_id", "wallpanel_${configuration.mqttClientId}_${sensorId}")
-        discoveryDef.put("device", getDeviceDiscoveryDef())
-        discoveryDef.put("availability_topic", "${configuration.mqttBaseTopic}connection")
-
-        return discoveryDef
-    }
-
-    private fun getBinarySensorDiscoveryDef(displayName: String, stateTopic: String, fieldName: String, deviceClass: String, sensorId: String): JSONObject {
-        val discoveryDef = JSONObject()
-        if (configuration.mqttLegacyDiscoveryEntities) {
-            discoveryDef.put("name", "${configuration.mqttDiscoveryDeviceName} ${displayName}")
-        } else {
-            discoveryDef.put("name", displayName)
-        }
-        val originDef = JSONObject()
-        var version = ""
-        try {
-            val pInfo: PackageInfo =
-                applicationContext.packageManager.getPackageInfo(applicationContext.packageName, 0)
-            version = pInfo.versionName ?: ""
-        } catch (e: PackageManager.NameNotFoundException) {
-            e.printStackTrace()
-        }
-        originDef.put("name", "WallPanel")
-        originDef.put("sw", version)
-        originDef.put("url", "https://wallpanel.xyz")
-        discoveryDef.put("origin", originDef)
-        discoveryDef.put("state_topic", "${configuration.mqttBaseTopic}${stateTopic}")
-        discoveryDef.put("payload_on", true)
-        discoveryDef.put("payload_off", false)
-        discoveryDef.put("value_template", "{{ value_json.${fieldName} }}")
-        discoveryDef.put("device_class", deviceClass)
-        discoveryDef.put("unique_id", "wallpanel_${configuration.mqttClientId}_${sensorId}")
-        discoveryDef.put("device", getDeviceDiscoveryDef())
-        discoveryDef.put("availability_topic", "${configuration.mqttBaseTopic}connection")
-
-        return discoveryDef
-    }
-
+    /**
+     * Publishes the Home Assistant discovery config for every entity the application
+     * exposes. Entities whose feature is switched off are published as an empty retained
+     * payload, which is how a retained message is cleared -- publishing the empty payload
+     * without the retain flag leaves the old config sitting on the broker and the entity
+     * alive in Home Assistant.
+     */
     private fun publishDiscovery() {
-        if (configuration.sensorsEnabled) {
-            val batteryDiscovery = getSensorDiscoveryDef(getString(R.string.mqtt_sensor_battery_level), "sensor/battery", "battery", "%", "battery")
-            publishMessage("${configuration.mqttDiscoveryTopic}/sensor/${configuration.mqttClientId}/battery/config", batteryDiscovery.toString(), true)
-            val usbPluggedDiscovery = getBinarySensorDiscoveryDef(getString(R.string.mqtt_sensor_usb_plugged), "sensor/battery", "usbPlugged", "power", "usbPlugged")
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/usbPlugged/config", usbPluggedDiscovery.toString(), true)
-            val acPluggedDiscovery = getBinarySensorDiscoveryDef(getString(R.string.mqtt_sensor_ac_plugged), "sensor/battery", "acPlugged", "power", "acPlugged")
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/acPlugged/config", acPluggedDiscovery.toString(), true)
-            val chargeDiscovery = getBinarySensorDiscoveryDef(getString(R.string.mqtt_sensor_charging), "sensor/battery", "charging", "battery_charging", "charging")
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/charging/config", chargeDiscovery.toString(), true)
-            val sensors = sensorReader.getSensors()
-            for (sensor in sensors) {
-                if (sensor.sensorType != null) {
-                    val sensorDiscoveryDef = getSensorDiscoveryDef(sensor.displayName!!, "sensor/${sensor.sensorType!!}", sensor.deviceClass, sensor.unit, sensor.sensorType!!)
-                    publishMessage("${configuration.mqttDiscoveryTopic}/sensor/${configuration.mqttClientId}/${sensor.sensorType!!}/config", sensorDiscoveryDef.toString(), true)
-                }
-            }
-
-        } else {
-            publishMessage("${configuration.mqttDiscoveryTopic}/sensor/${configuration.mqttClientId}/battery/config", "", false)
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/usbPlugged/config", "", false)
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/acPlugged/config", "", false)
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/charging/config", "", false)
-            val sensors = sensorReader.getSensors()
-            for (sensor in sensors) {
-                if (sensor.sensorType != null) {
-                    publishMessage("${configuration.mqttDiscoveryTopic}/sensor/${configuration.mqttClientId}/${sensor.sensorType!!}/config", "", false)
-                }
-            }
+        // The client drops publishes while it is still connecting. Recording them as sent
+        // would leave the retained configs on the broker with nothing left to clear them;
+        // the connect callback publishes again once the connection is up.
+        if (mqttModule?.isConnected != true) {
+            Timber.d("Skipping discovery, the MQTT client is not connected")
+            return
         }
-
-        if (configuration.cameraFaceEnabled && configuration.cameraEnabled) {
-            val faceDiscovery = getBinarySensorDiscoveryDef(getString(R.string.mqtt_sensor_face_detected), COMMAND_SENSOR_FACE, "value", "occupancy", "face")
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/face/config", faceDiscovery.toString(), true)
-        } else {
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/face/config", "", false)
+        val payloads = discoveryPayloads()
+        val messages = mqttDiscovery.messages(payloads, configuration.mqttDiscoveryAdvertisedTopics)
+        for ((topic, payload) in messages) {
+            publishMessage(topic, payload, true)
         }
-
-        if (configuration.cameraMotionEnabled && configuration.cameraEnabled) {
-            val motionDiscovery = getBinarySensorDiscoveryDef(getString(R.string.mqtt_sensor_motion_detected), COMMAND_SENSOR_MOTION, "value", "motion", "motion")
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/motion/config", motionDiscovery.toString(), true)
-        } else {
-            publishMessage("${configuration.mqttDiscoveryTopic}/binary_sensor/${configuration.mqttClientId}/motion/config", "", false)
-        }
-
-        if (configuration.cameraQRCodeEnabled && configuration.cameraEnabled) {
-            val qrDiscovery = JSONObject()
-            qrDiscovery.put("topic", "${configuration.mqttBaseTopic}${COMMAND_SENSOR_QR_CODE}")
-            qrDiscovery.put("value_template", "{{ value_json.value }}")
-            qrDiscovery.put("device", getDeviceDiscoveryDef())
-            publishMessage("${configuration.mqttDiscoveryTopic}/tag/${configuration.mqttClientId}/qr/config", qrDiscovery.toString(), true)
-        } else {
-            publishMessage("${configuration.mqttDiscoveryTopic}/tag/${configuration.mqttClientId}/qr/config", "", false)
-        }
+        configuration.mqttDiscoveryAdvertisedTopics = mqttDiscovery.advertisedTopics(payloads)
+        publishedDiscovery = payloads
     }
 
     private fun clearMotionDetected() {
@@ -1198,12 +1212,14 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                 publishApplicationState()
             } else if (BROADCAST_EVENT_SCREEN_TOUCH == intent.action) {
                 Timber.i("Screen touched")
-            } else if (BROADCAST_CAMERA_START_SCREENSAVER == intent.action) {
-                Timber.i("Screensaver started - enabling camera processing")
+            } else if (BROADCAST_SCREENSAVER_STARTED == intent.action) {
+                Timber.i("Screensaver started")
                 isScreenSaverActive = true
-            } else if (BROADCAST_CAMERA_STOP_SCREENSAVER == intent.action) {
-                Timber.i("Screensaver stopped - disabling camera processing")
+                publishApplicationState()
+            } else if (BROADCAST_SCREENSAVER_STOPPED == intent.action) {
+                Timber.i("Screensaver stopped")
                 isScreenSaverActive = false
+                publishApplicationState()
             }
         }
     }
@@ -1211,7 +1227,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     private val sensorCallback = object : SensorCallback {
         override fun publishSensorData(sensorName: String, sensorData: JSONObject) {
             publishApplicationState()
-            publishCommand(COMMAND_SENSOR + sensorName, sensorData)
+            val retain = sensorName in SensorReader.DEVICE_INFO_SENSORS
+            publishMessage("${configuration.mqttBaseTopic}$COMMAND_SENSOR$sensorName", sensorData.toString(), retain)
         }
     }
 
@@ -1283,8 +1300,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         const val BROADCAST_SCREEN_BRIGHTNESS_CHANGE = "BROADCAST_SCREEN_BRIGHTNESS_CHANGE"
         const val BROADCAST_BROWSER_ENGINE_PAUSE = "BROADCAST_BROWSER_ENGINE_PAUSE"
         const val BROADCAST_BROWSER_ENGINE_RESUME = "BROADCAST_BROWSER_ENGINE_RESUME"
-        const val BROADCAST_CAMERA_START_SCREENSAVER = "BROADCAST_CAMERA_START_SCREENSAVER"
-        const val BROADCAST_CAMERA_STOP_SCREENSAVER = "BROADCAST_CAMERA_STOP_SCREENSAVER"
+        const val BROADCAST_SCREENSAVER_STARTED = "BROADCAST_SCREENSAVER_STARTED"
+        const val BROADCAST_SCREENSAVER_STOPPED = "BROADCAST_SCREENSAVER_STOPPED"
         const val BROADCAST_CONNTED = "BROADCAST_SCREEN_BRIGHTNESS_CHANGE"
         const val ACTION_RUN_COMMAND = "xyz.wallpanel.pro.action.RUN_COMMAND"
         const val EXTRA_COMMAND_JSON = "EXTRA_COMMAND_JSON"
@@ -1297,5 +1314,15 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
          * three restarts in a row instead of one. The delay lets onStartCommand() return.
          */
         const val RESTART_EXIT_DELAY_MS = 300L
+
+        // A shell command that never got as far as running has no exit code of its own.
+        private const val SHELL_EXIT_CODE_FAILED_TO_START = -1
+
+        // Home Assistant rejects a sensor state longer than this.
+        private const val SHELL_RESULT_MAX_LENGTH = 255
+
+        // The full output rides along as an attribute. Home Assistant keeps attributes in
+        // every state it records, so an unbounded one is paid for on every update.
+        private const val SHELL_OUTPUT_MAX_LENGTH = 16384
     }
 }

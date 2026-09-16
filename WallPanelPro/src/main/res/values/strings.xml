@@ -15,7 +15,7 @@
   -->
 
 <!--suppress CheckTagEmptyBody, CheckTagEmptyBody -->
-<resources>
+<resources xmlns:tools="http://schemas.android.com/tools">
 
     <string-array name="browser_type_names">
         <item>"Automatic Selection (Recommended)"</item>
@@ -73,6 +73,16 @@
     <string name="title_setting_mqtt_discovery">Enable MQTT Discovery</string>
     <string name="title_setting_mqtt_home_assistant_topic">Discovery Base Topic</string>
     <string name="title_setting_mqtt_home_assistant_name">Device Display Name</string>
+    <string name="title_setting_mqtt_discovery_published_controls">Controls to publish</string>
+    <string name="summary_setting_mqtt_discovery_published_controls">Choose which buttons, switches, sliders and text boxes appear in Home Assistant</string>
+    <string name="title_setting_mqtt_discovery_published_sensors">Sensors to publish</string>
+    <string name="summary_setting_mqtt_discovery_published_sensors">Choose which sensors appear in Home Assistant. A sensor still needs hardware that reports it</string>
+    <string name="summary_setting_mqtt_discovery_all_controls">Publishing every control WallPanel offers</string>
+    <string name="summary_setting_mqtt_discovery_all_sensors">Publishing every sensor WallPanel offers, where the device reports it</string>
+    <!-- The total is the length of the list on this screen, not a count of what the device can report. -->
+    <string name="summary_setting_mqtt_discovery_selected" tools:ignore="PluralsCandidate">%1$d of the %2$d listed are published</string>
+    <string name="title_setting_mqtt_discovery_controls">Publish Controls</string>
+    <string name="summary_setting_mqtt_discovery_controls">Also publish buttons, switches, sliders and text boxes so the dashboard can be controlled from Home Assistant, not just monitored</string>
     <string name="title_setting_mqtt_discovery_legacy_entities">Use old entities naming</string>
     <string name="summary_setting_mqtt_discovery_legacy_entities">Use old naming scheme for Home Assistant before 2023.08</string>
     <string name="default_setting_mqtt_home_assistant_name">My Wall Panel</string>
@@ -280,8 +290,34 @@
     <string name="mqtt_sensor_humidity">Humidity</string>
     <string name="mqtt_sensor_cpu_usage">CPU Usage</string>
     <string name="mqtt_sensor_memory_usage">Memory Usage</string>
+    <string name="mqtt_sensor_storage_free">Storage Free</string>
+    <string name="mqtt_sensor_uptime">Uptime</string>
+    <string name="mqtt_sensor_wifi_signal">Wifi Signal</string>
+    <string name="mqtt_sensor_ip_address">IP Address</string>
+    <string name="mqtt_sensor_app_version">App Version</string>
+    <string name="mqtt_sensor_android_version">Android Version</string>
+    <string name="mqtt_sensor_current_url">Current URL</string>
+    <string name="mqtt_sensor_qr_code">QR Code</string>
     <string name="mqtt_sensor_face_detected">Face Detected</string>
     <string name="mqtt_sensor_motion_detected">Motion Detected</string>
+    <string name="mqtt_sensor_shell_result">Shell Result</string>
+
+    <!-- Home Assistant discovery entity names for the remote control commands -->
+    <string name="mqtt_control_reload">Reload Page</string>
+    <string name="mqtt_control_clear_cache">Clear Cache</string>
+    <string name="mqtt_control_relaunch">Relaunch Dashboard</string>
+    <string name="mqtt_control_restart_app">Restart App</string>
+    <string name="mqtt_control_wake">Wake Screen</string>
+    <string name="mqtt_control_settings">Open Settings</string>
+    <string name="mqtt_control_screen">Keep Screen Awake</string>
+    <string name="mqtt_control_camera">Camera</string>
+    <string name="mqtt_control_screensaver">Screensaver</string>
+    <string name="mqtt_control_brightness">Brightness</string>
+    <string name="mqtt_control_volume">Volume</string>
+    <string name="mqtt_control_url">Navigate URL</string>
+    <string name="mqtt_control_speak">Text to Speech</string>
+    <string name="mqtt_control_toast">Toast Message</string>
+    <string name="mqtt_control_shell">Shell Command</string>
 
     <string name="preference_title_camera_facesize">Minimum Face Size</string>
     <string name="preference_summary_camera_facesize">A face will be detected only if it takes more than %1$s\%% of the image. 0 percent detects far faces.</string>

@@ -15,6 +15,10 @@ Everything runs in Docker. Nothing needs a JDK, the Android SDK or Node on the h
 ./tools/run.sh node    npm run build                    # Docusaurus site
 ```
 
+The `android` image carries `python3` alongside the JDK and SDK, because the scripts that
+need it also need `adb` -- driving the UI by parsing `uiautomator dump`, for instance. It
+is not a separate service for that reason. `node` has no Python.
+
 Two things that will bite you:
 
 - Invoke the wrapper as `./gradlew`, **not** `sh gradlew`. The script is bash-specific
@@ -57,6 +61,33 @@ adb key.
 Keep at least one Android 8.1-era device enabled — it is what catches `minSdk 21`
 regressions that never show up on a modern device.
 
+## Home Assistant discovery checks
+
+[tools/ha-verify.py](tools/ha-verify.py) checks MQTT discovery against a real broker and
+a real Home Assistant. Plain Python 3, no third-party packages, runs on the host. It does
+import [tools/mqtt_minimal.py](tools/mqtt_minimal.py), a standard-library-only MQTT 3.1.1
+client living next to it, so the two move together:
+
+```bash
+./tools/ha-verify.py                        # clientId from local.testconfig.properties
+./tools/ha-verify.py --client-id wptest     # a device configured with its own client id
+./tools/ha-verify.py --exercise             # also drive the controls, then put them back
+```
+
+It reads the retained discovery configs off the broker, then asks Home Assistant whether
+it built a device and an entity for each one, whether any are unavailable, and whether
+their states match what the published payloads should render to. `--exercise` goes
+further and calls Home Assistant services against the controls, which is the only way to
+cover the `command_template`s — Home Assistant, not the app, is what renders those.
+
+Point it at a device configured with a throwaway `clientId`/`baseTopic` rather than a
+real one. It creates a real device in Home Assistant, and clearing that means clearing
+the retained configs (turning MQTT Discovery off on the device does exactly that).
+
+`--exercise` changes brightness, volume, the screensaver and the loaded URL, and puts
+each back afterwards. It leaves text-to-speech and the camera alone on purpose: one makes
+the device talk out loud, the other switches on a camera in somebody's house.
+
 ## Build configuration
 
 | | |
@@ -81,6 +112,13 @@ convention as `tools/devices.json`. `local.properties` itself is reserved for Gr
 configuration (see `tools/android/container.local.properties`); test credentials live in
 their own file so they read the same on the host and in Docker.
 
+`hassToken` in that same file is the one key no build reads. It is a Home Assistant
+long-lived access token used by the MQTT discovery end-to-end check
+([tools/ha-verify.py](tools/ha-verify.py)), which needs the Home Assistant API to
+confirm the entities were really created and hold the states expected — publishing the
+right payload to the broker and Home Assistant accepting it are different claims. Leave
+it empty and that check is skipped.
+
 ## Architecture
 
 - **DI is Dagger 2.** Activities extend `DaggerAppCompatActivity`. New injectable types
@@ -93,6 +131,11 @@ their own file so they read the same on the host and in Docker.
   `processCommand(JSONObject)`. HTTP server listens on port 2971; MQTT topic base is
   `wallpanel/[baseTopic]/command`. New commands need a constant in `MqttUtils.kt`, a
   branch in `processCommand`, and a docs page update.
+- **`MqttDiscovery.kt` owns the Home Assistant entities.** It returns the full entity
+  list, a null `config` meaning "remove this one", and the service publishes each to its
+  discovery topic. A control is just a discovery entity aimed at the same command topic,
+  so exposing a command means adding an entry there — the entity list must stay complete,
+  since it is also what clears retained configs for switched-off features.
 - **Two browser engines coexist**, WebView and GeckoView, both in
   `activity_browser.xml` with visibility toggling, chosen at runtime by
   `Configuration.useGeckoView`. `GeckoWebClientAdapter` maps GeckoView's API onto the

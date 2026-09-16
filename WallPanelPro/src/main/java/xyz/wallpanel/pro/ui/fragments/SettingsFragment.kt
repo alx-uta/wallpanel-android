@@ -174,9 +174,7 @@ class SettingsFragment : BaseSettingsFragment() {
                     Toast.makeText(requireContext(), getString(R.string.toast_screen_brightness_captured), Toast.LENGTH_SHORT).show()
                     screenUtils.setScreenBrightnessLevels()
                 } else {
-                    Toast.makeText(requireActivity(), getString(R.string.toast_write_permissions_denied), Toast.LENGTH_LONG).show()
-                    configuration.useScreenBrightness = false
-                    screenBrightness?.isChecked = false
+                    denyScreenBrightness()
                 }
             }
         }
@@ -485,28 +483,40 @@ class SettingsFragment : BaseSettingsFragment() {
     }
 
 
+    /**
+     * Runs when the user switches screen brightness control on. Writing the system
+     * brightness needs a permission that is granted from a system settings screen rather
+     * than a runtime dialog, so the only moment worth asking is this one -- somebody is
+     * holding the device and just asked for the feature.
+     *
+     * The prompt is not suppressed after the first refusal. It used to be, and because the
+     * flag was set before the user had answered, cancelling once left the setting switched
+     * on, the permission missing, and no way to be asked again short of clearing app data.
+     */
     private fun checkWriteSettings() {
-        if (!configuration.writeScreenPermissionsShown && Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
-            if (Settings.System.canWrite(requireActivity().applicationContext)) {
-                screenUtils.setScreenBrightnessLevels()
-                Toast.makeText(requireContext(), getString(R.string.toast_screen_brightness_captured), Toast.LENGTH_SHORT).show()
-            } else if (!configuration.writeScreenPermissionsShown) {
-                // launch the dialog to provide permissions
-                configuration.writeScreenPermissionsShown = true
-                AlertDialog.Builder(requireActivity())
-                        .setMessage(getString(R.string.dialog_write_permissions_description))
-                        .setPositiveButton(android.R.string.ok) { _, _ ->
-                            launchWriteSettings()
-                        }
-                        .setNegativeButton(android.R.string.cancel) { _, _ ->
-                            Toast.makeText(requireActivity(), getString(R.string.toast_write_permissions_denied), Toast.LENGTH_LONG).show()
-                        }.show()
-            }
-        } else if (configuration.useScreenBrightness) {
-            // rewrite the screen brightness levels until we have a slider in place
+        if (Build.VERSION.SDK_INT < Build.VERSION_CODES.M || screenUtils.canWriteScreenSetting()) {
             screenUtils.setScreenBrightnessLevels()
             Toast.makeText(requireContext(), getString(R.string.toast_screen_brightness_captured), Toast.LENGTH_SHORT).show()
+            return
         }
+        AlertDialog.Builder(requireActivity())
+                .setMessage(getString(R.string.dialog_write_permissions_description))
+                .setPositiveButton(android.R.string.ok) { _, _ ->
+                    launchWriteSettings()
+                }
+                .setNegativeButton(android.R.string.cancel) { _, _ ->
+                    // The setting can't work without the permission, so leaving it switched
+                    // on would just be a control that quietly does nothing.
+                    denyScreenBrightness()
+                }
+                .setOnCancelListener { denyScreenBrightness() }
+                .show()
+    }
+
+    private fun denyScreenBrightness() {
+        Toast.makeText(requireActivity(), getString(R.string.toast_write_permissions_denied), Toast.LENGTH_LONG).show()
+        configuration.useScreenBrightness = false
+        screenBrightness?.isChecked = false
     }
 
     @RequiresApi(Build.VERSION_CODES.M)

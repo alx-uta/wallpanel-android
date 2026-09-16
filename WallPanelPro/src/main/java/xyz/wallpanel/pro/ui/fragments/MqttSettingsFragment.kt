@@ -29,8 +29,11 @@ import androidx.preference.SwitchPreference
 import androidx.preference.EditTextPreference
 import androidx.navigation.Navigation
 import androidx.preference.ListPreference
+import androidx.preference.MultiSelectListPreference
 import androidx.preference.Preference
 import xyz.wallpanel.pro.R
+import xyz.wallpanel.pro.network.DiscoveryCatalog
+import xyz.wallpanel.pro.network.DiscoveryChoice
 import xyz.wallpanel.pro.network.MQTTOptions
 import xyz.wallpanel.pro.modules.MQTTModule
 import xyz.wallpanel.pro.ui.activities.SettingsActivity
@@ -74,6 +77,73 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         addPreferencesFromResource(R.xml.pref_mqtt)
+        // The labels are localized strings, so the lists have to be filled in here rather
+        // than declared in the preference XML.
+        bindDiscoveryPicker(
+            keyRes = R.string.key_setting_mqtt_discovery_control_ids,
+            choices = DiscoveryCatalog.CONTROLS,
+            allSelectedSummaryRes = R.string.summary_setting_mqtt_discovery_all_controls,
+            read = { configuration.mqttDiscoveryControlIds },
+            write = { configuration.mqttDiscoveryControlIds = it },
+        )
+        bindDiscoveryPicker(
+            keyRes = R.string.key_setting_mqtt_discovery_sensor_ids,
+            choices = DiscoveryCatalog.SENSORS,
+            allSelectedSummaryRes = R.string.summary_setting_mqtt_discovery_all_sensors,
+            read = { configuration.mqttDiscoverySensorIds },
+            write = { configuration.mqttDiscoverySensorIds = it },
+        )
+    }
+
+    /**
+     * Fills a picker with the catalogue and keeps its summary showing how much of it is
+     * selected.
+     *
+     * The preference stores nothing itself. It shows what [read] reports as selected and
+     * hands what the user ticked to [write], which keeps the unticked ids instead. An id
+     * nobody has ever unticked counts as selected, so a device that has never opened this
+     * screen publishes everything, and so does one that opened it before a later version
+     * added an entity to the catalogue.
+     */
+    private fun bindDiscoveryPicker(
+        keyRes: Int,
+        choices: List<DiscoveryChoice>,
+        allSelectedSummaryRes: Int,
+        read: () -> Set<String>,
+        write: (Set<String>) -> Unit,
+    ) {
+        val preference = findPreference<MultiSelectListPreference>(getString(keyRes)) ?: return
+        val ordered = DiscoveryCatalog.sortedByName(requireContext(), choices)
+        preference.entries = ordered.map { getString(it.displayNameRes) }.toTypedArray()
+        preference.entryValues = ordered.map { it.objectId }.toTypedArray()
+        val total = ordered.size
+        preference.values = read()
+        updatePickerSummary(preference, preference.values, total, allSelectedSummaryRes)
+        preference.setOnPreferenceChangeListener { pref, newValue ->
+            @Suppress("UNCHECKED_CAST")
+            val selected = (newValue as? Set<String>).orEmpty()
+            write(selected)
+            updatePickerSummary(pref as MultiSelectListPreference, selected, total, allSelectedSummaryRes)
+            true
+        }
+    }
+
+    /**
+     * The total is the length of the list on this screen. It counts what WallPanel can
+     * offer rather than what this device can report, which is why the wording says so --
+     * a tablet with no barometer still lists a pressure sensor.
+     */
+    private fun updatePickerSummary(
+        preference: MultiSelectListPreference,
+        selected: Set<String>,
+        total: Int,
+        allSelectedSummaryRes: Int,
+    ) {
+        preference.summary = if (selected.size >= total) {
+            getString(allSelectedSummaryRes)
+        } else {
+            getString(R.string.summary_setting_mqtt_discovery_selected, selected.size, total)
+        }
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -164,7 +234,7 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
             }
         }
     }
-    
+
     private fun testMqttConnection() {
         if (isTestingConnection) {
             Timber.d("Test already in progress")

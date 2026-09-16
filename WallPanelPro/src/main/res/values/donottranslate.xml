@@ -50,6 +50,12 @@
     <string name="key_setting_mqtt_discovery_topic">setting_mqtt_discovery_topic</string>
     <string name="key_setting_mqtt_discovery_name">setting_mqtt_discovery_name</string>
     <string name="key_setting_mqtt_discovery_legacy_entities">setting_mqtt_discovery_legacy_entities</string>
+    <string name="key_setting_mqtt_discovery_controls">setting_mqtt_discovery_controls</string>
+    <string name="key_setting_mqtt_discovery_control_ids">setting_mqtt_discovery_control_ids</string>
+    <string name="key_setting_mqtt_discovery_sensor_ids">setting_mqtt_discovery_sensor_ids</string>
+    <!-- The pickers show what is ticked, the preferences store what was unticked. -->
+    <string name="key_setting_mqtt_discovery_control_ids_excluded">setting_mqtt_discovery_control_ids_excluded</string>
+    <string name="key_setting_mqtt_discovery_sensor_ids_excluded">setting_mqtt_discovery_sensor_ids_excluded</string>
     <string name="key_setting_mqtt_tls_enabled">key_setting_mqtt_tls_enabled</string>
     <string name="key_setting_mqtt_test_connection">setting_mqtt_test_connection</string>
     <string name="default_setting_mqtt_enabled">false</string>
@@ -57,6 +63,7 @@
     <string name="default_setting_mqtt_home_assistant_discovery">false</string>
     <string name="default_setting_mqtt_discovery_topic">homeassistant</string>
     <string name="default_setting_mqtt_discovery_legacy_entities">false</string>
+    <string name="default_setting_mqtt_discovery_controls">true</string>
     <string name="default_setting_mqtt_tts_enabled">false</string>
     <string name="default_setting_mqtt_basetopic">wallpanel/mywallpanel/</string>
     <string name="key_setting_mqtt_clientid">setting_mqtt_clientid</string>

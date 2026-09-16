@@ -1,6 +1,8 @@
 # Copy to local.testconfig.properties (repo root) and fill in real values. That file
-# is gitignored. Only the `dev` build flavor reads these -- `qa` and `prod` hard-code
-# empty/default credentials and ignore this file entirely.
+# is gitignored. Only the `dev` build flavor reads the build settings here -- `qa` and
+# `prod` hard-code empty/default credentials and ignore this file entirely. `hassToken`
+# is the exception: it belongs to the test harness rather than any build, and never
+# reaches the application (see its own note below).
 #
 # local.properties is reserved for Gradle/SDK configuration (see
 # tools/android/container.local.properties). Test credentials live here instead, so
@@ -14,6 +16,17 @@
 
 # Home Assistant dashboard URL the kiosk should open.
 hassUrl=http://homeassistant.local:8123/lovelace/default_view
+
+# Long-lived access token for that Home Assistant, used only by the test harness --
+# the application never reads it and it is not compiled into any build. It is what
+# lets a test check that Home Assistant really created the MQTT discovery entities
+# and gave them the states expected, rather than only checking what was published to
+# the broker. Leave it empty to skip those checks.
+#
+# Create one in Home Assistant under your profile -> Security -> Long-lived access
+# tokens. It grants full API access to that instance, so use a dev instance and
+# revoke the token when you are done with it.
+hassToken=
 
 # MQTT broker connection. Leave broker empty to skip MQTT auto-seeding entirely
 # (mqttEnabled only gets set to true if broker is non-blank).

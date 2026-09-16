@@ -29,6 +29,7 @@ import org.junit.Before
 import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
+import xyz.wallpanel.pro.R
 
 /**
  * Exercises [Configuration] against a real SharedPreferences under Robolectric, without
@@ -107,4 +108,51 @@ class ConfigurationTest {
 
         assertEquals(30, configuration.geckoViewSuspendSeconds)
     }
+    /**
+     * The settings screen restricts these fields to a number pad, which stops letters but
+     * not a pasted value or one too large for an Int. These are read while the service is
+     * starting, so a value that throws takes the kiosk down on launch and leaves no way
+     * back into the settings to put it right.
+     */
+    @Test
+    fun `a numeric setting too large for an int falls back to its default`() {
+        preferences.edit()
+            .putString(context.getString(R.string.key_setting_mqtt_sensorfrequency), "99999999999")
+            .commit()
+        assertEquals(60, configuration.mqttSensorFrequency)
+    }
+
+    @Test
+    fun `a numeric setting that is only whitespace falls back to its default`() {
+        preferences.edit()
+            .putString(context.getString(R.string.key_setting_mqtt_serverport), "   ")
+            .commit()
+        assertEquals(1883, configuration.mqttServerPort)
+    }
+
+    @Test
+    fun `the advertised discovery topics round-trip through SharedPreferences`() {
+        assertEquals(emptySet<String>(), configuration.mqttDiscoveryAdvertisedTopics)
+
+        configuration.mqttDiscoveryAdvertisedTopics = setOf("homeassistant/button/kitchen/reload/config")
+        assertEquals(
+            setOf("homeassistant/button/kitchen/reload/config"),
+            Configuration(context, preferences).mqttDiscoveryAdvertisedTopics
+        )
+    }
+
+    @Test
+    fun `a valid numeric setting is still read`() {
+        preferences.edit()
+            .putString(context.getString(R.string.key_setting_mqtt_sensorfrequency), " 30 ")
+            .commit()
+        assertEquals(30, configuration.mqttSensorFrequency)
+    }
+
+    @Test
+    fun `an unparseable camera rotation falls back rather than throwing`() {
+        preferences.edit().putString(Configuration.PREF_CAMERA_ROTATE, "not-a-number").commit()
+        assertEquals(0f, configuration.cameraRotate, 0.001f)
+    }
+
 }

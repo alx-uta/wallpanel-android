@@ -20,21 +20,48 @@ import android.content.Context
 import android.content.Context.SENSOR_SERVICE
 import android.content.Intent
 import android.content.IntentFilter
+import android.content.pm.PackageManager
 import android.hardware.Sensor
 import android.hardware.SensorEvent
 import android.hardware.SensorEventListener
 import android.hardware.SensorManager
+import android.net.wifi.WifiManager
 import android.os.BatteryManager
+import android.os.Build
+import android.os.Environment
 import android.os.Handler
 import android.os.Looper
+import android.os.StatFs
+import android.os.StrictMode
+import android.os.SystemClock
 import xyz.wallpanel.pro.R
 import org.json.JSONException
 import org.json.JSONObject
 import timber.log.Timber
+import java.net.Inet4Address
+import java.net.NetworkInterface
 import java.util.*
+import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
-data class SensorInfo(val sensorType: String?, val unit: String?, val deviceClass: String?, val displayName: String?)
+/**
+ * Describes one published sensor well enough to build its Home Assistant discovery
+ * config without the discovery code needing to know what kind of sensor it is.
+ *
+ * [numeric] decides whether the discovered entity casts its value to a float; string
+ * sensors such as the IP address would end up as `unknown` in Home Assistant otherwise.
+ * [diagnostic] puts the entity in Home Assistant's diagnostic section rather than the
+ * main controls, which is where device facts like the app version belong.
+ */
+data class SensorInfo(
+    val sensorType: String?,
+    val unit: String?,
+    val deviceClass: String?,
+    val displayName: String?,
+    val stateClass: String? = null,
+    val numeric: Boolean = true,
+    val diagnostic: Boolean = false,
+)
 
 // Simple wrapper for system sensors
 private data class SystemSensor(val type: Int)
@@ -50,24 +77,67 @@ constructor(private val context: Context){
     private var sensorsPublished: Boolean = false
     private var lightSensorEvent: SensorEvent? = null
     // Some devices' SELinux policy denies untrusted apps read access to /proc/stat.
-    // Once that's confirmed, stop retrying every cycle instead of failing forever.
+    // Once that's confirmed, stop retrying every cycle instead of failing forever. Written
+    // from the reading thread and read from the main thread.
+    @Volatile
     private var cpuUsageUnavailable: Boolean = false
+    // The values that never change while the process runs are published when readings start
+    // and again on every refresh, which is what the service asks for on a broker reconnect.
+    private var deviceInfoPublished: Boolean = false
+    @Volatile
+    private var backgroundReadings: Thread? = null
 
     private val sensorUpdateRunnable = object : Runnable {
         override fun run() {
             if (updateFrequencyMilliSeconds > 0) {
-                getBatteryReading()
-                // Run CPU and memory reading on background thread to avoid StrictMode violations
-                Thread {
-                    if (!cpuUsageUnavailable) {
-                        getCpuUsage()
-                    }
-                    getMemoryUsage()
-                }.start()
+                readImmediateSensors()
+                startBackgroundReadings()
                 sensorHandler.postDelayed(this, updateFrequencyMilliSeconds.toLong())
                 sensorsPublished = false
             }
         }
+    }
+
+    /**
+     * The readings that are cheap enough to take on the calling thread. The group is guarded
+     * as a whole: this runs on the main thread, and a throw here would take the application
+     * down rather than skip a cycle.
+     */
+    private fun readImmediateSensors() {
+        try {
+            getBatteryReading()
+            getUptimeReading()
+            if (!deviceInfoPublished) {
+                getDeviceInfoReadings()
+                deviceInfoPublished = true
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error taking the sensor readings")
+        }
+    }
+
+    /**
+     * The readings that touch disk, /proc or the network stack, kept off the calling thread
+     * to avoid StrictMode violations. One cycle runs at a time: the CPU reading takes a
+     * second on its own, and a short publish frequency would otherwise stack threads up.
+     */
+    private fun startBackgroundReadings() {
+        if (backgroundReadings?.isAlive == true) {
+            Timber.d("The previous sensor readings are still running, skipping this cycle")
+            return
+        }
+        backgroundReadings = Thread {
+            try {
+                if (!cpuUsageUnavailable) {
+                    getCpuUsage()
+                }
+                getMemoryUsage()
+                getStorageReading()
+                getNetworkReadings()
+            } catch (e: Exception) {
+                Timber.e(e, "Error taking the background sensor readings")
+            }
+        }.apply { start() }
     }
 
     init {
@@ -76,27 +146,87 @@ constructor(private val context: Context){
             if (getSensorName(s.type) != null)
                 mSensorList.add(s)
         }
-        // Add system sensors (non-hardware)
+        // Add system sensors (non-hardware). Every reading this device could report is
+        // registered here whether or not a value is available at this moment, so that a
+        // kiosk which boots faster than the Wi-Fi associates keeps its signal reading.
         mSensorList.add(SystemSensor(TYPE_BATTERY))
-        mSensorList.add(SystemSensor(TYPE_CPU))
         mSensorList.add(SystemSensor(TYPE_MEMORY))
+        mSensorList.add(SystemSensor(TYPE_CPU))
+        mSensorList.add(SystemSensor(TYPE_STORAGE))
+        mSensorList.add(SystemSensor(TYPE_UPTIME))
+        mSensorList.add(SystemSensor(TYPE_IP_ADDRESS))
+        mSensorList.add(SystemSensor(TYPE_APP_VERSION))
+        mSensorList.add(SystemSensor(TYPE_ANDROID_VERSION))
+        mSensorList.add(SystemSensor(TYPE_WIFI_SIGNAL))
+        cpuUsageUnavailable = !canReadCpuStat()
     }
 
+    /**
+     * A single probe of the file the CPU reading parses. Reading procfs is cheap enough to
+     * do once while the reader is built, and a device whose policy denies the file will
+     * deny it for as long as the application runs.
+     */
+    private fun canReadCpuStat(): Boolean {
+        val policy = StrictMode.allowThreadDiskReads()
+        return try {
+            java.io.File(PROC_STAT).bufferedReader().use { it.readLine() } != null
+        } catch (e: Exception) {
+            Timber.w("CPU usage unavailable on this device (cannot read $PROC_STAT): ${e.message}")
+            false
+        } finally {
+            StrictMode.setThreadPolicy(policy)
+        }
+    }
+
+    /**
+     * Every reading this device is able to report. An entry is left out only where the
+     * device can never produce a value -- no Wi-Fi radio, or a kernel that will not hand
+     * over /proc/stat -- so a reading that is merely unavailable right now keeps its Home
+     * Assistant entity instead of having it taken down and rebuilt.
+     */
     fun getSensors(): List<SensorInfo> {
-        return mSensorList.map { s -> 
+        return mSensorList.mapNotNull { s ->
             val type = when (s) {
                 is Sensor -> s.type
                 is SystemSensor -> s.type
                 else -> -1
             }
-            SensorInfo(getSensorName(type), getSensorUnit(type), getSensorDeviceClass(type), getSensorDisplayName(type))
+            if (!canReport(type)) {
+                return@mapNotNull null
+            }
+            SensorInfo(
+                sensorType = getSensorName(type),
+                unit = getSensorUnit(type),
+                deviceClass = getSensorDeviceClass(type),
+                displayName = getSensorDisplayName(type),
+                stateClass = getSensorStateClass(type),
+                numeric = isNumericSensor(type),
+                diagnostic = isDiagnosticSensor(type),
+            )
         }
+    }
+
+    /**
+     * Whether the device could produce this reading at all. This is a question about the
+     * hardware and the platform, not about the state of the network right now.
+     */
+    private fun canReport(sensorType: Int): Boolean {
+        return when (sensorType) {
+            TYPE_CPU -> !cpuUsageUnavailable
+            TYPE_WIFI_SIGNAL -> hasWifiHardware()
+            else -> true
+        }
+    }
+
+    private fun hasWifiHardware(): Boolean {
+        return context.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI)
     }
 
     fun startReadings(freqSeconds: Int, callback: SensorCallback) {
         this.callback = callback
         if (freqSeconds >= 0) {
             updateFrequencyMilliSeconds = 1000 * freqSeconds
+            deviceInfoPublished = false
             sensorHandler.removeCallbacksAndMessages(null)
             sensorHandler.postDelayed(sensorUpdateRunnable, updateFrequencyMilliSeconds.toLong())
             startSensorReadings()
@@ -104,6 +234,9 @@ constructor(private val context: Context){
     }
 
     fun refreshSensors() {
+        // The service refreshes when it reconnects to the broker, which is the moment the
+        // values that never change are worth sending again.
+        deviceInfoPublished = false
         sensorHandler.removeCallbacksAndMessages(null)
         sensorHandler.post(sensorUpdateRunnable)
         stopSensorReading()
@@ -132,6 +265,12 @@ constructor(private val context: Context){
             TYPE_BATTERY -> return BATTERY
             TYPE_CPU -> return CPU_USAGE
             TYPE_MEMORY -> return MEMORY_USAGE
+            TYPE_STORAGE -> return STORAGE_FREE
+            TYPE_UPTIME -> return UPTIME
+            TYPE_WIFI_SIGNAL -> return WIFI_SIGNAL
+            TYPE_IP_ADDRESS -> return IP_ADDRESS
+            TYPE_APP_VERSION -> return APP_VERSION
+            TYPE_ANDROID_VERSION -> return ANDROID_VERSION
         }
         return null
     }
@@ -146,6 +285,12 @@ constructor(private val context: Context){
             TYPE_BATTERY -> return context.getString(R.string.mqtt_sensor_battery_level)
             TYPE_CPU -> return context.getString(R.string.mqtt_sensor_cpu_usage)
             TYPE_MEMORY -> return context.getString(R.string.mqtt_sensor_memory_usage)
+            TYPE_STORAGE -> return context.getString(R.string.mqtt_sensor_storage_free)
+            TYPE_UPTIME -> return context.getString(R.string.mqtt_sensor_uptime)
+            TYPE_WIFI_SIGNAL -> return context.getString(R.string.mqtt_sensor_wifi_signal)
+            TYPE_IP_ADDRESS -> return context.getString(R.string.mqtt_sensor_ip_address)
+            TYPE_APP_VERSION -> return context.getString(R.string.mqtt_sensor_app_version)
+            TYPE_ANDROID_VERSION -> return context.getString(R.string.mqtt_sensor_android_version)
         }
         return null
     }
@@ -160,6 +305,9 @@ constructor(private val context: Context){
             TYPE_BATTERY -> return UNIT_PERCENTAGE
             TYPE_CPU -> return UNIT_PERCENTAGE
             TYPE_MEMORY -> return UNIT_MB
+            TYPE_STORAGE -> return UNIT_GB
+            TYPE_UPTIME -> return UNIT_SECONDS
+            TYPE_WIFI_SIGNAL -> return UNIT_DBM
         }
         return null
     }
@@ -173,8 +321,35 @@ constructor(private val context: Context){
             Sensor.TYPE_LIGHT -> return "illuminance"
             Sensor.TYPE_PRESSURE -> return "pressure"
             Sensor.TYPE_RELATIVE_HUMIDITY -> return "humidity"
+            TYPE_BATTERY -> return "battery"
+            TYPE_STORAGE -> return "data_size"
+            TYPE_UPTIME -> return "duration"
+            TYPE_WIFI_SIGNAL -> return "signal_strength"
         }
         return null
+    }
+
+    /**
+     * Home Assistant only keeps long term statistics for sensors that declare a state
+     * class, so every numeric reading is marked as a measurement.
+     */
+    private fun getSensorStateClass(sensorType: Int): String? {
+        return if (isNumericSensor(sensorType)) STATE_CLASS_MEASUREMENT else null
+    }
+
+    private fun isNumericSensor(sensorType: Int): Boolean {
+        return when (sensorType) {
+            TYPE_IP_ADDRESS, TYPE_APP_VERSION, TYPE_ANDROID_VERSION -> false
+            else -> true
+        }
+    }
+
+    private fun isDiagnosticSensor(sensorType: Int): Boolean {
+        return when (sensorType) {
+            TYPE_STORAGE, TYPE_UPTIME, TYPE_WIFI_SIGNAL,
+            TYPE_IP_ADDRESS, TYPE_APP_VERSION, TYPE_ANDROID_VERSION -> true
+            else -> false
+        }
     }
 
     /**
@@ -252,12 +427,8 @@ constructor(private val context: Context){
     
     private fun getCpuUsage() {
         try {
-            // Read system-wide CPU usage from /proc/stat
-            val reader = java.io.BufferedReader(java.io.FileReader("/proc/stat"))
-            val line = reader.readLine()
-            reader.close()
-            
-            val tokens = line.split(Regex("\\s+")).filter { it.isNotEmpty() }
+            // System-wide CPU usage, from two samples of /proc/stat a second apart.
+            val tokens = readCpuStat() ?: return
             if (tokens.size >= 9 && tokens[0] == "cpu") {
                 // Format: cpu user nice system idle iowait irq softirq steal guest guest_nice
                 val user1 = tokens[1].toLongOrNull() ?: 0L
@@ -267,14 +438,10 @@ constructor(private val context: Context){
                 val iowait1 = tokens[5].toLongOrNull() ?: 0L
                 val irq1 = tokens[6].toLongOrNull() ?: 0L
                 val softirq1 = tokens[7].toLongOrNull() ?: 0L
-                
+
                 Thread.sleep(1000)
-                
-                val reader2 = java.io.BufferedReader(java.io.FileReader("/proc/stat"))
-                val line2 = reader2.readLine()
-                reader2.close()
-                
-                val tokens2 = line2.split(Regex("\\s+")).filter { it.isNotEmpty() }
+
+                val tokens2 = readCpuStat() ?: return
                 if (tokens2.size >= 9 && tokens2[0] == "cpu") {
                     val user2 = tokens2[1].toLongOrNull() ?: 0L
                     val nice2 = tokens2[2].toLongOrNull() ?: 0L
@@ -299,37 +466,36 @@ constructor(private val context: Context){
                     publishSensorData(CPU_USAGE, data)
                 }
             }
-        } catch (e: java.io.FileNotFoundException) {
+        } catch (e: java.io.IOException) {
+            // Covers both a policy that hides the file and one that opens it but refuses
+            // the read. Neither changes while the application is running.
             cpuUsageUnavailable = true
-            Timber.w("CPU usage unavailable on this device (cannot read /proc/stat): ${e.message}")
+            Timber.w("CPU usage unavailable on this device (cannot read $PROC_STAT): ${e.message}")
         } catch (e: Exception) {
             Timber.e(e, "Error reading CPU usage")
         }
     }
+
+    /**
+     * The aggregate `cpu` line of /proc/stat, split on whitespace.
+     */
+    private fun readCpuStat(): List<String>? {
+        val line = java.io.File(PROC_STAT).bufferedReader().use { it.readLine() } ?: return null
+        return line.split(Regex("\\s+")).filter { it.isNotEmpty() }
+    }
     
     private fun getMemoryUsage() {
         try {
-            // Read memory info from /proc/meminfo
-            val reader = java.io.BufferedReader(java.io.FileReader("/proc/meminfo"))
-            var totalMem = 0L
-            var availMem = 0L
-            
-            reader.useLines { lines ->
-                lines.forEach { line ->
-                    when {
-                        line.startsWith("MemTotal:") -> {
-                            totalMem = line.split(Regex("\\s+"))[1].toLongOrNull() ?: 0L
-                        }
-                        line.startsWith("MemAvailable:") -> {
-                            availMem = line.split(Regex("\\s+"))[1].toLongOrNull() ?: 0L
-                        }
-                    }
-                    if (totalMem > 0 && availMem > 0) return@forEach
-                }
-            }
-            
+            val meminfo = readMemInfo()
+            val totalMem = meminfo["MemTotal"] ?: 0L
+            // MemAvailable only exists on kernels from 3.14 onwards. Older devices, which
+            // includes Android 5 era hardware, get the approximation that predates it --
+            // without a fallback they report every byte of memory as in use.
+            val availMem = meminfo["MemAvailable"] ?: ((meminfo["MemFree"] ?: 0L) +
+                    (meminfo["Buffers"] ?: 0L) + (meminfo["Cached"] ?: 0L))
+
             val totalSystemMemoryMB = totalMem / 1024
-            val availableSystemMemoryMB = availMem / 1024
+            val availableSystemMemoryMB = (availMem / 1024).coerceIn(0L, totalSystemMemoryMB)
             val usedSystemMemoryMB = totalSystemMemoryMB - availableSystemMemoryMB
             
             val usedPercentage = if (totalSystemMemoryMB > 0) {
@@ -349,12 +515,247 @@ constructor(private val context: Context){
         }
     }
 
+    /**
+     * /proc/meminfo as a map of field name to kilobytes. Reading the whole file rather than
+     * the two fields the reading wants keeps the fallback for kernels without MemAvailable
+     * to a lookup.
+     */
+    private fun readMemInfo(): Map<String, Long> {
+        val values = HashMap<String, Long>()
+        java.io.File(PROC_MEMINFO).bufferedReader().use { reader ->
+            reader.forEachLine { line ->
+                val parts = line.split(Regex("\\s+")).filter { it.isNotEmpty() }
+                if (parts.size >= 2) {
+                    parts[1].toLongOrNull()?.let { values[parts[0].trimEnd(':')] = it }
+                }
+            }
+        }
+        return values
+    }
+
+
+    /**
+     * Free space on the partition the application's own data lives on, which is the one
+     * that actually runs out first on a kiosk that has been caching pages for months.
+     */
+    private fun getStorageReading() {
+        try {
+            val stat = StatFs(Environment.getDataDirectory().absolutePath)
+            val blockSize = stat.blockSizeLong
+            val freeBytes = stat.availableBlocksLong * blockSize
+            val totalBytes = stat.blockCountLong * blockSize
+            val data = JSONObject()
+            data.put(VALUE, bytesToGigabytes(freeBytes))
+            data.put(UNIT, UNIT_GB)
+            data.put(ID, "internal_storage")
+            data.put("total", bytesToGigabytes(totalBytes))
+            data.put("freeBytes", freeBytes)
+            data.put("totalBytes", totalBytes)
+            publishSensorData(STORAGE_FREE, data)
+        } catch (e: Exception) {
+            Timber.e(e, "Error reading free storage")
+        }
+    }
+
+    /**
+     * Decimal gigabytes. Home Assistant's `data_size` device class reads GB as a thousand
+     * million bytes when it converts between units, and Android's own storage screen counts
+     * the same way, so the reading agrees with both. The raw byte counts are published
+     * alongside it for anyone who wants the exact figure.
+     */
+    private fun bytesToGigabytes(bytes: Long): Double {
+        return Math.round(bytes / 1000.0 / 1000.0 / 1000.0 * 100.0) / 100.0
+    }
+
+    /**
+     * Time since the device last booted. Deep sleep counts, so this tracks the device
+     * rather than the application and an unexpected reset is a real reboot.
+     */
+    private fun getUptimeReading() {
+        try {
+            val uptimeMillis = SystemClock.elapsedRealtime()
+            val seconds = TimeUnit.MILLISECONDS.toSeconds(uptimeMillis)
+            val data = JSONObject()
+            data.put(VALUE, seconds)
+            data.put(UNIT, UNIT_SECONDS)
+            data.put(ID, "device_uptime")
+            // A breakdown rather than three totals: "days":16 next to a total "hours":397
+            // reads as 16 days and 397 hours to anyone templating on it.
+            data.put("days", TimeUnit.SECONDS.toDays(seconds))
+            data.put("hours", TimeUnit.SECONDS.toHours(seconds) % 24)
+            data.put("minutes", TimeUnit.SECONDS.toMinutes(seconds) % 60)
+            data.put("formatted", formatUptime(seconds))
+            publishSensorData(UPTIME, data)
+        } catch (e: Exception) {
+            Timber.e(e, "Error reading the device uptime")
+        }
+    }
+
+    private fun formatUptime(totalSeconds: Long): String {
+        val days = TimeUnit.SECONDS.toDays(totalSeconds)
+        val hours = TimeUnit.SECONDS.toHours(totalSeconds) % 24
+        val minutes = TimeUnit.SECONDS.toMinutes(totalSeconds) % 60
+        return if (days > 0) {
+            String.format(Locale.US, "%dd %dh %dm", days, hours, minutes)
+        } else {
+            String.format(Locale.US, "%dh %dm", hours, minutes)
+        }
+    }
+
+    /**
+     * Facts about the install that never change while the process is alive. Published once
+     * per run of the reading cycle rather than on every pass, and again when the service
+     * refreshes the sensors on a broker reconnect. See [DEVICE_INFO_SENSORS].
+     */
+    private fun getDeviceInfoReadings() {
+        try {
+            val appData = JSONObject()
+            appData.put(VALUE, applicationVersion())
+            appData.put(ID, context.packageName)
+            publishSensorData(APP_VERSION, appData)
+        } catch (e: Exception) {
+            Timber.e(e, "Error reading the application version")
+        }
+
+        try {
+            val androidData = JSONObject()
+            androidData.put(VALUE, Build.VERSION.RELEASE ?: "")
+            androidData.put(ID, "android_version")
+            androidData.put("sdk", Build.VERSION.SDK_INT)
+            androidData.put("manufacturer", Build.MANUFACTURER)
+            androidData.put("model", Build.MODEL)
+            publishSensorData(ANDROID_VERSION, androidData)
+        } catch (e: Exception) {
+            Timber.e(e, "Error reading the Android version")
+        }
+    }
+
+    private fun applicationVersion(): String {
+        return try {
+            context.packageManager.getPackageInfo(context.packageName, 0).versionName ?: ""
+        } catch (e: PackageManager.NameNotFoundException) {
+            Timber.e(e, "Could not read the application version")
+            ""
+        }
+    }
+
+    /**
+     * The network readings. Each one publishes nothing at all where the value can't be read,
+     * which is what an interface that hasn't come up yet looks like -- the entity stays and
+     * starts reporting once there is something to report.
+     */
+    private fun getNetworkReadings() {
+        try {
+            readIpAddress()?.let { address ->
+                val data = JSONObject()
+                data.put(VALUE, address)
+                data.put(ID, "ip_address")
+                publishSensorData(IP_ADDRESS, data)
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error publishing the device IP address")
+        }
+
+        try {
+            readWifiRssi()?.let { rssi ->
+                val data = JSONObject()
+                data.put(VALUE, rssi)
+                data.put(UNIT, UNIT_DBM)
+                data.put(ID, "wifi_signal")
+                data.put("percentage", rssiToPercentage(rssi))
+                publishSensorData(WIFI_SIGNAL, data)
+            }
+        } catch (e: Exception) {
+            Timber.e(e, "Error publishing the Wi-Fi signal strength")
+        }
+    }
+
+    /**
+     * The IPv4 address a user could reach this device on. Reading the interface list rather
+     * than the Wi-Fi connection info covers the wired kiosk devices too, and needs no
+     * permission beyond the ones the application already holds.
+     */
+    private fun readIpAddress(): String? {
+        return try {
+            val interfaces = NetworkInterface.getNetworkInterfaces() ?: return null
+            interfaces.toList()
+                .filter { it.isUp && !it.isLoopback }
+                .flatMap { networkInterface ->
+                    networkInterface.inetAddresses.toList()
+                        .filterIsInstance<Inet4Address>()
+                        .filter { !it.isLoopbackAddress }
+                        .map { networkInterface to it }
+                }
+                .minByOrNull { (networkInterface, address) -> addressRank(networkInterface, address) }
+                ?.second
+                ?.hostAddress
+        } catch (e: Exception) {
+            Timber.e(e, "Error reading the device IP address")
+            null
+        }
+    }
+
+    /**
+     * Ranks candidate addresses, lowest first. A tablet can hold addresses on a VPN tunnel
+     * or a mobile interface at the same time as the local network, and the address worth
+     * reporting is the one the local network can open the built in web server on.
+     */
+    private fun addressRank(networkInterface: NetworkInterface, address: Inet4Address): Int {
+        val localNetwork = networkInterface.name.orEmpty().let {
+            it.startsWith("wlan") || it.startsWith("eth")
+        }
+        return when {
+            address.isSiteLocalAddress && localNetwork -> 0
+            address.isSiteLocalAddress -> 1
+            localNetwork -> 2
+            else -> 3
+        }
+    }
+
+    private fun wifiManager(): WifiManager? {
+        return context.applicationContext.getSystemService(Context.WIFI_SERVICE) as? WifiManager
+    }
+
+    /**
+     * The signal strength of the current association. A real reading is always a negative
+     * number above the platform's invalid marker, so anything outside that range counts as
+     * no reading -- which is what an unassociated radio reports, in whichever form the
+     * device's Wi-Fi stack chooses to report it.
+     */
+    private fun readWifiRssi(): Int? {
+        return try {
+            val rssi = wifiManager()?.connectionInfo?.rssi ?: return null
+            if (rssi in (UNKNOWN_RSSI + 1)..-1) rssi else null
+        } catch (e: Exception) {
+            Timber.e(e, "Error reading the Wi-Fi signal strength")
+            null
+        }
+    }
+
+    /**
+     * Linear over the range Android's own signal bars use. WifiManager can do this, but
+     * its two argument form was deprecated in API 30 and its replacement only exists from
+     * API 30, so neither covers the range of versions this application supports.
+     */
+    private fun rssiToPercentage(rssi: Int): Int {
+        return when {
+            rssi <= RSSI_WORST -> 0
+            rssi >= RSSI_BEST -> 100
+            else -> ((rssi - RSSI_WORST) * 100) / (RSSI_BEST - RSSI_WORST)
+        }
+    }
 
     companion object {
         const val TYPE_BATTERY: Int = -100
         const val TYPE_CPU: Int = -101
         const val TYPE_MEMORY: Int = -102
-        
+        const val TYPE_STORAGE: Int = -103
+        const val TYPE_UPTIME: Int = -104
+        const val TYPE_WIFI_SIGNAL: Int = -105
+        const val TYPE_IP_ADDRESS: Int = -107
+        const val TYPE_APP_VERSION: Int = -108
+        const val TYPE_ANDROID_VERSION: Int = -109
+
         const val BATTERY: String = "battery"
         const val CHARGING: String = "charging"
         const val AC_PLUGGED: String = "acPlugged"
@@ -366,14 +767,40 @@ constructor(private val context: Context){
         const val MAGNETIC_FIELD: String = "magneticField"
         const val CPU_USAGE: String = "cpuUsage"
         const val MEMORY_USAGE: String = "memoryUsage"
+        const val STORAGE_FREE: String = "storageFree"
+        const val UPTIME: String = "uptime"
+        const val WIFI_SIGNAL: String = "wifiSignal"
+        const val IP_ADDRESS: String = "ipAddress"
+        const val APP_VERSION: String = "appVersion"
+        const val ANDROID_VERSION: String = "androidVersion"
+
+        /**
+         * The readings published once per refresh rather than every cycle. Their messages
+         * have to be retained: sent only once, a message that arrives before Home Assistant
+         * subscribes, or before it restarts, would leave the entity unknown until the next
+         * broker reconnect.
+         */
+        val DEVICE_INFO_SENSORS: Set<String> = setOf(APP_VERSION, ANDROID_VERSION)
         const val UNIT_C: String = "°C"
         const val UNIT_PERCENTAGE: String = "%"
         const val UNIT_HPA: String = "hPa"
         const val UNIT_UT: String = "uT"
         const val UNIT_LX: String = "lx"
         const val UNIT_MB: String = "MB"
+        const val UNIT_GB: String = "GB"
+        const val UNIT_DBM: String = "dBm"
+        const val UNIT_SECONDS: String = "s"
+        const val STATE_CLASS_MEASUREMENT: String = "measurement"
         const val VALUE = "value"
         const val UNIT = "unit"
         const val ID = "id"
+
+        // What WifiManager hands back when it has nothing to report.
+        private const val UNKNOWN_RSSI = -127
+        private const val RSSI_WORST = -100
+        private const val RSSI_BEST = -50
+
+        private const val PROC_STAT = "/proc/stat"
+        private const val PROC_MEMINFO = "/proc/meminfo"
     }
 }

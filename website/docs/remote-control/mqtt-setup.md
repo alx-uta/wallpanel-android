@@ -17,4 +17,8 @@ If needed, add your MQTT username and password.  The client id is the unique ide
 
 Finally we have MQTT discovery. Enabling MQTT Discovery will publish device sensor data on the MQTT channel that can be discovered automatically by your home automation platform. Note that for sensor data, you must also enable sensor data publishing in the sensor settings.
 
+**Publish Controls**, on by default, additionally creates buttons, switches, sliders and text boxes in Home Assistant for the [commands](./commands.md) the application accepts, so the dashboard can be driven from Home Assistant and not just monitored. Turn it off to publish sensors only -- doing so also greys out **Controls to publish** below, since there's nothing left to pick from.
+
+**Controls to publish** and **Sensors to publish** pick which individual entities are created. Everything is selected by default; unticking one removes it from Home Assistant, and ticking it again brings it back. What's stored is the unticked list, not the ticked one, so an entity added in a future WallPanel version is published automatically rather than staying off until someone opens this screen and ticks it by hand. See [Home Assistant Discovery](./sensors.md#home-assistant-discovery) for the full list and [Choosing what gets published](./sensors.md#choosing-what-gets-published) for the pickers.
+
 ![MQTT Discovery](/img/mqtt_discovery.png)
