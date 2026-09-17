@@ -116,6 +116,10 @@ constructor(private val context: Context) {
 
         streamDetectorProcessor?.release()
         streamDetectorProcessor = null
+
+        // The task and the delayed reset that would set this back are both cancelled above,
+        // so without it the stream gets no more frames once the camera starts again.
+        bitmapComplete = true
     }
 
     @SuppressLint("MissingPermission")

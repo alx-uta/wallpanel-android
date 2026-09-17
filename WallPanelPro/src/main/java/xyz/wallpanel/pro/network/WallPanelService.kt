@@ -87,6 +87,7 @@ import xyz.wallpanel.pro.utils.VolumeUtils
 import java.io.IOException
 import java.nio.ByteBuffer
 import java.util.*
+import java.util.concurrent.CopyOnWriteArrayList
 import java.util.concurrent.atomic.AtomicBoolean
 import javax.inject.Inject
 
@@ -117,7 +118,9 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     @Inject
     lateinit var volumeUtils: VolumeUtils
 
-    private val mJpegSockets = ArrayList<AsyncHttpServerResponse>()
+    // Added on the HTTP server thread, written to on the main thread and dropped from
+    // whichever thread a camera command arrives on.
+    private val mJpegSockets = CopyOnWriteArrayList<AsyncHttpServerResponse>()
     private var cpuWakeLock: PowerManager.WakeLock? = null
     private var screenWakeLock: PowerManager.WakeLock? = null
     private var wifiLock: WifiManager.WifiLock? = null
@@ -131,6 +134,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     private val qrCodeClearHandler = Handler(Looper.getMainLooper())
     private val faceClearHandler = Handler(Looper.getMainLooper())
     private val wakeScreenHandler = Handler(Looper.getMainLooper())
+    private val mjpegHandler = Handler(Looper.getMainLooper())
     private var textToSpeechModule: TextToSpeechModule? = null
     private var mqttModule: MQTTModule? = null
     private var connectionLiveData: ConnectionLiveData? = null
@@ -296,6 +300,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         stopHttp()
         stopPowerOptions()
         reconnectHandler.removeCallbacksAndMessages(null)
+        mjpegHandler.removeCallbacksAndMessages(null)
     }
 
     override fun onBind(intent: Intent): IBinder {
@@ -614,30 +619,30 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         }
     }
 
-    // Observing again with the same observer is a no-op, so this is safe to repeat.
+    // LiveData only takes observers on the main thread, and camera commands arrive on the
+    // MQTT and HTTP threads. Observing again with the same observer is a no-op, so this is
+    // safe to repeat.
     private fun startMJPEG() {
-        cameraReader?.getJpeg()?.observe(this, jpegObserver)
+        mjpegHandler.post {
+            cameraReader?.getJpeg()?.observe(this, jpegObserver)
+        }
     }
 
     private val jpegObserver = Observer<ByteArray> { jpeg ->
-        if (mJpegSockets.size > 0 && jpeg != null) {
-            var i = 0
-            while (i < mJpegSockets.size) {
-                val s = mJpegSockets[i]
+        if (jpeg == null) {
+            return@Observer
+        }
+        for (s in mJpegSockets) {
+            if (s.isOpen) {
                 val bb = ByteBufferList()
-                if (s.isOpen) {
-                    bb.recycle()
-                    bb.add(ByteBuffer.wrap("--jpgboundary\r\nContent-Type: image/jpeg\r\n".toByteArray()))
-                    bb.add(ByteBuffer.wrap(("Content-Length: " + jpeg.size + "\r\n\r\n").toByteArray()))
-                    bb.add(ByteBuffer.wrap(jpeg))
-                    bb.add(ByteBuffer.wrap("\r\n".toByteArray()))
-                    s.write(bb)
-                } else {
-                    mJpegSockets.removeAt(i)
-                    i--
-                    Timber.i("MJPEG Session Count is " + mJpegSockets.size)
-                }
-                i++
+                bb.add(ByteBuffer.wrap("--jpgboundary\r\nContent-Type: image/jpeg\r\n".toByteArray()))
+                bb.add(ByteBuffer.wrap(("Content-Length: " + jpeg.size + "\r\n\r\n").toByteArray()))
+                bb.add(ByteBuffer.wrap(jpeg))
+                bb.add(ByteBuffer.wrap("\r\n".toByteArray()))
+                s.write(bb)
+            } else {
+                mJpegSockets.remove(s)
+                Timber.i("MJPEG Session Count is " + mJpegSockets.size)
             }
         }
     }
@@ -667,16 +672,18 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         publishApplicationState()
     }
 
-    // Ends the open streams. The endpoint itself stays registered.
+    // Drops the open streams, so they stop receiving frames. A client that is still
+    // connected keeps its connection until it gives up on its own. The endpoint stays
+    // registered and answers with a 503 while the camera is off.
     private fun stopMJPEG() {
         for (socket in mJpegSockets) {
+            mJpegSockets.remove(socket)
             try {
                 socket.end()
             } catch (e: Exception) {
                 Timber.w(e, "Could not close an MJPEG stream")
             }
         }
-        mJpegSockets.clear()
     }
 
     private fun startMJPEG(response: AsyncHttpServerResponse) {
