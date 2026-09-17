@@ -71,6 +71,7 @@ client living next to it, so the two move together:
 ```bash
 ./tools/ha-verify.py                        # clientId from local.testconfig.properties
 ./tools/ha-verify.py --client-id wptest     # a device configured with its own client id
+./tools/ha-verify.py --base-topic wallpanel/kitchen/   # a device with a custom base topic
 ./tools/ha-verify.py --exercise             # also drive the controls, then put them back
 ```
 

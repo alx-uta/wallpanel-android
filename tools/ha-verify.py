@@ -41,6 +41,10 @@ from mqtt_minimal import MqttClient, MqttError  # noqa: E402
 REPO_ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 CONFIG_FILE = os.path.join(REPO_ROOT, "local.testconfig.properties")
 
+# The longest state Home Assistant will hold, which is where MqttDiscovery cuts the
+# Current URL sensor.
+URL_STATE_MAX_LENGTH = 255
+
 
 def read_config():
     if not os.path.exists(CONFIG_FILE):
@@ -141,7 +145,9 @@ def expected_state(config, payloads):
         off = template.rsplit("%}", 2)[1].split("{%", 1)[0]
         if field not in data:
             return None
-        return on if data[field] else off
+        # The payloads render ON/OFF, which is what state_on/state_off and payload_on/
+        # payload_off are set to, and Home Assistant holds the result as on/off.
+        return (on if data[field] else off).strip().lower()
     if template.startswith("{{ value_json."):
         field = template[len("{{ value_json."):].split("}", 1)[0].split("|")[0].strip()
         if field not in data:
@@ -176,6 +182,10 @@ def exercise(ha, by_name, device_name):
     # sitting on whatever the test navigated it to.
     current_url_entity = entity("Current URL")
     original_url = ha.state_of(current_url_entity) if current_url_entity else None
+    # That sensor cuts the URL at the longest state Home Assistant accepts, so a URL at
+    # the limit is not enough to navigate back to.
+    url_restorable = original_url not in (None, "unknown", "unavailable") \
+        and len(original_url) < URL_STATE_MAX_LENGTH
 
     checks = [
         ("Brightness", "number", "set_value", {"value": 200}, 200),
@@ -205,10 +215,13 @@ def exercise(ha, by_name, device_name):
     # Navigating is checked through the Current URL sensor rather than the text entity,
     # which is write-only and would only ever report back what was typed into it.
     url_entity = entity("Navigate URL")
-    if url_entity and current_url_entity and original_url not in (None, "unknown", "unavailable"):
+    if url_entity and current_url_entity and not url_restorable:
+        print("  %-28s SKIPPED (current URL is %r, nothing to navigate back to)"
+              % ("Navigate URL", original_url))
+    elif url_entity and current_url_entity:
         target = original_url.rstrip("/") + "?ha-verify"
         ha.call("text", "set_value", url_entity, value=target)
-        ok, got = ha.wait_for_state(current_url_entity, target)
+        ok, got = ha.wait_for_state(current_url_entity, target[:URL_STATE_MAX_LENGTH])
         if not ok:
             failures.append("%s did not follow the Navigate URL control (stuck at %r)"
                             % (current_url_entity, got))
@@ -255,7 +268,7 @@ def exercise(ha, by_name, device_name):
         except (RuntimeError, ValueError):
             pass
         time.sleep(1)
-    if url_entity and original_url not in (None, "unknown", "unavailable"):
+    if url_entity and url_restorable:
         ha.call("text", "set_value", url_entity, value=original_url)
         # Longer than the checks above: Clear Cache was pressed a moment ago, so the
         # dashboard is loading from scratch rather than out of the browser cache, which on
@@ -272,6 +285,9 @@ def main():
     parser = argparse.ArgumentParser(description=__doc__,
                                      formatter_class=argparse.RawDescriptionHelpFormatter)
     parser.add_argument("--client-id", help="MQTT client id (default: clientId from the config)")
+    parser.add_argument("--base-topic",
+                        help="command and state topic base (default: baseTopic from the config, "
+                             "or wallpanel/<client id>/ when --client-id is given)")
     parser.add_argument("--discovery-topic", default="homeassistant",
                         help="discovery base topic (default: homeassistant)")
     parser.add_argument("--device", help="Home Assistant device name (default: read from the configs)")
@@ -292,6 +308,12 @@ def main():
         sys.exit("error: no client id given and clientId is not set in the config")
 
     base_url = config["hassUrl"].split("/lovelace")[0]
+    # The state topics carry the payloads the entity states are checked against. A client
+    # id given on the command line belongs to a different device than the one in the
+    # config, so its base topic is the default one built from that id rather than the
+    # config's, unless --base-topic says otherwise.
+    base_topic = args.base_topic or (config.get("baseTopic") if not args.client_id else None) \
+        or "wallpanel/%s/" % client_id
     failures = []
 
     # 1. what the application currently advertises
@@ -302,15 +324,20 @@ def main():
                         password=config.get("brokerPass") or None) as mqtt:
             configs = mqtt.collect_retained(
                 "%s/+/%s/+/config" % (args.discovery_topic, client_id), seconds=args.seconds)
-            payloads = mqtt.collect_retained(
-                "%s#" % config.get("baseTopic", "wallpanel/%s/" % client_id),
-                seconds=args.seconds)
+            payloads = mqtt.collect_retained("%s#" % base_topic, seconds=args.seconds)
     except MqttError as e:
         sys.exit("error: %s" % e)
 
     if not configs:
         sys.exit("error: no discovery configs retained for client id %r.\n"
                  "       Is MQTT Discovery enabled on the device, and is it connected?" % client_id)
+
+    # Without these the state comparison has nothing to compare against and every entity
+    # passes on the strength of being present alone.
+    if not payloads:
+        sys.exit("error: nothing retained under %r, so the states could not be checked.\n"
+                 "       Pass --base-topic with the base topic the device publishes to."
+                 % ("%s#" % base_topic))
 
     parsed = {}
     for topic, payload in configs.items():

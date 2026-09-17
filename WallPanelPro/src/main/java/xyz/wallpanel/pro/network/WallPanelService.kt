@@ -140,8 +140,10 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     private var connectionLiveData: ConnectionLiveData? = null
     private var hasNetwork = AtomicBoolean(true)
     private var motionDetected: Boolean = false
-    private var appStatePublished: Boolean = false
-    private var appStatePublishPending: Boolean = false
+    // Commands arrive on the MQTT and HTTP threads and sensors publish from their own,
+    // so the rate limiter these two drive is read and written from several threads.
+    private val appStatePublished = AtomicBoolean(false)
+    private val appStatePublishPending = AtomicBoolean(false)
     // The discovery payloads by topic as last sent to the broker.
     private var publishedDiscovery: Map<String, String>? = null
     private var qrCodeRead: Boolean = false
@@ -238,7 +240,9 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         // Opening settings normally stops the service, so a reconnect republishes. The
         // launcher shortcut goes straight to the settings screen and leaves the service
         // running, so any setting that changed what the configs say is caught here instead.
-        if (discoveryPayloads() != publishedDiscovery) {
+        // While the client is down publishDiscovery() turns back without recording what it
+        // sent, so building the payloads to compare them would be thrown away work.
+        if (mqttModule?.isConnected == true && discoveryPayloads() != publishedDiscovery) {
             publishDiscovery()
             publishApplicationState()
         }
@@ -1028,19 +1032,17 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
      * and every control comes up as unknown.
      */
     private fun publishApplicationState(delay: Int = 300) {
-        if (appStatePublished) {
-            appStatePublishPending = true
+        if (!appStatePublished.compareAndSet(false, true)) {
+            appStatePublishPending.set(true)
             return
         }
-        appStatePublished = true
         publishMessage("${configuration.mqttBaseTopic}$COMMAND_STATE", state.toString(), true)
         appStateClearHandler.postDelayed({ clearPublishApplicationState(delay) }, delay.toLong())
     }
 
     private fun clearPublishApplicationState(delay: Int = 300) {
-        appStatePublished = false
-        if (appStatePublishPending) {
-            appStatePublishPending = false
+        appStatePublished.set(false)
+        if (appStatePublishPending.getAndSet(false)) {
             publishApplicationState(delay)
         }
     }

@@ -74,25 +74,41 @@ class MqttClient:
     def _send(self, type_and_flags, body):
         self._sock.sendall(bytes([type_and_flags]) + _encode_length(len(body)) + body)
 
-    def _read_exactly(self, n):
-        while len(self._buf) < n:
+    def _take_packet(self):
+        """The first whole packet in the buffer, or None while it is still arriving."""
+        if not self._buf:
+            return None
+        multiplier, length, i = 1, 0, 1
+        while True:
+            if i >= len(self._buf):
+                return None
+            digit = self._buf[i]
+            length += (digit & 127) * multiplier
+            i += 1
+            if not digit & 0x80:
+                break
+            multiplier *= 128
+        if len(self._buf) < i + length:
+            return None
+        header, body = self._buf[0], self._buf[i:i + length]
+        self._buf = self._buf[i + length:]
+        return header >> 4, header & 0x0F, body
+
+    def _read_packet(self):
+        """Reads one packet, leaving a partly arrived one in the buffer.
+
+        A timeout part way through a packet propagates with the buffer intact, so the
+        next call picks the packet up where it left off instead of reading the rest of
+        it as a new header.
+        """
+        while True:
+            packet = self._take_packet()
+            if packet is not None:
+                return packet
             chunk = self._sock.recv(65536)
             if not chunk:
                 raise MqttError("the broker closed the connection")
             self._buf += chunk
-        out, self._buf = self._buf[:n], self._buf[n:]
-        return out
-
-    def _read_packet(self):
-        header = self._read_exactly(1)[0]
-        multiplier, length = 1, 0
-        while True:
-            digit = self._read_exactly(1)[0]
-            length += (digit & 127) * multiplier
-            if not digit & 0x80:
-                break
-            multiplier *= 128
-        return header >> 4, header & 0x0F, self._read_exactly(length)
 
     def subscribe(self, *topic_filters):
         self._packet_id += 1
