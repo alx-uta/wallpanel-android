@@ -73,6 +73,7 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     private val inactivityHandler: Handler = Handler(Looper.getMainLooper())
     private var userPresent: Boolean = false
     private var hasWakeScreen = false
+    private var screenSaverActive = false
     var displayProgress = true
     var zoomLevel = 1.0f
 
@@ -96,6 +97,12 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
             } else if (BROADCAST_ACTION_RELOAD_PAGE == intent.action) {
                 stopDisconnectTimer()
                 reload()
+            } else if (BROADCAST_ACTION_SHOW_SCREENSAVER == intent.action && !isFinishing) {
+                showScreenSaver()
+            } else if (BROADCAST_ACTION_HIDE_SCREENSAVER == intent.action && !isFinishing) {
+                // Dismisses the screensaver and starts the inactivity countdown again, so
+                // it comes back on its own the same way it would after a screen touch.
+                resetInactivityTimer()
             } else if (BROADCAST_ACTION_OPEN_SETTINGS == intent.action) {
                 openSettings()
             } else if (BROADCAST_TOAST_MESSAGE == intent.action && !isFinishing) {
@@ -167,6 +174,8 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         filter.addAction(BROADCAST_ACTION_CLEAR_BROWSER_CACHE)
         filter.addAction(BROADCAST_ACTION_RELOAD_PAGE)
         filter.addAction(BROADCAST_ACTION_OPEN_SETTINGS)
+        filter.addAction(BROADCAST_ACTION_SHOW_SCREENSAVER)
+        filter.addAction(BROADCAST_ACTION_HIDE_SCREENSAVER)
         filter.addAction(BROADCAST_SCREEN_BRIGHTNESS_CHANGE)
         filter.addAction(BROADCAST_CLEAR_ALERT_MESSAGE)
         filter.addAction(BROADCAST_ALERT_MESSAGE)
@@ -221,6 +230,9 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     override fun onDestroy() {
         super.onDestroy()
         inactivityHandler.removeCallbacks(inactivityCallback)
+        // The screensaver goes with the activity. Left unreported, the service keeps
+        // publishing it as on and the Home Assistant switch never comes back down.
+        setScreenSaverActive(false)
         window.clearFlags(WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED)
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
     }
@@ -314,14 +326,14 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     }
 
     open fun hideScreenSaver() {
-        val isScreenSaver = dialogUtils.hideScreenSaverDialog()
+        val dialogDismissed = dialogUtils.hideScreenSaverDialog()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-        if (isScreenSaver) {
+        // The dim screensaver has no dialog to dismiss, so the tracked flag rather than
+        // the dialog is what says whether there is a dimmed screen to restore.
+        if (dialogDismissed || screenSaverActive) {
             resetScreenBrightness(false)
-            if (configuration.cameraOnlyWhenScreenSaver) {
-                stopCameraForScreenSaver()
-            }
         }
+        setScreenSaverActive(false)
     }
 
     /**
@@ -332,9 +344,7 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         if (configuration.hasDimScreenSaver) {
             inactivityHandler.removeCallbacks(inactivityCallback)
             resetScreenBrightness(true)
-            if (configuration.cameraOnlyWhenScreenSaver) {
-                startCameraForScreenSaver()
-            }
+            setScreenSaverActive(true)
         } else if ((configuration.hasClockScreenSaver
                     || configuration.webScreenSaver
                     || configuration.hasScreenSaverWallpaper
@@ -357,9 +367,7 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
                 configuration.appPreventSleep
             )
             resetScreenBrightness(true)
-            if (configuration.cameraOnlyWhenScreenSaver) {
-                startCameraForScreenSaver()
-            }
+            setScreenSaverActive(true)
         }
     }
 
@@ -367,16 +375,24 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         screenUtils.resetScreenBrightness(screenSaver)
     }
 
-    private fun startCameraForScreenSaver() {
-        val intent = Intent(WallPanelService.BROADCAST_CAMERA_START_SCREENSAVER)
+    /**
+     * Tells the service the screensaver went up or came down. The service publishes it as
+     * state and uses it to decide whether the camera should be processing frames, so it is
+     * reported on every transition rather than only when the camera is configured to
+     * follow the screensaver.
+     */
+    private fun setScreenSaverActive(active: Boolean) {
+        if (screenSaverActive == active) {
+            return
+        }
+        screenSaverActive = active
+        val action = if (active) {
+            WallPanelService.BROADCAST_SCREENSAVER_STARTED
+        } else {
+            WallPanelService.BROADCAST_SCREENSAVER_STOPPED
+        }
         val bm = LocalBroadcastManager.getInstance(applicationContext)
-        bm.sendBroadcast(intent)
-    }
-
-    private fun stopCameraForScreenSaver() {
-        val intent = Intent(WallPanelService.BROADCAST_CAMERA_STOP_SCREENSAVER)
-        val bm = LocalBroadcastManager.getInstance(applicationContext)
-        bm.sendBroadcast(intent)
+        bm.sendBroadcast(Intent(action))
     }
 
     protected abstract fun configureWebSettings(userAgent: String)
@@ -405,6 +421,8 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         const val BROADCAST_ACTION_CLEAR_BROWSER_CACHE = "BROADCAST_ACTION_CLEAR_BROWSER_CACHE"
         const val BROADCAST_ACTION_RELOAD_PAGE = "BROADCAST_ACTION_RELOAD_PAGE"
         const val BROADCAST_ACTION_OPEN_SETTINGS = "BROADCAST_ACTION_OPEN_SETTINGS"
+        const val BROADCAST_ACTION_SHOW_SCREENSAVER = "BROADCAST_ACTION_SHOW_SCREENSAVER"
+        const val BROADCAST_ACTION_HIDE_SCREENSAVER = "BROADCAST_ACTION_HIDE_SCREENSAVER"
         const val REQUEST_CODE_PERMISSION_AUDIO = 12
         const val REQUEST_CODE_PERMISSION_CAMERA = 13
     }

@@ -52,3 +52,6 @@ google-services.json
 # Android Profiling
 *.hprof
 keystore.gradle
+
+# Byte-compiled helpers for the Python tools in tools/
+__pycache__/

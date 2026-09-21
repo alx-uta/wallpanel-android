@@ -134,6 +134,29 @@
             android:summary="@string/pref_description_mqtt_discovery"/>
 
         <SwitchPreference
+            android:defaultValue="@string/default_setting_mqtt_discovery_controls"
+            android:dependency="@string/key_setting_mqtt_discovery"
+            android:key="@string/key_setting_mqtt_discovery_controls"
+            android:title="@string/title_setting_mqtt_discovery_controls"
+            android:summary="@string/summary_setting_mqtt_discovery_controls" />
+
+        <!-- The pickers hold no value of their own. What was unticked is written through
+             Configuration, so an entity added in a later version arrives switched on. -->
+        <MultiSelectListPreference
+            android:dependency="@string/key_setting_mqtt_discovery_controls"
+            android:key="@string/key_setting_mqtt_discovery_control_ids"
+            android:persistent="false"
+            android:title="@string/title_setting_mqtt_discovery_published_controls"
+            android:summary="@string/summary_setting_mqtt_discovery_published_controls" />
+
+        <MultiSelectListPreference
+            android:dependency="@string/key_setting_mqtt_discovery"
+            android:key="@string/key_setting_mqtt_discovery_sensor_ids"
+            android:persistent="false"
+            android:title="@string/title_setting_mqtt_discovery_published_sensors"
+            android:summary="@string/summary_setting_mqtt_discovery_published_sensors" />
+
+        <SwitchPreference
             android:defaultValue="false"
             android:dependency="@string/key_setting_mqtt_discovery"
             android:key="@string/key_setting_mqtt_discovery_legacy_entities"

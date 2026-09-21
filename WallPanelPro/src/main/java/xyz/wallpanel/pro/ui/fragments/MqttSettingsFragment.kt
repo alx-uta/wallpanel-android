@@ -21,6 +21,7 @@ import android.content.SharedPreferences
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.text.InputType
 import android.view.*
 import androidx.core.view.MenuProvider
@@ -29,14 +30,18 @@ import androidx.preference.SwitchPreference
 import androidx.preference.EditTextPreference
 import androidx.navigation.Navigation
 import androidx.preference.ListPreference
+import androidx.preference.MultiSelectListPreference
 import androidx.preference.Preference
 import xyz.wallpanel.pro.R
+import xyz.wallpanel.pro.network.DiscoveryCatalog
+import xyz.wallpanel.pro.network.DiscoveryChoice
 import xyz.wallpanel.pro.network.MQTTOptions
 import xyz.wallpanel.pro.modules.MQTTModule
 import xyz.wallpanel.pro.ui.activities.SettingsActivity
 import dagger.android.support.AndroidSupportInjection
 import timber.log.Timber
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import javax.inject.Inject
 
 class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedPreferenceChangeListener  {
@@ -74,6 +79,73 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
 
     override fun onCreatePreferences(savedInstanceState: Bundle?, rootKey: String?) {
         addPreferencesFromResource(R.xml.pref_mqtt)
+        // The labels are localized strings, so the lists have to be filled in here rather
+        // than declared in the preference XML.
+        bindDiscoveryPicker(
+            keyRes = R.string.key_setting_mqtt_discovery_control_ids,
+            choices = DiscoveryCatalog.CONTROLS,
+            allSelectedSummaryRes = R.string.summary_setting_mqtt_discovery_all_controls,
+            read = { configuration.mqttDiscoveryControlIds },
+            write = { configuration.mqttDiscoveryControlIds = it },
+        )
+        bindDiscoveryPicker(
+            keyRes = R.string.key_setting_mqtt_discovery_sensor_ids,
+            choices = DiscoveryCatalog.SENSORS,
+            allSelectedSummaryRes = R.string.summary_setting_mqtt_discovery_all_sensors,
+            read = { configuration.mqttDiscoverySensorIds },
+            write = { configuration.mqttDiscoverySensorIds = it },
+        )
+    }
+
+    /**
+     * Fills a picker with the catalogue and keeps its summary showing how much of it is
+     * selected.
+     *
+     * The preference stores nothing itself. It shows what [read] reports as selected and
+     * hands what the user ticked to [write], which keeps the unticked ids instead. An id
+     * nobody has ever unticked counts as selected, so a device that has never opened this
+     * screen publishes everything, and so does one that opened it before a later version
+     * added an entity to the catalogue.
+     */
+    private fun bindDiscoveryPicker(
+        keyRes: Int,
+        choices: List<DiscoveryChoice>,
+        allSelectedSummaryRes: Int,
+        read: () -> Set<String>,
+        write: (Set<String>) -> Unit,
+    ) {
+        val preference = findPreference<MultiSelectListPreference>(getString(keyRes)) ?: return
+        val ordered = DiscoveryCatalog.sortedByName(requireContext(), choices)
+        preference.entries = ordered.map { getString(it.displayNameRes) }.toTypedArray()
+        preference.entryValues = ordered.map { it.objectId }.toTypedArray()
+        val total = ordered.size
+        preference.values = read()
+        updatePickerSummary(preference, preference.values, total, allSelectedSummaryRes)
+        preference.setOnPreferenceChangeListener { pref, newValue ->
+            @Suppress("UNCHECKED_CAST")
+            val selected = (newValue as? Set<String>).orEmpty()
+            write(selected)
+            updatePickerSummary(pref as MultiSelectListPreference, selected, total, allSelectedSummaryRes)
+            true
+        }
+    }
+
+    /**
+     * The total is the length of the list on this screen. It counts what WallPanel can
+     * offer rather than what this device can report, which is why the wording says so --
+     * a tablet with no barometer still lists a pressure sensor.
+     */
+    private fun updatePickerSummary(
+        preference: MultiSelectListPreference,
+        selected: Set<String>,
+        total: Int,
+        allSelectedSummaryRes: Int,
+    ) {
+        preference.summary = if (selected.size >= total) {
+            getString(allSelectedSummaryRes)
+        } else {
+            getString(R.string.summary_setting_mqtt_discovery_selected, selected.size, total)
+        }
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -164,7 +236,7 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
             }
         }
     }
-    
+
     private fun testMqttConnection() {
         if (isTestingConnection) {
             Timber.d("Test already in progress")
@@ -183,7 +255,7 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
             
             testExecutor.execute {
                 try {
-                    val testOptions = MQTTOptions(configuration)
+                    val testOptions = MQTTOptions(configuration).apply { connectionTest = true }
                     Timber.d("Test options created: broker=${testOptions.getBroker()}, port=${testOptions.getPort()}")
                     
                     // Quick validation
@@ -214,7 +286,7 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
                                     "Version: ${testOptions.getVersion()}\n" +
                                     "Auth: ${if (testOptions.getUsername().isNotEmpty()) "Yes" else "No"}")
                                 // Disconnect after successful test
-                                mainHandler.postDelayed({ cleanupTest() }, 1000)
+                                mainHandler.postAtTime({ cleanupTest() }, TEST_CALLBACKS, SystemClock.uptimeMillis() + 1000)
                             }
                         }
                         
@@ -255,8 +327,9 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
                     testMqttModule = MQTTModule(requireContext().applicationContext, testOptions, testListener)
                     testMqttModule?.restart() // Start the connection
                     
-                    // Set timeout
-                    mainHandler.postDelayed({
+                    // Set timeout. Tagged so the cleanup can take it back: left pending, it
+                    // would cut short the next test started within the 15 seconds.
+                    mainHandler.postAtTime({
                         if (isTestingConnection) {
                             Timber.w("Connection test timeout")
                             showTestResult(false, "Connection Timeout", 
@@ -269,7 +342,7 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
                                 "- Firewall allows connection")
                             cleanupTest()
                         }
-                    }, 15000)
+                    }, TEST_CALLBACKS, SystemClock.uptimeMillis() + 15000)
                     
                 } catch (e: Throwable) {
                     val fullError = "=== MQTT CONNECTION TEST EXCEPTION ===\n" +
@@ -342,15 +415,22 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
     private fun cleanupTest() {
         Timber.d("Cleaning up test connection")
         isTestingConnection = false
-        
-        testExecutor.execute {
-            try {
-                testMqttModule?.pause()
-                testMqttModule = null
-                Timber.d("Test MQTT module cleaned up")
-            } catch (e: Exception) {
-                Timber.e(e, "Error cleaning up test MQTT module")
+        mainHandler.removeCallbacksAndMessages(TEST_CALLBACKS)
+
+        // Leaving the screen shuts the executor down, which a cleanup still queued on the
+        // main looper would otherwise hit as a crash.
+        try {
+            testExecutor.execute {
+                try {
+                    testMqttModule?.pause()
+                    testMqttModule = null
+                    Timber.d("Test MQTT module cleaned up")
+                } catch (e: Exception) {
+                    Timber.e(e, "Error cleaning up test MQTT module")
+                }
             }
+        } catch (e: RejectedExecutionException) {
+            Timber.d("Test executor already shut down")
         }
     }
     
@@ -367,5 +447,6 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
     companion object {
         const val PREF_TLS_CONNECTION = "pref_tls_connection"
         const val PREF_MQTT_VERSION = "pref_mqtt_version"
+        private val TEST_CALLBACKS = Any()
     }
 }

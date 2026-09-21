@@ -20,8 +20,10 @@ wake | false | ```{"wake": false}``` | Release screen wake (Note: screen will no
 speak | data | ```{"speak": "Hello!"}``` | Uses the devices TTS to speak the message
 settings | data | ```{"settings": true}``` | Opens the settings screen remotely.
 brightness | data | ```{"brightness": 1}``` | Changes the screens brightness, value 0-255 (0 turns the backlight off).
-camera | data | ```{"camera": true}``` | Turns on/off camera, this will also disable streaming, motion, QRCode, and face detection.
-volume | data | ```{"volume": 100}``` | Changes the audio volume, value 0-100 (in %. Does not effect TTS volume).
+camera | data | ```{"camera": true}``` | Turns on/off camera, this will also disable streaming, motion, QRCode, and face detection. The REST API stays up; the stream endpoint answers 503 while the camera is off.
+volume | data | ```{"volume": 100}``` | Sets the device's media volume, value 0-100 (in %). Applies to audio playback and Text-To-Speech alike.
+toast | data | ```{"toast": "Dinner is ready"}``` | Shows a short toast message over the dashboard
+screensaver | true/false | ```{"screensaver": true}``` | Shows or dismisses the screensaver. Does nothing if no screensaver is configured in the settings.
 shell | command | ```{"shell": "log -t WallPanel hello-from-wallpanel"}``` | Runs a shell command on the device. Opt-in and unprivileged -- see [Shell Command](#shell-command) below before relying on this.
 
 * The base topic value (default is "mywallpanel") should be unique to each device running the application unless you want all devices to receive the same command. The base topic and can be changed in the applications ```MQTT settings```.
@@ -33,6 +35,32 @@ shell | command | ```{"shell": "log -t WallPanel hello-from-wallpanel"}``` | Run
   * WallPanel subscribes to topic ```wallpanel/[baseTopic]/command```
     * Default Topic: ```wallpanel/mywallpanel/command```
   * Publish a JSON payload to this topic (be mindful of quotes in JSON should be single quotes not double)
+
+## Wake and the screen switch
+
+`{"wake": false}` releases the screen wake lock, but that's not the same as turning the
+screen off. An ordinary Android app -- WallPanel has no device-admin or root privileges --
+has no way to blank the display directly; only the OS's own inactivity timeout can do
+that. Releasing the lock just stops WallPanel from holding the screen on; the screen
+itself goes dark whenever the device's own timeout next expires.
+
+If you're using [MQTT Discovery](./mqtt-setup.md), this shows up as the **Keep Screen
+Awake** switch in Home Assistant appearing to misbehave: turn it off, and if the display
+hasn't timed out yet it springs back to on a moment later, because the switch reads the
+real screen state rather than remembering what was last sent. It then goes off on its
+own once the OS actually blanks the screen. That's the platform being accurately
+reported, not a bug in the switch.
+
+## Volume
+
+`volume` sets the device's media stream volume, the same one the hardware volume keys
+control. It applies to the `audio` command and to Text-To-Speech, and it survives across
+playbacks -- the current level comes back in the [application state](./sensors.md#application-state-data)
+as `volume`.
+
+Setting the volume to `0` can be refused on some Android versions, which treat silencing
+a stream as a Do Not Disturb change requiring a permission WallPanel doesn't hold. The
+attempt is logged to `adb logcat` when that happens.
 
 ## Shell Command
 
@@ -122,9 +150,8 @@ for example:
 ### Useful examples for a kiosk fleet
 
 These are all real commands verified against real devices, with the actual output they
-produced (via `curl` + `adb logcat`, the same as the ["No success/failure
-feedback"](#no-successfailure-feedback-via-http-or-mqtt) section describes) -- not
-theoretical. If you're managing more than one WallPanel device, this is the kind of
+produced (via `curl` + `adb logcat`, the same as ["Getting the result
+back"](#getting-the-result-back) describes) -- not theoretical. If you're managing more than one WallPanel device, this is the kind of
 thing the `shell` command is actually good for: cheap, ad-hoc fleet diagnostics without
 installing a separate MDM tool.
 
@@ -228,15 +255,27 @@ confined to WallPanel's own private storage (`/data/data/xyz.wallpanel.pro/files
 as shown above. This is a restriction Android itself places on non-rooted apps, not
 something WallPanel can change.
 
-### No success/failure feedback via HTTP or MQTT
+### Getting the result back
 
-Neither the HTTP response (`{"result": true}` just confirms the request was valid JSON,
-not that the shell command succeeded) nor MQTT gives back any indication of whether a
-shell command succeeded or failed. WallPanel does log every shell command it runs to
-`adb logcat` -- both the exit code and any output the command produced -- so that's the
-place to check when a command doesn't seem to be doing what you expect. As covered
-above, though, a `0` exit code in the log isn't a guarantee the command actually had an
-effect if what it tried to do needed a permission the app doesn't have.
+The HTTP response (`{"result": true}`) only confirms the request was valid JSON, not that
+the shell command succeeded. What the command actually did is published over MQTT to
+`[baseTopic]sensor/shell`:
+
+```json
+{"value": "SM-N9005", "command": "getprop ro.product.model", "exitCode": 0, "output": "SM-N9005"}
+```
+
+`value` is the output truncated to 255 characters, because that's the longest state Home
+Assistant will accept; `output` carries the same output truncated to 16384 characters
+instead, long enough for most command output but not unbounded -- Home Assistant keeps
+attributes in every state it records, so an unbounded one would be paid for on every
+update. With [MQTT discovery](./mqtt-setup.md)
+and shell commands both enabled this arrives as a **Shell Result** sensor, with the
+command and exit code as attributes.
+
+Every shell command is also logged to `adb logcat` with its exit code and output. As
+covered above, a `0` exit code isn't a guarantee the command had an effect if what it
+tried to do needed a permission the app doesn't have.
 
 ### Treat it as a real attack surface, even without root
 
@@ -250,7 +289,9 @@ Settings toggle is labeled "Security Risk." Only turn it on if you actually need
   network -- keep it on a trusted local network only.
 - If you're using MQTT, use broker authentication and, ideally, TLS (see
   [MQTT Setup](./mqtt-setup.md)) -- anyone who can publish to your command topic can run
-  shell commands the same as anyone who can POST to the HTTP endpoint.
+  shell commands the same as anyone who can POST to the HTTP endpoint. Note that with
+  MQTT discovery on, enabling this also puts a **Shell Command** input box in Home
+  Assistant for anyone with access to that dashboard.
 - Turn it off again when you're done if you only needed it temporarily.
 
 ## Google Text-To-Speech (TTS) Command

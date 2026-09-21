@@ -24,7 +24,7 @@ import xyz.wallpanel.pro.persistence.Configuration
 import timber.log.Timber
 import javax.inject.Inject
 
-class ScreenUtils @Inject
+open class ScreenUtils @Inject
 constructor(context: Context, private val configuration: Configuration): ContextWrapper(context) {
 
     fun resetScreenBrightness(screenSaver: Boolean = true) {
@@ -144,7 +144,12 @@ constructor(context: Context, private val configuration: Configuration): Context
         }
     }
 
-    private fun canWriteScreenSetting(): Boolean {
+    /**
+     * Whether the application may change the system screen brightness. This is not a
+     * runtime permission -- it is granted from a system settings screen -- so it can be
+     * revoked out from under a setting that is still switched on.
+     */
+    open fun canWriteScreenSetting(): Boolean {
         var hasPermission = true
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
             hasPermission = Settings.System.canWrite(applicationContext)

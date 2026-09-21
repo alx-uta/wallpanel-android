@@ -76,6 +76,7 @@ constructor(private val context: Context) {
         this.byteArray.value = value
     }
 
+    @Synchronized
     fun stopCamera() {
         cameraCallback = null
 
@@ -116,10 +117,22 @@ constructor(private val context: Context) {
 
         streamDetectorProcessor?.release()
         streamDetectorProcessor = null
+
+        // The task and the delayed reset that would set this back are both cancelled above,
+        // so without it the stream gets no more frames once the camera starts again.
+        bitmapComplete = true
     }
 
+    // Camera commands arrive on the MQTT and HTTP threads, so two of them can be here at
+    // once. Interleaving a stop with another call's start would leave a running camera
+    // source with nothing holding it.
     @SuppressLint("MissingPermission")
+    @Synchronized
     fun startCamera(callback: CameraCallback, configuration: Configuration) {
+        // Starting over a camera that is already running would replace the source and the
+        // detectors without handing the camera back, which leaves the device holding a
+        // handle nothing can release. A repeated camera command is a restart instead.
+        stopCamera()
         this.cameraCallback = callback
         if (configuration.cameraEnabled) {
             buildDetectors(configuration)

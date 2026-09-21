@@ -18,7 +18,9 @@ package xyz.wallpanel.pro.persistence
 
 import android.content.Context
 import android.content.SharedPreferences
+import timber.log.Timber
 import xyz.wallpanel.pro.R
+import xyz.wallpanel.pro.network.DiscoveryCatalog
 import javax.inject.Inject
 
 class Configuration @Inject
@@ -65,12 +67,6 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         get() = this.sharedPreferences.getBoolean(PREF_SETTINGS_DISABLE, false)
         set(value) = this.sharedPreferences.edit().putBoolean(PREF_SETTINGS_DISABLE, value).apply()
 
-    var writeScreenPermissionsShown: Boolean
-        get() = sharedPreferences.getBoolean(PREF_WRITE_SCREEN_PERMISSIONS, false)
-        set(value) {
-            sharedPreferences.edit().putBoolean(PREF_WRITE_SCREEN_PERMISSIONS, value).apply()
-        }
-
     var cameraPermissionsShown: Boolean
         get() = sharedPreferences.getBoolean(PREF_CAMERA_PERMISSIONS, false)
         set(value) {
@@ -90,7 +86,7 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         }
 
     var cameraRotate: Float
-        get() = this.sharedPreferences.getString(PREF_CAMERA_ROTATE, "0f")!!.toFloat()
+        get() = this.sharedPreferences.getString(PREF_CAMERA_ROTATE, "0f")?.trim()?.toFloatOrNull() ?: 0f
         set(value) = this.sharedPreferences.edit().putString(PREF_CAMERA_ROTATE, value.toString()).apply()
 
     var appLaunchUrl: String
@@ -130,7 +126,7 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         }
 
     val cameraMotionMinLuma: Int
-        get() = Integer.valueOf(getStringPref(R.string.key_setting_camera_motionminluma, R.string.default_setting_camera_motionminluma).trim().toInt())
+        get() = getIntPref(R.string.key_setting_camera_motionminluma, R.string.default_setting_camera_motionminluma)
 
 
     val cameraMotionWake: Boolean
@@ -170,19 +166,13 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         }
 
     val motionResetTime: Int
-        get() = getStringPref(R.string.key_setting_motion_clear,
-                R.string.default_motion_clear).trim().toInt()
+        get() = getIntPref(R.string.key_setting_motion_clear, R.string.default_motion_clear)
 
     val httpEnabled: Boolean
         get() = httpRestEnabled || httpMJPEGEnabled
 
     val httpPort: Int
-        get() =
-            try {
-                getStringPref(R.string.key_setting_http_port, R.string.default_setting_http_port).trim().toInt()
-            } catch (e: NumberFormatException) {
-                context.getString(R.string.default_setting_http_port).toInt()
-            }
+        get() = getIntPref(R.string.key_setting_http_port, R.string.default_setting_http_port)
 
     val httpRestEnabled: Boolean
         get() = getBoolPref(R.string.key_setting_http_restenabled,
@@ -201,7 +191,7 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     }
 
     val httpMJPEGMaxStreams: Int
-        get() = getStringPref(R.string.key_setting_http_mjpegmaxstreams, R.string.default_setting_http_mjpegmaxstreams).trim().toInt()
+        get() = getIntPref(R.string.key_setting_http_mjpegmaxstreams, R.string.default_setting_http_mjpegmaxstreams)
 
     var mqttEnabled: Boolean
         get() = getBoolPref(R.string.key_setting_mqtt_enabled, R.string.default_setting_mqtt_enabled)
@@ -226,7 +216,7 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
             sharedPreferences.edit().putString(context.getString(R.string.key_setting_mqtt_servername), value).apply()
 
     var mqttServerPort: Int
-        get() = getStringPref(R.string.key_setting_mqtt_serverport, R.string.default_setting_mqtt_serverport).trim().toInt()
+        get() = getIntPref(R.string.key_setting_mqtt_serverport, R.string.default_setting_mqtt_serverport)
         set(value) {
             sharedPreferences.edit().putString(context.getString(R.string.key_setting_mqtt_serverport), value.toString()).apply()
         }
@@ -258,8 +248,7 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
             sharedPreferences.edit().putString(context.getString(R.string.key_setting_mqtt_password), value).apply()
 
     val mqttSensorFrequency: Int
-        get() = getStringPref(R.string.key_setting_mqtt_sensorfrequency,
-                R.string.default_setting_mqtt_sensorfrequency).trim().toInt()
+        get() = getIntPref(R.string.key_setting_mqtt_sensorfrequency, R.string.default_setting_mqtt_sensorfrequency)
 
     val mqttDiscovery: Boolean
         get() = getBoolPref(R.string.key_setting_mqtt_discovery, R.string.default_setting_mqtt_home_assistant_discovery)
@@ -272,6 +261,50 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
 
     val mqttLegacyDiscoveryEntities: Boolean
         get() = getBoolPref(R.string.key_setting_mqtt_discovery_legacy_entities, R.string.default_setting_mqtt_discovery_legacy_entities)
+
+    /**
+     * The discovery topics that held a config after the last publish. The configs are
+     * retained, so this is what lets the application clear them after discovery is switched
+     * off, or after the client id or discovery topic they were published under has changed.
+     */
+    var mqttDiscoveryAdvertisedTopics: Set<String>
+        get() = sharedPreferences.getStringSet(PREF_MQTT_DISCOVERY_ADVERTISED_TOPICS, null)?.toSet().orEmpty()
+        set(value) = sharedPreferences.edit().putStringSet(PREF_MQTT_DISCOVERY_ADVERTISED_TOPICS, value.toSet()).apply()
+
+    /**
+     * True until the first publish records what went to the broker. An upgrade from a
+     * version that did not keep this list arrives here, and whatever that version left
+     * retained is unknown, which is what [mqttDiscoveryAdvertisedTopics] being empty
+     * cannot distinguish on its own.
+     */
+    val mqttDiscoveryUnrecorded: Boolean
+        get() = !sharedPreferences.contains(PREF_MQTT_DISCOVERY_ADVERTISED_TOPICS)
+
+    /**
+     * Which controls and sensors may be advertised. Both read and write the set the user
+     * ticked; what is stored underneath is the complement, the ids they unticked.
+     *
+     * Storing the exclusions is what lets an entity added to [DiscoveryCatalog] in a later
+     * version reach devices that are already configured. An id nobody has ever unticked is
+     * published, so the catalogue can grow without every existing device having to visit
+     * the settings screen again.
+     */
+    var mqttDiscoveryControlIds: Set<String>
+        get() = DiscoveryCatalog.ALL_CONTROL_IDS - excludedIds(R.string.key_setting_mqtt_discovery_control_ids_excluded)
+        set(value) = setExcludedIds(
+            R.string.key_setting_mqtt_discovery_control_ids_excluded,
+            DiscoveryCatalog.ALL_CONTROL_IDS - value
+        )
+
+    var mqttDiscoverySensorIds: Set<String>
+        get() = DiscoveryCatalog.ALL_SENSOR_IDS - excludedIds(R.string.key_setting_mqtt_discovery_sensor_ids_excluded)
+        set(value) = setExcludedIds(
+            R.string.key_setting_mqtt_discovery_sensor_ids_excluded,
+            DiscoveryCatalog.ALL_SENSOR_IDS - value
+        )
+
+    val mqttDiscoveryControls: Boolean
+        get() = getBoolPref(R.string.key_setting_mqtt_discovery_controls, R.string.default_setting_mqtt_discovery_controls)
 
     val sensorsEnabled: Boolean
         get() = getBoolPref(R.string.key_setting_sensors_enabled,
@@ -420,6 +453,23 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         return cameraEnabled && (cameraMotionEnabled || cameraQRCodeEnabled || cameraFaceEnabled || httpMJPEGEnabled)
     }
 
+    /**
+     * A numeric setting, falling back to its default when the stored text will not parse.
+     *
+     * The settings screen restricts these fields to a number pad, which stops letters but
+     * not a pasted value or one too large for the type. Every one of these is read while
+     * the service is starting, so a value that throws takes the kiosk down on launch and
+     * leaves no way back into the settings to correct it.
+     */
+    private fun getIntPref(resId: Int, defId: Int): Int {
+        val value = getStringPref(resId, defId).trim().toIntOrNull()
+        if (value != null) {
+            return value
+        }
+        Timber.w("Setting ${context.getString(resId)} is not a whole number, using the default")
+        return context.getString(defId).trim().toIntOrNull() ?: 0
+    }
+
     private fun getStringPref(resId: Int, defId: Int): String {
         val def = context.getString(defId)
         val pref = sharedPreferences.getString(context.getString(resId), "")
@@ -431,6 +481,19 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
                 context.getString(resId),
                 java.lang.Boolean.valueOf(context.getString(defId))
         )
+    }
+
+    /**
+     * A copy, never the set the preferences hold: [SharedPreferences.getStringSet] hands
+     * out its own live instance and mutating it corrupts the cache.
+     */
+    private fun excludedIds(keyRes: Int): Set<String> {
+        val stored = sharedPreferences.getStringSet(context.getString(keyRes), null)
+        return stored?.toSet().orEmpty()
+    }
+
+    private fun setExcludedIds(keyRes: Int, excluded: Set<String>) {
+        sharedPreferences.edit().putStringSet(context.getString(keyRes), excluded.toSet()).apply()
     }
 
     fun hasSettingsUpdates(): Boolean {
@@ -453,13 +516,13 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         private const val PREF_SETTINGS_DISABLE = "pref_settings_disable"
         private const val PREF_SETTINGS_LOCATION = "pref_settings_location"
         const val PREF_FIRST_TIME = "pref_first_time"
-        const val PREF_WRITE_SCREEN_PERMISSIONS = "pref_write_screen_permissions"
         const val PREF_CAMERA_PERMISSIONS = "pref_camera_permissions"
         const val PREF_SHELL_PERMISSIONS = "pref_shell_permissions"
         const val PREF_NOTIFICATION_PERMISSIONS = "pref_notification_permissions"
         const val PREF_CAMERA_ROTATE = "pref_camera_rotate"
         const val PREF_BROWSER_REFRESH_DISCONNECT = "pref_browser_refresh_disconnect"
         const val PREF_SCREEN_BRIGHTNESS = "pref_use_screen_brightness"
+        const val PREF_MQTT_DISCOVERY_ADVERTISED_TOPICS = "pref_mqtt_discovery_advertised_topics"
         const val PREF_SCREENSAVER_DIM_VALUE = "pref_screensaver_dim_value"
         private val ROTATE_TIME_IN_MINUTES = 15
         const val PREF_IMAGE_ROTATION = "pref_image_rotation"

@@ -10,12 +10,16 @@ ENV ANDROID_HOME=/opt/android-sdk \
     ANDROID_SDK_ROOT=/opt/android-sdk \
     DEBIAN_FRONTEND=noninteractive
 
+# python3 is here rather than in its own service because the scripts that need it also
+# need adb -- parsing `uiautomator dump` output to drive the UI, and the MQTT helpers in
+# tools/. Nothing in the Gradle build uses it.
 RUN apt-get update && apt-get install -y --no-install-recommends \
         curl \
         unzip \
         git \
         ca-certificates \
         jq \
+        python3 \
     && rm -rf /var/lib/apt/lists/*
 
 # Version of the standalone command line tools package (not the SDK itself).

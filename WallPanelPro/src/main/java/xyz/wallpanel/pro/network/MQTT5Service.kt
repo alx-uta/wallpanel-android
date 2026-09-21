@@ -55,24 +55,62 @@ class MQTT5Service(
         initialize(newOptions)
     }
 
+    // The base topic this connection was made with, kept so the teardown can reach it
+    // after the settings have moved on.
+    private var connectedBaseTopic: String? = null
+
+    // The flag alone lags the connection: a broker handing this client id's session to
+    // another connection drops this one before the disconnect callback has run, and a
+    // publish recorded as sent in that gap never reached the broker.
     override val isReady: Boolean
-        get() = mReady.get()
+        get() = mReady.get() && mqtt5AsyncClient?.state?.isConnected == true
 
     @Throws(Mqtt5MessageException::class)
     override fun close() {
-        mqtt5AsyncClient?.let {
+        mqtt5AsyncClient?.let { client ->
 
-            mqttOptions?.let {
+            // The topic the client connected with, not whatever the settings hold now: a
+            // base topic edited in the settings would otherwise leave the retained online
+            // message behind on the old topic and mark the new one offline.
+            val offlineSent = connectedBaseTopic?.takeIf { client.state.isConnected }?.let { topic ->
                 val offlineMessage =
-                    Mqtt5Publish.builder().topic("${it.getBaseTopic()}${CONNECTION}")
+                    Mqtt5Publish.builder().topic("$topic${CONNECTION}")
                         .payload(OFFLINE.toByteArray()).retain(true).build()
-                sendMessage(offlineMessage)
+                try {
+                    client.publish(offlineMessage)
+                } catch (e: Exception) {
+                    Timber.w(e, "Could not publish the offline status")
+                    null
+                }
+            }
+
+            // The service is told nothing about this one: it is a teardown, not a
+            // connection that dropped, and reporting it would arm the reconnect timer
+            // against a client that is going away.
+            listener = null
+            // Dropping the reference leaves the connection up, and a reconnect under a new
+            // client id has no session to take over, so the broker keeps both. A clean
+            // disconnect also stops the broker sending the will, so it waits for the offline
+            // status to go out: disconnecting straight away discards it along with anything
+            // else still queued, and Home Assistant would go on showing the device online.
+            if (offlineSent == null) {
+                disconnectQuietly(client)
+            } else {
+                offlineSent.whenComplete { _, _ -> disconnectQuietly(client) }
             }
             mqtt5AsyncClient = null
-            listener = null
             mqttOptions = null
+            connectedBaseTopic = null
         }
         mReady.set(false)
+    }
+
+    private fun disconnectQuietly(client: Mqtt5AsyncClient) {
+        try {
+            client.disconnect()
+        } catch (e: Exception) {
+            Timber.w(e, "Could not disconnect cleanly from the broker")
+        }
     }
 
     override fun publish(topic: String, payload: String, retain: Boolean) {
@@ -140,12 +178,16 @@ class MQTT5Service(
 
                 val mqttBuilder = buildTransportConfiguredBuilder(mqttOptions)
                 mqttBuilder.addConnectedListener { context: MqttClientConnectedContext? ->
-                    subscribeToTopics(mqttOptions.getStateTopics())
+                    // A connection test only proves the broker takes the settings. Taking
+                    // commands or marking the device online would act for the device itself.
+                    if (!mqttOptions.connectionTest) {
+                        subscribeToTopics(mqttOptions.getStateTopics())
 
-                    val onlineMessage =
-                        Mqtt5Publish.builder().topic("${mqttOptions.getBaseTopic()}${CONNECTION}")
-                            .payload(ONLINE.toByteArray()).retain(true).build()
-                    sendMessage(onlineMessage)
+                        val onlineMessage =
+                            Mqtt5Publish.builder().topic("${mqttOptions.getBaseTopic()}${CONNECTION}")
+                                .payload(ONLINE.toByteArray()).retain(true).build()
+                        sendMessage(onlineMessage)
+                    }
 
                     // TODO: There needs to be a way to handle queues...
                     mReady.set(true)
@@ -164,13 +206,18 @@ class MQTT5Service(
                     }
                 }
 
+                // A connection test leaves nothing behind on the broker: no session under
+                // its client id, and no will to mark the device offline when it goes.
+                connectedBaseTopic = if (mqttOptions.connectionTest) null else mqttOptions.getBaseTopic()
                 mqtt5AsyncClient = mqttBuilder.useMqttVersion5().build().toAsync()
                 val clientConnect = mqtt5AsyncClient!!.connectWith()
-                clientConnect.cleanStart(false)
-                clientConnect.willPublish().topic("${mqttOptions.getBaseTopic()}${CONNECTION}")
-                    .payload(OFFLINE.toByteArray()).qos(
-                        MqttQos.EXACTLY_ONCE
-                    ).retain(true).applyWillPublish()
+                clientConnect.cleanStart(mqttOptions.connectionTest)
+                if (!mqttOptions.connectionTest) {
+                    clientConnect.willPublish().topic("${mqttOptions.getBaseTopic()}${CONNECTION}")
+                        .payload(OFFLINE.toByteArray()).qos(
+                            MqttQos.EXACTLY_ONCE
+                        ).retain(true).applyWillPublish()
+                }
                 if (!TextUtils.isEmpty(mqttOptions.getUsername()) && !TextUtils.isEmpty(mqttOptions.getPassword())) {
                     clientConnect.simpleAuth().username(mqttOptions.getUsername())
                         .password(mqttOptions.getPassword().toByteArray()).applySimpleAuth()
