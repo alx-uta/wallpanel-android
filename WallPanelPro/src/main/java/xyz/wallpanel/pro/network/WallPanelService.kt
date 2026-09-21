@@ -664,7 +664,17 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     private fun submitCamera(work: () -> Unit) {
         try {
-            cameraExecutor.execute(work)
+            // An exception thrown on this thread takes the whole process down, and setting
+            // up the detectors is not covered by the camera's own error handling.
+            cameraExecutor.execute {
+                try {
+                    work()
+                } catch (e: Exception) {
+                    Timber.e(e, "Camera work failed")
+                    cameraRunning = false
+                    sendToastMessage(getString(R.string.toast_camera_source_error))
+                }
+            }
         } catch (e: RejectedExecutionException) {
             Timber.d("Not touching the camera, the service is shutting down")
         }
