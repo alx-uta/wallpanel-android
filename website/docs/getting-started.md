@@ -17,7 +17,7 @@ To begin using WallPanel, you need to do two things.  First enter the settings s
 
 ![Settings Button](/img/settings_button.png)
 
-Once you enter the settings screen, you can change the settings code to any 4-digit code using, just remember the code will always be needed to enter the settings. Now edit the Dashboard url, this is the web site or home automation platform dashboard you want to use with the application. Note that initially, the application shows the Github page for the project.  
+Once you enter the settings screen, you can change the settings code to any 4-digit code. By default, the code is required whenever you open Settings from the dashboard button. You can disable this requirement in the Settings Button section if your device does not need that protection. Now edit the Dashboard url, this is the web site or home automation platform dashboard you want to use with the application. Note that initially, the application shows the Github page for the project.
 
 ![Setting Code](/img/settings_dashboard.png)
 
@@ -25,6 +25,6 @@ You also have the option in the settings to change the location of the settings 
 
 ![Setting Button Options](/img/settings_button_options.png)
 
-Once you have setup the code and dashboard url, each time you enter the settings, you will be prompted to enter the code.
+Once you have setup the code and dashboard url, each time you enter the settings from the dashboard button, you will be prompted to enter the code unless the security-code requirement is disabled.
 
 ![Settings Code](https://github.com/thanksmister/wallpanel-android/blob/master/img/settings_code.png)

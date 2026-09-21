@@ -141,7 +141,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
 
         binding.launchSettingsFab.setOnClickListener {
-            if (configuration.isFirstTime) {
+            if (configuration.isFirstTime || !configuration.settingsCodeRequired) {
                 openSettings()
             } else {
                 showCodeBottomSheet()

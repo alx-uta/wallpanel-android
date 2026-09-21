@@ -25,6 +25,12 @@
             android:icon="@drawable/ic_dashboard"
             android:title="@string/title_setting_app_launchurl" />
 
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_settings_code_required"
+            android:key="@string/key_setting_settings_code_required"
+            android:title="@string/preference_title_settings_code_required"
+            android:summary="@string/preference_summary_settings_code_required" />
+
         <Preference
             android:key="button_alarm_code"
             android:negativeButtonText="@android:string/cancel"
@@ -242,4 +248,3 @@
         android:title="@string/pref_about_title"/>
 
 </PreferenceScreen>
-
