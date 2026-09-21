@@ -117,8 +117,9 @@ their own file so they read the same on the host and in Docker.
 long-lived access token used by the MQTT discovery end-to-end check
 ([tools/ha-verify.py](tools/ha-verify.py)), which needs the Home Assistant API to
 confirm the entities were really created and hold the states expected — publishing the
-right payload to the broker and Home Assistant accepting it are different claims. Leave
-it empty and that check is skipped.
+right payload to the broker and Home Assistant accepting it are different claims. Without
+it [tools/ha-verify.py](tools/ha-verify.py) stops with an error, since every check it
+makes needs the API; the builds themselves do not care.
 
 ## Architecture
 
@@ -161,6 +162,17 @@ it empty and that check is skipped.
 - `app-developer` (Opus) — features, fixes, refactors under `WallPanelPro/`
 - `app-tester` (Sonnet) — unit and instrumented tests, lint, device runs
 - `docs-writer` (Sonnet) — `website/docs/`, README, this file
+
+### Review bar
+
+A code review of this repo reports defects a user would notice: a crash, a hang, a leaked
+camera or wakelock, a command that does nothing, an entity Home Assistant gets wrong, a
+race that can drop or duplicate a published message. Say what breaks and how to reach it.
+
+Leave out naming, formatting, comment wording, and micro-optimisations of code that runs
+once. Performance is worth raising when it lands on the main thread in a measurable way —
+this is a kiosk on decade-old hardware — but bring a number, not a suspicion. A pre-existing
+problem the change does not touch belongs in a note at the end rather than the findings.
 
 ## Known debt
 

@@ -42,6 +42,9 @@ class MqttClient:
                  username=None, password=None, timeout=10):
         self._buf = b""
         self._packet_id = 0
+        self._timeout = timeout
+        # Publishes that arrived before the SUBACK they belong with, see subscribe().
+        self._pending = []
         try:
             self._sock = socket.create_connection((host, port), timeout=timeout)
         except OSError as e:
@@ -116,10 +119,16 @@ class MqttClient:
         for topic in topic_filters:
             body += _encode_string(topic) + b"\x00"
         self._send(0x82, body)
+        # messages() reads on a short deadline; the SUBACK gets the full one back.
+        self._sock.settimeout(self._timeout)
         while True:
-            packet_type, _, _ = self._read_packet()
+            packet_type, flags, body = self._read_packet()
             if packet_type == self.SUBACK:
                 return
+            if packet_type == self.PUBLISH:
+                # A broker is allowed to send the retained messages before acknowledging
+                # the subscription. Dropping those would lose retained configs.
+                self._pending.append((flags, body))
 
     def publish(self, topic, payload, retain=False):
         self._send(0x30 | (0x01 if retain else 0),
@@ -128,23 +137,32 @@ class MqttClient:
     def messages(self, seconds):
         """Yields (topic, payload, retained) for up to `seconds`."""
         deadline = time.time() + seconds
-        while True:
-            remaining = deadline - time.time()
-            if remaining <= 0:
-                return
-            self._sock.settimeout(min(remaining, 1.0))
-            try:
-                packet_type, flags, body = self._read_packet()
-            except socket.timeout:
-                continue
-            except (OSError, MqttError):
-                return
-            if packet_type != self.PUBLISH:
-                continue
-            topic_len = struct.unpack("!H", body[:2])[0]
-            topic = body[2:2 + topic_len].decode("utf-8", "replace")
-            payload = body[2 + topic_len:].decode("utf-8", "replace")
-            yield topic, payload, bool(flags & 0x01)
+        try:
+            while self._pending:
+                yield self._publish_parts(*self._pending.pop(0))
+            while True:
+                remaining = deadline - time.time()
+                if remaining <= 0:
+                    return
+                self._sock.settimeout(min(remaining, 1.0))
+                try:
+                    packet_type, flags, body = self._read_packet()
+                except socket.timeout:
+                    continue
+                except (OSError, MqttError):
+                    return
+                if packet_type != self.PUBLISH:
+                    continue
+                yield self._publish_parts(flags, body)
+        finally:
+            # Put the deadline back, so whatever reads next is not held to this one's.
+            self._sock.settimeout(self._timeout)
+
+    def _publish_parts(self, flags, body):
+        topic_len = struct.unpack("!H", body[:2])[0]
+        topic = body[2:2 + topic_len].decode("utf-8", "replace")
+        payload = body[2 + topic_len:].decode("utf-8", "replace")
+        return topic, payload, bool(flags & 0x01)
 
     def collect_retained(self, *topic_filters, seconds=6):
         """Returns {topic: payload} for the retained messages under these filters.

@@ -285,7 +285,7 @@ class MqttDiscoveryTest {
     @Test
     fun `a retired sensor is always published as a removal`() {
         setBool(R.string.key_setting_sensors_enabled, true)
-        assertTrue("nothing to check", DiscoveryCatalog.RETIRED_SENSOR_IDS.isNotEmpty())
+        // Passes over an empty list, which is what holds until a sensor is retired.
         for (objectId in DiscoveryCatalog.RETIRED_SENSOR_IDS) {
             val entity = entities(sampleSensors())["sensor/$objectId"]
             assertNotNull("$objectId must still be listed", entity)
@@ -430,6 +430,18 @@ class MqttDiscoveryTest {
         val payloads = discovery.payloads(emptyList())
         assertTrue(discovery.advertisedTopics(payloads).isEmpty())
         assertTrue(discovery.messages(payloads, previouslyAdvertised = emptySet()).isEmpty())
+    }
+
+    @Test
+    fun `an upgrade with discovery off clears configs no version recorded`() {
+        setBool(R.string.key_setting_mqtt_discovery, false)
+        val payloads = discovery.payloads(emptyList())
+        val messages = discovery.messages(payloads, previouslyAdvertised = emptySet(), sweepUnrecorded = true)
+        // Versions before the advertised-topic list published retained and cleared
+        // unretained, so their configs are still on the broker under these same topics.
+        assertEquals("", messages["homeassistant/button/kitchen/reload/config"])
+        assertEquals("", messages["homeassistant/sensor/kitchen/battery/config"])
+        assertTrue(messages.values.all { it.isEmpty() })
     }
 
     @Test

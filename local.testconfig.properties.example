@@ -21,7 +21,8 @@ hassUrl=http://homeassistant.local:8123/lovelace/default_view
 # the application never reads it and it is not compiled into any build. It is what
 # lets a test check that Home Assistant really created the MQTT discovery entities
 # and gave them the states expected, rather than only checking what was published to
-# the broker. Leave it empty to skip those checks.
+# the broker. Without it tools/ha-verify.py stops with an error; the builds are
+# unaffected either way.
 #
 # Create one in Home Assistant under your profile -> Security -> Long-lived access
 # tokens. It grants full API access to that instance, so use a dev instance and

@@ -272,6 +272,15 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         set(value) = sharedPreferences.edit().putStringSet(PREF_MQTT_DISCOVERY_ADVERTISED_TOPICS, value.toSet()).apply()
 
     /**
+     * True until the first publish records what went to the broker. An upgrade from a
+     * version that did not keep this list arrives here, and whatever that version left
+     * retained is unknown, which is what [mqttDiscoveryAdvertisedTopics] being empty
+     * cannot distinguish on its own.
+     */
+    val mqttDiscoveryUnrecorded: Boolean
+        get() = !sharedPreferences.contains(PREF_MQTT_DISCOVERY_ADVERTISED_TOPICS)
+
+    /**
      * Which controls and sensors may be advertised. Both read and write the set the user
      * ticked; what is stored underneath is the complement, the ids they unticked.
      *

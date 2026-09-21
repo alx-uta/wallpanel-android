@@ -205,8 +205,8 @@ class SensorReaderDeviceTest {
         if (readings.containsKey(SensorReader.WIFI_SIGNAL)) {
             assertTrue("wifiSignal published a value without being discovered", SensorReader.WIFI_SIGNAL in discovered)
         }
-        assertFalse("wifiSsid is retired and must not be reported", "wifiSsid" in discovered)
-        assertFalse("wifiSsid is retired and must not be published", readings.containsKey("wifiSsid"))
+        assertFalse("wifiSsid is not a sensor this app reports", "wifiSsid" in discovered)
+        assertFalse("wifiSsid is not a sensor this app publishes", readings.containsKey("wifiSsid"))
 
         readings[SensorReader.WIFI_SIGNAL]?.let { rssi ->
             val dbm = rssi.getInt(SensorReader.VALUE)

@@ -33,6 +33,7 @@ import os
 import sys
 import time
 import urllib.error
+import urllib.parse
 import urllib.request
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
@@ -107,15 +108,25 @@ class HomeAssistant:
         self._request("/api/services/%s/%s" % (domain, service),
                       dict(data, entity_id=entity_id))
 
-    def wait_for_state(self, entity_id, want, timeout=25):
+    def wait_for_state(self, entity_id, want, timeout=25, tolerance=0):
         """Home Assistant publishes the command, the device acts on it and publishes new
-        state, and only then does the entity settle -- so this is a poll, not a read."""
+        state, and only then does the entity settle -- so this is a poll, not a read.
+
+        A tolerance accepts a number landing near the value asked for, which is what the
+        controls backed by a stepped device setting can do.
+        """
         deadline = time.time() + timeout
         state = None
         while time.time() < deadline:
             state = self.state_of(entity_id)
             if state == str(want):
                 return True, state
+            if tolerance:
+                try:
+                    if abs(float(state) - float(want)) <= tolerance:
+                        return True, state
+                except (TypeError, ValueError):
+                    pass
             time.sleep(1)
         return False, state
 
@@ -187,13 +198,16 @@ def exercise(ha, by_name, device_name):
     url_restorable = original_url not in (None, "unknown", "unavailable") \
         and len(original_url) < URL_STATE_MAX_LENGTH
 
+    # Volume carries a tolerance because it is a percentage of however many steps the
+    # device's media stream has: asking for 60% of a 7 step stream gives 4 steps, which
+    # reads back as 57%. One step is 15 percentage points at that end of the range.
     checks = [
-        ("Brightness", "number", "set_value", {"value": 200}, 200),
-        ("Volume", "number", "set_value", {"value": 60}, 60),
-        ("Screensaver", "switch", "turn_on", {}, "on"),
-        ("Screensaver", "switch", "turn_off", {}, "off"),
+        ("Brightness", "number", "set_value", {"value": 200}, 200, 0),
+        ("Volume", "number", "set_value", {"value": 60}, 60, 15),
+        ("Screensaver", "switch", "turn_on", {}, "on", 0),
+        ("Screensaver", "switch", "turn_off", {}, "off", 0),
     ]
-    for name, domain, service, data, want in checks:
+    for name, domain, service, data, want, tolerance in checks:
         entity_id = entity(name)
         if entity_id is None:
             print("  %-28s SKIPPED (no entity)" % name)
@@ -205,7 +219,7 @@ def exercise(ha, by_name, device_name):
             failures.append("%s: service call failed (%s)" % (entity_id, e))
             print("  %-28s FAILED to call: %s" % (name, e))
             continue
-        ok, got = ha.wait_for_state(entity_id, want)
+        ok, got = ha.wait_for_state(entity_id, want, tolerance=tolerance)
         if not ok:
             failures.append("%s did not reach %r after %s.%s (stuck at %r)"
                             % (entity_id, want, domain, service, got))
@@ -218,8 +232,16 @@ def exercise(ha, by_name, device_name):
     if url_entity and current_url_entity and not url_restorable:
         print("  %-28s SKIPPED (current URL is %r, nothing to navigate back to)"
               % ("Navigate URL", original_url))
+    elif url_entity and current_url_entity and urllib.parse.urlsplit(original_url).fragment:
+        # A URL differing only after the '#' is the same document to a browser, so it would
+        # navigate nowhere and the check would read as a failure.
+        print("  %-28s SKIPPED (current URL carries a fragment)" % "Navigate URL")
     elif url_entity and current_url_entity:
-        target = original_url.rstrip("/") + "?ha-verify"
+        # Added as a query parameter rather than glued on, which a URL that already has a
+        # query string would turn into a second '?'.
+        parts = urllib.parse.urlsplit(original_url)
+        query = parts.query + "&ha-verify" if parts.query else "ha-verify"
+        target = urllib.parse.urlunsplit((parts.scheme, parts.netloc, parts.path, query, ""))
         ha.call("text", "set_value", url_entity, value=target)
         ok, got = ha.wait_for_state(current_url_entity, target[:URL_STATE_MAX_LENGTH])
         if not ok:

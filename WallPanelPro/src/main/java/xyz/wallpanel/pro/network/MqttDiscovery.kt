@@ -97,12 +97,6 @@ constructor(
     private val availabilityTopic: String
         get() = "$baseTopic$TOPIC_CONNECTION"
 
-    private val enabledControls: Set<String>
-        get() = configuration.mqttDiscoveryControlIds
-
-    private val enabledSensors: Set<String>
-        get() = configuration.mqttDiscoverySensorIds
-
     /**
      * The full set of entities, in publish order. Entities whose feature is turned off
      * carry a null config so the caller removes them from Home Assistant.
@@ -112,11 +106,16 @@ constructor(
      * strand every entity in Home Assistant instead of taking them down.
      */
     fun entities(sensors: List<SensorInfo>): List<DiscoveryEntity> {
-        val all = sensorEntities(sensors) + cameraEntities() + controlEntities()
+        // Read once and carried down: each one is a preference lookup and a set
+        // subtraction, and the builders below ask about them for every entity.
+        val enabledSensors = configuration.mqttDiscoverySensorIds
+        val enabledControls = configuration.mqttDiscoveryControlIds
+        val all = sensorEntities(sensors, enabledSensors) + cameraEntities(enabledSensors) +
+                controlEntities(enabledControls, enabledSensors)
         return if (configuration.mqttDiscovery) all else all.map { it.copy(config = null) }
     }
 
-    private fun sensorEntities(sensors: List<SensorInfo>): List<DiscoveryEntity> {
+    private fun sensorEntities(sensors: List<SensorInfo>, enabledSensors: Set<String>): List<DiscoveryEntity> {
         val entities = mutableListOf<DiscoveryEntity>()
 
         // Sensors this version no longer has. Their configs are retained on the broker
@@ -128,9 +127,9 @@ constructor(
 
         // The battery level itself comes through the sensor loop below like any other
         // reading; only the extra flags carried in its payload need defining here.
-        entities += batteryFlag(USB_PLUGGED, R.string.mqtt_sensor_usb_plugged, "power", sensorOn(USB_PLUGGED))
-        entities += batteryFlag(AC_PLUGGED, R.string.mqtt_sensor_ac_plugged, "power", sensorOn(AC_PLUGGED))
-        entities += batteryFlag(CHARGING, R.string.mqtt_sensor_charging, "battery_charging", sensorOn(CHARGING))
+        entities += batteryFlag(USB_PLUGGED, R.string.mqtt_sensor_usb_plugged, "power", sensorOn(USB_PLUGGED, enabledSensors))
+        entities += batteryFlag(AC_PLUGGED, R.string.mqtt_sensor_ac_plugged, "power", sensorOn(AC_PLUGGED, enabledSensors))
+        entities += batteryFlag(CHARGING, R.string.mqtt_sensor_charging, "battery_charging", sensorOn(CHARGING, enabledSensors))
 
         // Walked from the catalogue rather than from the readings the device happens to be
         // producing. A sensor whose hardware or permission has gone away drops out of the
@@ -141,7 +140,7 @@ constructor(
             val sensor = reported[objectId]
             entities += sensor(
                 objectId = objectId,
-                config = if (sensor == null || !sensorOn(objectId)) null else sensorConfig(
+                config = if (sensor == null || !sensorOn(objectId, enabledSensors)) null else sensorConfig(
                     displayName = sensor.displayName.orEmpty(),
                     topic = "$COMMAND_SENSOR$objectId",
                     field = VALUE,
@@ -183,7 +182,7 @@ constructor(
      * Whether a sensor should be advertised: publishing has to be on, and the user has to
      * have left it ticked in the settings.
      */
-    private fun sensorOn(objectId: String): Boolean {
+    private fun sensorOn(objectId: String, enabledSensors: Set<String>): Boolean {
         return configuration.sensorsEnabled && objectId in enabledSensors
     }
 
@@ -208,7 +207,7 @@ constructor(
         )
     }
 
-    private fun cameraEntities(): List<DiscoveryEntity> {
+    private fun cameraEntities(enabledSensors: Set<String>): List<DiscoveryEntity> {
         val cameraOn = configuration.cameraEnabled
         return listOf(
             DiscoveryEntity(
@@ -256,15 +255,15 @@ constructor(
      * accepts. Each entity maps onto one command, so the set here matches the command
      * table one for one.
      */
-    private fun controlEntities(): List<DiscoveryEntity> {
+    private fun controlEntities(enabledControls: Set<String>, enabledSensors: Set<String>): List<DiscoveryEntity> {
         val entities = mutableListOf<DiscoveryEntity>()
 
-        entities += button(COMMAND_RELOAD, R.string.mqtt_control_reload, """{"$COMMAND_RELOAD": true}""", controlOn(COMMAND_RELOAD))
-        entities += button(COMMAND_CLEAR_CACHE, R.string.mqtt_control_clear_cache, """{"$COMMAND_CLEAR_CACHE": true}""", controlOn(COMMAND_CLEAR_CACHE))
-        entities += button(COMMAND_RELAUNCH, R.string.mqtt_control_relaunch, """{"$COMMAND_RELAUNCH": true}""", controlOn(COMMAND_RELAUNCH))
-        entities += button(COMMAND_WAKE, R.string.mqtt_control_wake, """{"$COMMAND_WAKE": true}""", controlOn(COMMAND_WAKE))
-        entities += button(COMMAND_RESTART_APP, R.string.mqtt_control_restart_app, """{"$COMMAND_RESTART_APP": true}""", controlOn(COMMAND_RESTART_APP), configCategory = true)
-        entities += button(COMMAND_SETTINGS, R.string.mqtt_control_settings, """{"$COMMAND_SETTINGS": true}""", controlOn(COMMAND_SETTINGS), configCategory = true)
+        entities += button(COMMAND_RELOAD, R.string.mqtt_control_reload, """{"$COMMAND_RELOAD": true}""", controlOn(COMMAND_RELOAD, enabledControls))
+        entities += button(COMMAND_CLEAR_CACHE, R.string.mqtt_control_clear_cache, """{"$COMMAND_CLEAR_CACHE": true}""", controlOn(COMMAND_CLEAR_CACHE, enabledControls))
+        entities += button(COMMAND_RELAUNCH, R.string.mqtt_control_relaunch, """{"$COMMAND_RELAUNCH": true}""", controlOn(COMMAND_RELAUNCH, enabledControls))
+        entities += button(COMMAND_WAKE, R.string.mqtt_control_wake, """{"$COMMAND_WAKE": true}""", controlOn(COMMAND_WAKE, enabledControls))
+        entities += button(COMMAND_RESTART_APP, R.string.mqtt_control_restart_app, """{"$COMMAND_RESTART_APP": true}""", controlOn(COMMAND_RESTART_APP, enabledControls), configCategory = true)
+        entities += button(COMMAND_SETTINGS, R.string.mqtt_control_settings, """{"$COMMAND_SETTINGS": true}""", controlOn(COMMAND_SETTINGS, enabledControls), configCategory = true)
 
         entities += switch(
             objectId = OBJECT_SCREEN,
@@ -272,7 +271,7 @@ constructor(
             onPayload = """{"$COMMAND_WAKE": true}""",
             offPayload = """{"$COMMAND_WAKE": false}""",
             stateField = STATE_SCREEN_AWAKE,
-            enabled = controlOn(OBJECT_SCREEN),
+            enabled = controlOn(OBJECT_SCREEN, enabledControls),
         )
         entities += switch(
             objectId = COMMAND_CAMERA,
@@ -280,7 +279,7 @@ constructor(
             onPayload = """{"$COMMAND_CAMERA": true}""",
             offPayload = """{"$COMMAND_CAMERA": false}""",
             stateField = STATE_CAMERA,
-            enabled = controlOn(COMMAND_CAMERA),
+            enabled = controlOn(COMMAND_CAMERA, enabledControls),
         )
         entities += switch(
             objectId = COMMAND_SCREENSAVER,
@@ -288,7 +287,7 @@ constructor(
             onPayload = """{"$COMMAND_SCREENSAVER": true}""",
             offPayload = """{"$COMMAND_SCREENSAVER": false}""",
             stateField = STATE_SCREENSAVER_ON,
-            enabled = controlOn(COMMAND_SCREENSAVER),
+            enabled = controlOn(COMMAND_SCREENSAVER, enabledControls),
         )
 
         // Brightness commands are ignored unless the application is set to control the
@@ -302,7 +301,7 @@ constructor(
             stateField = STATE_BRIGHTNESS_SETPOINT,
             min = 0,
             max = 255,
-            enabled = controlOn(COMMAND_BRIGHTNESS) && configuration.useScreenBrightness && screenUtils.canWriteScreenSetting(),
+            enabled = controlOn(COMMAND_BRIGHTNESS, enabledControls) && configuration.useScreenBrightness && screenUtils.canWriteScreenSetting(),
         )
         entities += number(
             objectId = COMMAND_VOLUME,
@@ -311,16 +310,16 @@ constructor(
             stateField = STATE_VOLUME,
             min = 0,
             max = 100,
-            enabled = controlOn(COMMAND_VOLUME),
+            enabled = controlOn(COMMAND_VOLUME, enabledControls),
         )
 
-        entities += text(COMMAND_URL, R.string.mqtt_control_url, COMMAND_URL, controlOn(COMMAND_URL))
-        entities += text(COMMAND_SPEAK, R.string.mqtt_control_speak, COMMAND_SPEAK, controlOn(COMMAND_SPEAK))
-        entities += text(COMMAND_TOAST, R.string.mqtt_control_toast, COMMAND_TOAST, controlOn(COMMAND_TOAST))
+        entities += text(COMMAND_URL, R.string.mqtt_control_url, COMMAND_URL, controlOn(COMMAND_URL, enabledControls))
+        entities += text(COMMAND_SPEAK, R.string.mqtt_control_speak, COMMAND_SPEAK, controlOn(COMMAND_SPEAK, enabledControls))
+        entities += text(COMMAND_TOAST, R.string.mqtt_control_toast, COMMAND_TOAST, controlOn(COMMAND_TOAST, enabledControls))
 
         // The shell command carries the same risk over MQTT as it does over HTTP, so its
         // entities follow the same opt-in toggle rather than appearing for everyone.
-        val shellOn = controlOn(COMMAND_SHELL) && configuration.httpShellEnabled
+        val shellOn = controlOn(COMMAND_SHELL, enabledControls) && configuration.httpShellEnabled
         entities += text(COMMAND_SHELL, R.string.mqtt_control_shell, COMMAND_SHELL, shellOn, configCategory = true)
         // The result follows the shell feature and its own tick in the sensor list. It is
         // reported for commands sent over HTTP too, so it does not depend on the input box
@@ -350,7 +349,7 @@ constructor(
      * Whether a control should be advertised: controls have to be on as a whole, and the
      * user has to have left this one ticked in the settings.
      */
-    private fun controlOn(objectId: String): Boolean {
+    private fun controlOn(objectId: String, enabledControls: Set<String>): Boolean {
         return configuration.mqttDiscoveryControls && objectId in enabledControls
     }
 
@@ -584,9 +583,18 @@ constructor(
      * - A topic advertised before but missing from [payloads] was published under a
      *   discovery prefix or client id that has since changed, and gets an empty payload so
      *   the old device doesn't stay behind in Home Assistant.
+     * - [sweepUnrecorded] skips that first rule. Versions before this one published their
+     *   configs retained but cleared them unretained, which left them on the broker, and
+     *   they were never recorded either. Sending the empty payload for every topic once
+     *   takes those down; on a device that never had discovery it clears topics that hold
+     *   nothing anyway.
      */
-    fun messages(payloads: Map<String, String>, previouslyAdvertised: Set<String>): Map<String, String> {
-        if (previouslyAdvertised.isEmpty() && advertisedTopics(payloads).isEmpty()) {
+    fun messages(
+        payloads: Map<String, String>,
+        previouslyAdvertised: Set<String>,
+        sweepUnrecorded: Boolean = false
+    ): Map<String, String> {
+        if (!sweepUnrecorded && previouslyAdvertised.isEmpty() && advertisedTopics(payloads).isEmpty()) {
             return emptyMap()
         }
         val messages = LinkedHashMap(payloads)

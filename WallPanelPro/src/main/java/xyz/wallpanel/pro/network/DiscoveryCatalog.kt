@@ -89,11 +89,9 @@ object DiscoveryCatalog {
      * clear it. Ids stay here permanently once retired; they cost one empty publish per
      * connect and are the only thing that takes the old entity down.
      *
-     * `wifiSsid` was retired because Android hands the network name only to applications
-     * holding a location permission from 8.1 onwards, which this one does not request, so
-     * the sensor could not report on any supported device.
+     * Empty for now: no released version has published a sensor that has since gone.
      */
-    val RETIRED_SENSOR_IDS: List<String> = listOf("wifiSsid")
+    val RETIRED_SENSOR_IDS: List<String> = emptyList()
 
     val ALL_CONTROL_IDS: Set<String> = CONTROLS.map { it.objectId }.toSet()
     val ALL_SENSOR_IDS: Set<String> = SENSORS.map { it.objectId }.toSet()

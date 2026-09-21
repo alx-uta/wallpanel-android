@@ -21,6 +21,7 @@ import android.content.SharedPreferences
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.text.InputType
 import android.view.*
 import androidx.core.view.MenuProvider
@@ -40,6 +41,7 @@ import xyz.wallpanel.pro.ui.activities.SettingsActivity
 import dagger.android.support.AndroidSupportInjection
 import timber.log.Timber
 import java.util.concurrent.Executors
+import java.util.concurrent.RejectedExecutionException
 import javax.inject.Inject
 
 class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedPreferenceChangeListener  {
@@ -253,7 +255,7 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
             
             testExecutor.execute {
                 try {
-                    val testOptions = MQTTOptions(configuration)
+                    val testOptions = MQTTOptions(configuration).apply { connectionTest = true }
                     Timber.d("Test options created: broker=${testOptions.getBroker()}, port=${testOptions.getPort()}")
                     
                     // Quick validation
@@ -284,7 +286,7 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
                                     "Version: ${testOptions.getVersion()}\n" +
                                     "Auth: ${if (testOptions.getUsername().isNotEmpty()) "Yes" else "No"}")
                                 // Disconnect after successful test
-                                mainHandler.postDelayed({ cleanupTest() }, 1000)
+                                mainHandler.postAtTime({ cleanupTest() }, TEST_CALLBACKS, SystemClock.uptimeMillis() + 1000)
                             }
                         }
                         
@@ -325,8 +327,9 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
                     testMqttModule = MQTTModule(requireContext().applicationContext, testOptions, testListener)
                     testMqttModule?.restart() // Start the connection
                     
-                    // Set timeout
-                    mainHandler.postDelayed({
+                    // Set timeout. Tagged so the cleanup can take it back: left pending, it
+                    // would cut short the next test started within the 15 seconds.
+                    mainHandler.postAtTime({
                         if (isTestingConnection) {
                             Timber.w("Connection test timeout")
                             showTestResult(false, "Connection Timeout", 
@@ -339,7 +342,7 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
                                 "- Firewall allows connection")
                             cleanupTest()
                         }
-                    }, 15000)
+                    }, TEST_CALLBACKS, SystemClock.uptimeMillis() + 15000)
                     
                 } catch (e: Throwable) {
                     val fullError = "=== MQTT CONNECTION TEST EXCEPTION ===\n" +
@@ -412,15 +415,22 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
     private fun cleanupTest() {
         Timber.d("Cleaning up test connection")
         isTestingConnection = false
-        
-        testExecutor.execute {
-            try {
-                testMqttModule?.pause()
-                testMqttModule = null
-                Timber.d("Test MQTT module cleaned up")
-            } catch (e: Exception) {
-                Timber.e(e, "Error cleaning up test MQTT module")
+        mainHandler.removeCallbacksAndMessages(TEST_CALLBACKS)
+
+        // Leaving the screen shuts the executor down, which a cleanup still queued on the
+        // main looper would otherwise hit as a crash.
+        try {
+            testExecutor.execute {
+                try {
+                    testMqttModule?.pause()
+                    testMqttModule = null
+                    Timber.d("Test MQTT module cleaned up")
+                } catch (e: Exception) {
+                    Timber.e(e, "Error cleaning up test MQTT module")
+                }
             }
+        } catch (e: RejectedExecutionException) {
+            Timber.d("Test executor already shut down")
         }
     }
     
@@ -437,5 +447,6 @@ class MqttSettingsFragment : BaseSettingsFragment(), SharedPreferences.OnSharedP
     companion object {
         const val PREF_TLS_CONNECTION = "pref_tls_connection"
         const val PREF_MQTT_VERSION = "pref_mqtt_version"
+        private val TEST_CALLBACKS = Any()
     }
 }

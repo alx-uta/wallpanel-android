@@ -74,7 +74,9 @@ constructor(private val context: Context){
     private val sensorHandler = Handler(Looper.getMainLooper())
     private var updateFrequencyMilliSeconds: Int = 0
     private var callback: SensorCallback? = null
-    private var sensorsPublished: Boolean = false
+    // The hardware sensor types already reported this cycle. Sensor events are delivered
+    // on the main looper, which is also where the cycle clears this.
+    private val publishedSensorTypes = mutableSetOf<Int>()
     private var lightSensorEvent: SensorEvent? = null
     // Some devices' SELinux policy denies untrusted apps read access to /proc/stat.
     // Once that's confirmed, stop retrying every cycle instead of failing forever. Written
@@ -83,6 +85,7 @@ constructor(private val context: Context){
     private var cpuUsageUnavailable: Boolean = false
     // The values that never change while the process runs are published when readings start
     // and again on every refresh, which is what the service asks for on a broker reconnect.
+    @Volatile
     private var deviceInfoPublished: Boolean = false
     @Volatile
     private var backgroundReadings: Thread? = null
@@ -93,7 +96,7 @@ constructor(private val context: Context){
                 readImmediateSensors()
                 startBackgroundReadings()
                 sensorHandler.postDelayed(this, updateFrequencyMilliSeconds.toLong())
-                sensorsPublished = false
+                publishedSensorTypes.clear()
             }
         }
     }
@@ -334,7 +337,13 @@ constructor(private val context: Context){
      * class, so every numeric reading is marked as a measurement.
      */
     private fun getSensorStateClass(sensorType: Int): String? {
-        return if (isNumericSensor(sensorType)) STATE_CLASS_MEASUREMENT else null
+        return when {
+            // Uptime only ever climbs, back to zero on a reboot, which is the shape Home
+            // Assistant's long term statistics keep for a counter rather than a reading.
+            sensorType == TYPE_UPTIME -> STATE_CLASS_TOTAL_INCREASING
+            isNumericSensor(sensorType) -> STATE_CLASS_MEASUREMENT
+            else -> null
+        }
     }
 
     private fun isNumericSensor(sensorType: Int): Boolean {
@@ -378,27 +387,36 @@ constructor(private val context: Context){
 
     private val sensorListener = object : SensorEventListener {
         override fun onSensorChanged(event: SensorEvent?) {
-            if(event != null && !sensorsPublished) {
-                var data = JSONObject()
-                if(event.sensor.type == Sensor.TYPE_LIGHT) {
-                    lightSensorEvent = event
+            if (event == null) {
+                return
+            }
+            if (event.sensor.type == Sensor.TYPE_LIGHT) {
+                lightSensorEvent = event
+            }
+            // The light sensor reports only when the level moves, which can be less often
+            // than a reading cycle, so its last value rides along with whatever else fires.
+            lightSensorEvent?.let { light ->
+                if (publishedSensorTypes.add(Sensor.TYPE_LIGHT)) {
+                    publishSensorEvent(light)
                 }
-                if(lightSensorEvent != null) {
-                    data.put(VALUE, lightSensorEvent!!.values[0])
-                    data.put(UNIT, getSensorUnit(lightSensorEvent!!.sensor.type))
-                    data.put(ID, lightSensorEvent!!.sensor.name)
-                    publishSensorData(getSensorName(lightSensorEvent!!.sensor.type), data)
-                }
-                data = JSONObject()
-                data.put(VALUE, event.values[0])
-                data.put(UNIT, getSensorUnit(event.sensor.type))
-                data.put(ID, event.sensor.name)
-                publishSensorData(getSensorName(event.sensor.type), data)
-                sensorsPublished = true
+            }
+            // One reading per sensor per cycle. A single flag for all of them meant the
+            // first sensor to fire was the only one Home Assistant ever heard from, leaving
+            // the rest of the advertised entities without a state.
+            if (publishedSensorTypes.add(event.sensor.type)) {
+                publishSensorEvent(event)
             }
         }
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
         }
+    }
+
+    private fun publishSensorEvent(event: SensorEvent) {
+        val data = JSONObject()
+        data.put(VALUE, event.values[0])
+        data.put(UNIT, getSensorUnit(event.sensor.type))
+        data.put(ID, event.sensor.name)
+        publishSensorData(getSensorName(event.sensor.type), data)
     }
 
     // TODO let's move this to its own setting
@@ -468,9 +486,11 @@ constructor(private val context: Context){
             }
         } catch (e: java.io.IOException) {
             // Covers both a policy that hides the file and one that opens it but refuses
-            // the read. Neither changes while the application is running.
-            cpuUsageUnavailable = true
-            Timber.w("CPU usage unavailable on this device (cannot read $PROC_STAT): ${e.message}")
+            // the read. The file is asked again rather than the sensor being written off on
+            // one failed read: dropping it from the reading list removes the entity from
+            // Home Assistant, and its history goes with it.
+            cpuUsageUnavailable = !canReadCpuStat()
+            Timber.w("Could not read $PROC_STAT (sensor dropped: $cpuUsageUnavailable): ${e.message}")
         } catch (e: Exception) {
             Timber.e(e, "Error reading CPU usage")
         }
@@ -683,7 +703,9 @@ constructor(private val context: Context){
                 .flatMap { networkInterface ->
                     networkInterface.inetAddresses.toList()
                         .filterIsInstance<Inet4Address>()
-                        .filter { !it.isLoopbackAddress }
+                        // A link-local address is what an interface gives itself when DHCP
+                        // fails, and nothing on the network can reach it.
+                        .filter { !it.isLoopbackAddress && !it.isLinkLocalAddress }
                         .map { networkInterface to it }
                 }
                 .minByOrNull { (networkInterface, address) -> addressRank(networkInterface, address) }
@@ -704,10 +726,13 @@ constructor(private val context: Context){
         val localNetwork = networkInterface.name.orEmpty().let {
             it.startsWith("wlan") || it.startsWith("eth")
         }
+        // The interface decides before the address range does: a tunnel holding a private
+        // address is still not where the local network reaches this device, while Wi-Fi
+        // handed a carrier grade address is.
         return when {
-            address.isSiteLocalAddress && localNetwork -> 0
-            address.isSiteLocalAddress -> 1
-            localNetwork -> 2
+            localNetwork && address.isSiteLocalAddress -> 0
+            localNetwork -> 1
+            address.isSiteLocalAddress -> 2
             else -> 3
         }
     }
@@ -791,6 +816,7 @@ constructor(private val context: Context){
         const val UNIT_DBM: String = "dBm"
         const val UNIT_SECONDS: String = "s"
         const val STATE_CLASS_MEASUREMENT: String = "measurement"
+        const val STATE_CLASS_TOTAL_INCREASING: String = "total_increasing"
         const val VALUE = "value"
         const val UNIT = "unit"
         const val ID = "id"

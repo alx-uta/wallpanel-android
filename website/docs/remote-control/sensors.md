@@ -54,13 +54,11 @@ two where the app itself is denied, so it isn't a reliable stand-in for whether 
 sensor will work.
 :::
 
-:::note wifiSsid has been removed
-WallPanel used to publish a `wifiSsid` sensor. From Android 8.1 onwards the network name
-goes only to apps holding a location permission, with location services on, and WallPanel
-does not request that permission and will not -- so the sensor could never report on any
-supported device, and it has been dropped. WallPanel publishes a removal for it, so the
-old Home Assistant entity disappears on its own; you don't need to clear retained configs
-by hand. `wifiSignal` is unaffected.
+:::note There is no network name sensor
+WallPanel reports Wi-Fi signal strength but not the network name. From Android 8.1 onwards
+the name goes only to apps holding a location permission, with location services switched
+on, and WallPanel does not ask for that permission -- so the sensor would read as unknown
+on every supported device. `wifiSignal` needs no such permission and is unaffected.
 :::
 
 * Sensor values are constructed as JSON per the above table
@@ -228,6 +226,12 @@ behind. Discovery configs are retained on the broker, so an application that sim
 stopped publishing would strand them in Home Assistant as unavailable forever. Changing the
 client id or the discovery base topic likewise removes the entities published under the
 old one, and Home Assistant builds a new device under the new one.
+
+Switching **MQTT** off altogether removes the entities the same way before the application
+disconnects. That needs the broker to be reachable at the time; if it is not, the entities
+stay behind as unavailable until MQTT is switched back on. Closing or uninstalling the
+application removes nothing: the device only shows as unavailable, which is how Home
+Assistant marks a device that is temporarily offline.
 
 **Shell Command** and its **Shell Result** sensor only appear once shell commands are
 enabled in **Settings &rarr; HTTP** -- see [Shell Command](./commands.md#shell-command)

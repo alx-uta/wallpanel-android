@@ -136,11 +136,9 @@ class SensorReaderTest {
     }
 
     /**
-     * The network name was dropped: from Android 8.1 the platform hands it out only to
+     * The network name is left out: from Android 8.1 the platform hands it out only to
      * applications holding a location permission, and a kiosk browser asking for one to
-     * label a sensor is a worse trade than going without. Home Assistant is told to remove
-     * the entity through DiscoveryCatalog.RETIRED_SENSOR_IDS, so nothing here may start
-     * reporting it again.
+     * label a sensor is a worse trade than going without.
      */
     @Test
     fun `the wifi network name is not reported`() {

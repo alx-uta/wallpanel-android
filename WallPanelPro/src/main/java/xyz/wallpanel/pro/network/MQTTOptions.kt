@@ -37,19 +37,27 @@ constructor(private val configuration: Configuration) {
             }
         } else ""
 
+    /**
+     * Set on a client opened only to take the device out of Home Assistant after MQTT was
+     * switched off, which has to reach the broker with the switch already off.
+     */
+    var connectWhileDisabled: Boolean = false
+
     val isValid: Boolean
+        get() = isConfigured && (configuration.mqttEnabled || connectWhileDisabled)
+
+    /** Whether there is enough to reach a broker with, whether or not MQTT is switched on. */
+    val isConfigured: Boolean
         get() = if (getTlsConnection()) {
             !TextUtils.isEmpty(getBroker()) &&
                     !TextUtils.isEmpty(getClientId()) &&
                     !TextUtils.isEmpty(getBaseTopic()) &&
                     !TextUtils.isEmpty(getUsername()) &&
                     !TextUtils.isEmpty(getStateTopic()) &&
-                    !TextUtils.isEmpty(getPassword()) &&
-                    configuration.mqttEnabled
+                    !TextUtils.isEmpty(getPassword())
         } else !TextUtils.isEmpty(getBroker()) &&
                 !TextUtils.isEmpty(getStateTopic()) &&
-                !TextUtils.isEmpty(getClientId()) &&
-                configuration.mqttEnabled
+                !TextUtils.isEmpty(getClientId())
 
     fun getVersion(): String {
         return configuration.mqttVersion
@@ -59,8 +67,16 @@ constructor(private val configuration: Configuration) {
         return configuration.mqttBroker
     }
 
+    /**
+     * Set on the client the settings screen opens to test a connection. It connects under
+     * its own client id, since a broker drops whichever connection held an id when another
+     * arrives with it, and that would be the device's own.
+     */
+    var connectionTest: Boolean = false
+
     fun getClientId(): String {
-        return configuration.mqttClientId
+        val clientId = configuration.mqttClientId
+        return if (connectionTest && clientId.isNotEmpty()) "${clientId}_test" else clientId
     }
 
     fun getBaseTopic(): String {
