@@ -266,11 +266,26 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         }
     }
 
-    private val inactivityCallback = Runnable {
-        dialogUtils.clearDialogs()
-        userPresent = false
-        showScreenSaver()
+    private val inactivityCallback = object : Runnable {
+        override fun run() {
+            if (!canShowScreenSaver()) {
+                // Nothing to cover yet, so wait out another idle period rather than drop the
+                // screensaver for the rest of this session
+                inactivityHandler.postDelayed(this, configuration.inactivityTime)
+                return
+            }
+            dialogUtils.clearDialogs()
+            userPresent = false
+            showScreenSaver()
+        }
     }
+
+    /**
+     * Whether the screensaver may come up. It may not while the browser is still waiting to
+     * open the dashboard: a clock screensaver over that reads whatever wrong time the device
+     * booted with, which looks like a fault rather than a wait.
+     */
+    protected open fun canShowScreenSaver(): Boolean = true
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
@@ -304,7 +319,7 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         complete()
     }
 
-    private fun resetInactivityTimer() {
+    protected fun resetInactivityTimer() {
         hideScreenSaver()
         inactivityHandler.removeCallbacks(inactivityCallback)
         inactivityHandler.postDelayed(inactivityCallback, configuration.inactivityTime)

@@ -29,12 +29,14 @@ import java.util.Locale
  * which on some devices sits at 1970 for minutes until the network is up. Home Assistant
  * reads its saved tokens against that clock, finds them expired, discards them and shows
  * the login page. So close to boot the first load waits until the clock is believable and
- * a network connection has stayed up for [NETWORK_STABLE_MS]. Waiting for the clock is not
- * on a timer, since loading with a 1970 clock is exactly the failure this avoids, and the
- * wait ends by itself once the network brings the time. It does give up after
- * [CLOCK_WAIT_LIMIT_MS] of unbroken network, by which point Android has had every chance to
- * set the clock and the bound itself is the more likely thing to be wrong. A kiosk showing a
- * login page beats one showing a spinner for good.
+ * a network connection has stayed up for [NETWORK_STABLE_MS].
+ *
+ * The wait is capped twice over, because a kiosk showing a login page beats one showing a
+ * spinner for good. With no network at all there is nothing to wait for, since the dashboard
+ * cannot load either way, so it gives up after [OFFLINE_WAIT_LIMIT_MS] and lets the failed
+ * load report itself. With the network up it allows [CLOCK_WAIT_LIMIT_MS] for the clock,
+ * longer because that is the case worth waiting out: a device reported taking two minutes to
+ * leave 1970 behind. Past that the bound itself is the more likely thing to be wrong.
  *
  * Only a connection is required, not a validated one, so a Home Assistant reachable only
  * on the local network still counts.
@@ -53,6 +55,11 @@ class BootReadinessGate(
 ) {
 
     private var connectedSince: Long? = null
+    private var waitingSince: Long? = null
+
+    /** Whether the wait ended on a cap rather than on the device becoming ready */
+    var gaveUp: Boolean = false
+        private set
 
     /**
      * Whether a launch now has to wait. Outside [BOOT_WINDOW_MS] the clock has had ample
@@ -75,11 +82,21 @@ class BootReadinessGate(
         } else {
             connectedSince = null
         }
-        val connectedFor = connectedSince?.let { now - it } ?: return false
-        if (connectedFor < NETWORK_STABLE_MS) {
-            return false
+        val waitedFor = now - (waitingSince ?: now.also { waitingSince = it })
+        val connectedFor = connectedSince?.let { now - it }
+
+        if (connectedFor != null && connectedFor >= NETWORK_STABLE_MS && isClockValid()) {
+            return true
         }
-        return isClockValid() || connectedFor >= CLOCK_WAIT_LIMIT_MS
+        if (connectedFor == null && waitedFor >= OFFLINE_WAIT_LIMIT_MS) {
+            gaveUp = true
+            return true
+        }
+        if (waitedFor >= CLOCK_WAIT_LIMIT_MS) {
+            gaveUp = true
+            return true
+        }
+        return false
     }
 
     fun isClockValid(): Boolean = wallClock() >= earliestValidTime
@@ -112,13 +129,19 @@ class BootReadinessGate(
         const val NETWORK_STABLE_MS = 5000L
 
         /**
-         * How long to wait for the clock, with the network up the whole time, before loading
-         * anyway. A clock that is merely late is set within a couple of minutes of the
-         * network arriving; one that is still wrong after this is more likely to mean a
-         * bound that cannot be met, such as an application installed while the clock was
-         * running ahead.
+         * How long to wait with no network before loading anyway. Nothing about the dashboard
+         * can work without one, so waiting longer only replaces the browser's own error page
+         * with a spinner.
          */
-        const val CLOCK_WAIT_LIMIT_MS = 10 * 60 * 1000L
+        const val OFFLINE_WAIT_LIMIT_MS = 60 * 1000L
+
+        /**
+         * How long to wait in total for the clock. A clock that is merely late is set within
+         * a couple of minutes of the network arriving; one still wrong after this is more
+         * likely to mean a bound that cannot be met, such as an application installed while
+         * the clock was running ahead.
+         */
+        const val CLOCK_WAIT_LIMIT_MS = 5 * 60 * 1000L
 
         /**
          * The earliest time the clock can honestly read: when this application was installed

@@ -98,16 +98,18 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
                 reconnectionHandler.postDelayed(this, BOOT_GATE_POLL_MS)
                 return
             }
-            if (gate.isClockValid()) {
-                Timber.i("Device ready (%s), loading the dashboard", gate.describe())
-            } else {
+            if (gate.gaveUp) {
                 Timber.w(
-                    "Loading the dashboard although the clock still looks unset (%s), Home Assistant may ask to log in",
+                    "Waited long enough (%s), loading the dashboard anyway, Home Assistant may ask to log in",
                     gate.describe()
                 )
+            } else {
+                Timber.i("Device ready (%s), loading the dashboard", gate.describe())
             }
             bootGate = null
             binding.bootWaitText.visibility = View.GONE
+            // The screensaver was held off while the gate waited, so start that clock again
+            resetInactivityTimer()
             val deferredUrl = urlDeferredByBootGate
             urlDeferredByBootGate = null
             if (deferredUrl == null) {
@@ -750,6 +752,8 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         binding.bootWaitText.visibility = View.VISIBLE
         reconnectionHandler.postDelayed(bootGateRunnable, BOOT_GATE_POLL_MS)
     }
+
+    override fun canShowScreenSaver(): Boolean = bootGate == null
 
     @Suppress("DEPRECATION")
     private fun isNetworkConnected(): Boolean {

@@ -22,6 +22,7 @@ import org.junit.Test
 import xyz.wallpanel.pro.utils.BootReadinessGate.Companion.BOOT_WINDOW_MS
 import xyz.wallpanel.pro.utils.BootReadinessGate.Companion.CLOCK_WAIT_LIMIT_MS
 import xyz.wallpanel.pro.utils.BootReadinessGate.Companion.NETWORK_STABLE_MS
+import xyz.wallpanel.pro.utils.BootReadinessGate.Companion.OFFLINE_WAIT_LIMIT_MS
 
 class BootReadinessGateTest {
 
@@ -57,18 +58,19 @@ class BootReadinessGateTest {
     }
 
     @Test
-    fun waitsForTheClockWhileTheNetworkHasNotBeenUpLong() {
+    fun waitsForTheClockWhileThereIsTimeLeft() {
         connected = true
-        repeat(500) {
+        repeat(250) {
             assertFalse(gate.isReady())
             advance(1000)
         }
         wallClock = setClock
         assertTrue(gate.isReady())
+        assertFalse(gate.gaveUp)
     }
 
     @Test
-    fun givesUpOnTheClockAfterTheNetworkHasBeenUpLongEnough() {
+    fun givesUpOnTheClockAfterTheLimit() {
         connected = true
         assertFalse(gate.isReady())
         advance(CLOCK_WAIT_LIMIT_MS - 1)
@@ -76,24 +78,55 @@ class BootReadinessGateTest {
         advance(1)
         assertTrue(gate.isReady()) // clock still reads 1970
         assertFalse(gate.isClockValid())
+        assertTrue(gate.gaveUp)
     }
 
     @Test
-    fun losingTheNetworkRestartsTheWaitForTheClock() {
-        connected = true
+    fun givesUpSoonerWhenThereIsNoNetworkAtAll() {
+        wallClock = setClock
         assertFalse(gate.isReady())
-        advance(CLOCK_WAIT_LIMIT_MS - 1000)
+        advance(OFFLINE_WAIT_LIMIT_MS - 1)
+        assertFalse(gate.isReady())
+        advance(1)
+        assertTrue(gate.isReady())
+        assertTrue(gate.gaveUp)
+    }
+
+    @Test
+    fun aNetworkThatArrivesInTimeKeepsTheLongerClockWait() {
+        assertFalse(gate.isReady())
+        advance(OFFLINE_WAIT_LIMIT_MS - 1000)
+        connected = true
         assertFalse(gate.isReady())
 
-        // The drop puts the whole wait back to the start, not just the last second of it
-        connected = false
+        // Past the offline limit, but the network is up now, so the clock still has its time
+        advance(2000)
         assertFalse(gate.isReady())
+        assertFalse(gate.gaveUp)
+
+        wallClock = setClock
+        advance(NETWORK_STABLE_MS)
+        assertTrue(gate.isReady())
+        assertFalse(gate.gaveUp)
+    }
+
+    @Test
+    fun aDroppedConnectionHasToSettleAgainBeforeTheClockCounts() {
+        wallClock = setClock
         connected = true
         assertFalse(gate.isReady())
-        advance(CLOCK_WAIT_LIMIT_MS - 1000)
+        advance(NETWORK_STABLE_MS - 1)
         assertFalse(gate.isReady())
-        advance(1000)
+
+        connected = false
+        advance(1)
+        assertFalse(gate.isReady())
+
+        connected = true
+        assertFalse(gate.isReady())
+        advance(NETWORK_STABLE_MS)
         assertTrue(gate.isReady())
+        assertFalse(gate.gaveUp)
     }
 
     @Test
