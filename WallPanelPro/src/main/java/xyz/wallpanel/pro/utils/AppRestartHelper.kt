@@ -69,15 +69,25 @@ object AppRestartHelper {
     @JvmOverloads
     fun restartApplication(context: Context, exitDelayMillis: Long = 0L) {
         Timber.i("Restarting the application")
-        val appContext = context.applicationContext
-        val pendingIntent = createRelaunchPendingIntent(appContext)
-        postRestartNotification(appContext, pendingIntent)
-        scheduleRelaunchAlarm(appContext, pendingIntent)
+        relaunchBrowser(context)
         if (exitDelayMillis > 0) {
             Handler(Looper.getMainLooper()).postDelayed({ exitProcess(2) }, exitDelayMillis)
         } else {
             exitProcess(2)
         }
+    }
+
+    /**
+     * Books the browser to come back without ending the calling process. For callers whose
+     * browser process has already gone, such as the GeckoView crash handler, which runs in a
+     * process of its own.
+     */
+    @JvmStatic
+    fun relaunchBrowser(context: Context) {
+        val appContext = context.applicationContext
+        val pendingIntent = createRelaunchPendingIntent(appContext)
+        postRestartNotification(appContext, pendingIntent)
+        scheduleRelaunchAlarm(appContext, pendingIntent)
     }
 
     /**

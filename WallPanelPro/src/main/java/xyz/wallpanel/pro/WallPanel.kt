@@ -18,17 +18,22 @@ package xyz.wallpanel.pro
 
 import android.R.attr
 import android.content.ComponentCallbacks2
+import android.content.ComponentName
 import android.content.Context
+import android.content.Intent
 import android.content.SharedPreferences
+import android.os.Build
 import android.os.Process.myPid
 import android.os.StrictMode
 import android.os.StrictMode.ThreadPolicy
 import android.os.StrictMode.VmPolicy
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.multidex.MultiDex
 import androidx.preference.PreferenceManager
 import dagger.android.AndroidInjector
 import dagger.android.support.DaggerApplication
+import org.mozilla.geckoview.GeckoRuntime
 import timber.log.Timber
 import xyz.wallpanel.pro.di.DaggerApplicationComponent
 import xyz.wallpanel.pro.utils.CrashlyticsDebugTree
@@ -84,6 +89,26 @@ class WallPanel : DaggerApplication() {
                     .penaltyLog()
                     .build()
             )
+        }
+    }
+
+    /**
+     * GeckoView hands a crash report to [GeckoCrashHandlerService] with
+     * startForegroundService() on the application context, on the main thread, and does not
+     * catch the refusal Android 12 and above give an application that is in the background.
+     * Uncaught, that refusal would take down the browser while it is recovering from the crash.
+     * Losing the report is harmless, since the browser's recovery does not depend on it.
+     */
+    @RequiresApi(Build.VERSION_CODES.O)
+    override fun startForegroundService(service: Intent): ComponentName? {
+        return try {
+            super.startForegroundService(service)
+        } catch (e: IllegalStateException) {
+            if (service.action != GeckoRuntime.ACTION_CRASHED) {
+                throw e
+            }
+            Timber.w(e, "Unable to start the GeckoView crash handler")
+            null
         }
     }
 

@@ -40,7 +40,7 @@
                     android:layout_height="144dp"
                     android:src="@mipmap/ic_launcher"/>
 
-            <androidx.legacy.widget.Space
+            <Space
                     android:layout_width="match_parent"
                     android:layout_height="16dp"/>
 

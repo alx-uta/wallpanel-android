@@ -23,6 +23,7 @@ import org.mozilla.geckoview.GeckoRuntimeSettings
 import org.mozilla.geckoview.GeckoSession
 import org.mozilla.geckoview.GeckoView
 import timber.log.Timber
+import xyz.wallpanel.pro.GeckoCrashHandlerService
 
 /**
  * Wrapper for GeckoView that provides a similar interface to WebView
@@ -70,6 +71,10 @@ class GeckoViewWrapper(
                 // About:config settings for better performance
                 builder.aboutConfigEnabled(true)
                 
+                // Switches on Gecko's native crash reporter, so a crashed content process
+                // is not reported to Android as an application crash, see the service
+                builder.crashHandler(GeckoCrashHandlerService::class.java)
+
                 runtime = GeckoRuntime.create(context.applicationContext, builder.build())
             }
         }

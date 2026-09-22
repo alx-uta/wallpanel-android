@@ -24,7 +24,7 @@ plugins {
 
 def versionMajor = 1
 def versionMinor = 1
-def versionPatch = 8
+def versionPatch = 9
 def versionBuild = 0 // bump for dog food builds, public betas, etc.
 
 // HA/MQTT test credentials for dev-flavor builds live in local.testconfig.properties
@@ -52,8 +52,8 @@ android {
         }
     }
     namespace 'xyz.wallpanel.pro'
-    compileSdkVersion 35
-    buildToolsVersion "35.0.0"
+    compileSdkVersion 36
+    buildToolsVersion "36.0.0"
     defaultConfig {
         applicationId "xyz.wallpanel.pro"
         minSdkVersion 21
@@ -225,10 +225,11 @@ dependencies {
     implementation 'com.github.bumptech.glide:glide:4.12.0'
     kapt 'com.github.bumptech.glide:compiler:4.12.0'
 
-    // GeckoView - Mozilla browser engine for modern web features
-    // Using newer nightly build (134.+) with preferredColorScheme API support
-    // Still supports Android 5.0+ (minSdk 21) including Android 8.1
-    implementation "org.mozilla.geckoview:geckoview-nightly:134.+"
+    // GeckoView - Mozilla browser engine for modern web features.
+    // 144 is the last release that supports Android 5.0+ (minSdk 21): from 145 GeckoView
+    // requires Android 8.0, and from 146 its native library no longer loads below it.
+    // Pinned to an exact build, since release artifacts stay on Mozilla's Maven for good.
+    implementation "org.mozilla.geckoview:geckoview:144.0.20251027123126"
 
     // debugImplementation because LeakCanary should only run in debug builds.
     debugImplementation 'com.squareup.leakcanary:leakcanary-android:2.9.1'

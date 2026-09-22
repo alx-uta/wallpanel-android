@@ -104,6 +104,16 @@
             android:exported="false"
             android:stopWithTask="true" />
 
+        <!--
+          GeckoView's native crash reports land here. Gecko insists on a separate process, so
+          the handler outlives the process that crashed.
+        -->
+        <service
+            android:name="xyz.wallpanel.pro.GeckoCrashHandlerService"
+            android:enabled="true"
+            android:exported="false"
+            android:process=":crash" />
+
         <receiver
             android:name="xyz.wallpanel.pro.BootUpReceiver"
             android:enabled="true"

@@ -34,13 +34,13 @@ RUN mkdir -p "${ANDROID_HOME}/cmdline-tools" \
 
 ENV PATH="${PATH}:${ANDROID_HOME}/cmdline-tools/latest/bin:${ANDROID_HOME}/platform-tools"
 
-# compileSdk 35 / buildTools 35.0.0 come from WallPanelPro/build.gradle.
+# compileSdk 36 / buildTools 36.0.0 come from WallPanelPro/build.gradle.
 # platform-tools provides adb, which runs its own server in this container and connects
 # to the network devices over TCP (see tools/android/connect-devices.sh).
 RUN yes | sdkmanager --licenses > /dev/null \
     && sdkmanager --install \
         "platform-tools" \
-        "platforms;android-35" \
-        "build-tools;35.0.0" > /dev/null
+        "platforms;android-36" \
+        "build-tools;36.0.0" > /dev/null
 
 WORKDIR /project
