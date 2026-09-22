@@ -98,7 +98,14 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
                 reconnectionHandler.postDelayed(this, BOOT_GATE_POLL_MS)
                 return
             }
-            Timber.i("Device ready (%s), loading the dashboard", gate.describe())
+            if (gate.isClockValid()) {
+                Timber.i("Device ready (%s), loading the dashboard", gate.describe())
+            } else {
+                Timber.w(
+                    "Loading the dashboard although the clock still looks unset (%s), Home Assistant may ask to log in",
+                    gate.describe()
+                )
+            }
             bootGate = null
             binding.bootWaitText.visibility = View.GONE
             val deferredUrl = urlDeferredByBootGate
@@ -730,7 +737,8 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         val gate = BootReadinessGate(
             System::currentTimeMillis,
             SystemClock::elapsedRealtime,
-            ::isNetworkConnected
+            ::isNetworkConnected,
+            BootReadinessGate.earliestValidTimeOf(this)
         )
         if (!gate.appliesTo(configuration.appLaunchUrl)) {
             initWebPageLoad()

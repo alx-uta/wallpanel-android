@@ -16,6 +16,10 @@
 
 package xyz.wallpanel.pro.utils
 
+import android.content.Context
+import android.content.pm.PackageManager
+import android.os.Build
+import timber.log.Timber
 import java.util.Locale
 
 /**
@@ -24,10 +28,13 @@ import java.util.Locale
  * A tablet that starts WallPanel on boot can get there before Android has set its clock,
  * which on some devices sits at 1970 for minutes until the network is up. Home Assistant
  * reads its saved tokens against that clock, finds them expired, discards them and shows
- * the login page. So close to boot the first load waits until the clock is past
- * [EARLIEST_VALID_TIME_MS] and a network connection has stayed up for
- * [NETWORK_STABLE_MS]. There is no timeout: loading with a 1970 clock is exactly the failure
- * this avoids, and the wait ends by itself once the network brings the time.
+ * the login page. So close to boot the first load waits until the clock is believable and
+ * a network connection has stayed up for [NETWORK_STABLE_MS]. Waiting for the clock is not
+ * on a timer, since loading with a 1970 clock is exactly the failure this avoids, and the
+ * wait ends by itself once the network brings the time. It does give up after
+ * [CLOCK_WAIT_LIMIT_MS] of unbroken network, by which point Android has had every chance to
+ * set the clock and the bound itself is the more likely thing to be wrong. A kiosk showing a
+ * login page beats one showing a spinner for good.
  *
  * Only a connection is required, not a validated one, so a Home Assistant reachable only
  * on the local network still counts.
@@ -35,11 +42,14 @@ import java.util.Locale
  * @param wallClock the wall clock, System.currentTimeMillis in the application
  * @param uptime time since boot, SystemClock.elapsedRealtime in the application
  * @param networkConnected whether a network connection is currently up
+ * @param earliestValidTime the clock cannot legitimately read earlier than this, see
+ * [earliestValidTimeOf]
  */
 class BootReadinessGate(
     private val wallClock: () -> Long,
     private val uptime: () -> Long,
-    private val networkConnected: () -> Boolean
+    private val networkConnected: () -> Boolean,
+    private val earliestValidTime: Long
 ) {
 
     private var connectedSince: Long? = null
@@ -65,11 +75,14 @@ class BootReadinessGate(
         } else {
             connectedSince = null
         }
-        val since = connectedSince
-        return isClockValid() && since != null && now - since >= NETWORK_STABLE_MS
+        val connectedFor = connectedSince?.let { now - it } ?: return false
+        if (connectedFor < NETWORK_STABLE_MS) {
+            return false
+        }
+        return isClockValid() || connectedFor >= CLOCK_WAIT_LIMIT_MS
     }
 
-    fun isClockValid(): Boolean = wallClock() >= EARLIEST_VALID_TIME_MS
+    fun isClockValid(): Boolean = wallClock() >= earliestValidTime
 
     /**
      * What is still missing, for the log.
@@ -81,7 +94,7 @@ class BootReadinessGate(
             Locale.US,
             "%d s after boot, clock %s, network %s",
             uptime() / 1000,
-            if (isClockValid()) "set" else "not set (${wallClock()})",
+            if (isClockValid()) "set" else "not set (${wallClock()}, before ${earliestValidTime})",
             network
         )
     }
@@ -99,9 +112,34 @@ class BootReadinessGate(
         const val NETWORK_STABLE_MS = 5000L
 
         /**
-         * 2025-01-01T00:00:00Z, before this code was written, so a clock reading earlier
-         * than this has not been set since boot.
+         * How long to wait for the clock, with the network up the whole time, before loading
+         * anyway. A clock that is merely late is set within a couple of minutes of the
+         * network arriving; one that is still wrong after this is more likely to mean a
+         * bound that cannot be met, such as an application installed while the clock was
+         * running ahead.
          */
-        const val EARLIEST_VALID_TIME_MS = 1735689600000L
+        const val CLOCK_WAIT_LIMIT_MS = 10 * 60 * 1000L
+
+        /**
+         * The earliest time the clock can honestly read: when this application was installed
+         * or last updated, which Android records for every package. It needs no maintenance
+         * and tightens with each update the user installs, unlike a date written into the
+         * source. Where that is missing, the date the system image was built is a weaker
+         * bound, and a device with neither is left with the network check alone.
+         *
+         * A device whose clock was already wrong when the application was installed carries
+         * that wrong time as its bound, which only makes the check weaker, never stricter:
+         * the wait still ends.
+         */
+        @JvmStatic
+        fun earliestValidTimeOf(context: Context): Long {
+            val installed = try {
+                context.packageManager.getPackageInfo(context.packageName, 0).lastUpdateTime
+            } catch (e: PackageManager.NameNotFoundException) {
+                Timber.e(e, "Unable to read the install time")
+                0L
+            }
+            return if (installed > 0L) installed else Build.TIME
+        }
     }
 }

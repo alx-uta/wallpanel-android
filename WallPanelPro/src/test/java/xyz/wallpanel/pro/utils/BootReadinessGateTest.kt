@@ -20,12 +20,13 @@ import org.junit.Assert.assertFalse
 import org.junit.Assert.assertTrue
 import org.junit.Test
 import xyz.wallpanel.pro.utils.BootReadinessGate.Companion.BOOT_WINDOW_MS
-import xyz.wallpanel.pro.utils.BootReadinessGate.Companion.EARLIEST_VALID_TIME_MS
+import xyz.wallpanel.pro.utils.BootReadinessGate.Companion.CLOCK_WAIT_LIMIT_MS
 import xyz.wallpanel.pro.utils.BootReadinessGate.Companion.NETWORK_STABLE_MS
 
 class BootReadinessGateTest {
 
     private val dashboard = "http://192.168.1.10:8123/lovelace/0"
+    private val installed = 1780000000000L // May 2026, when the application was installed
     private val setClock = 1790000000000L // September 2026
     private val unsetClock = 30000L // 1970, as seen after a reboot
 
@@ -33,7 +34,7 @@ class BootReadinessGateTest {
     private var uptime = 20_000L
     private var connected = false
 
-    private val gate = BootReadinessGate({ wallClock }, { uptime }, { connected })
+    private val gate = BootReadinessGate({ wallClock }, { uptime }, { connected }, installed)
 
     private fun advance(millis: Long) {
         uptime += millis
@@ -56,13 +57,42 @@ class BootReadinessGateTest {
     }
 
     @Test
-    fun waitsForTheClockHoweverLongTheNetworkIsUp() {
+    fun waitsForTheClockWhileTheNetworkHasNotBeenUpLong() {
         connected = true
-        repeat(600) {
+        repeat(500) {
             assertFalse(gate.isReady())
             advance(1000)
         }
         wallClock = setClock
+        assertTrue(gate.isReady())
+    }
+
+    @Test
+    fun givesUpOnTheClockAfterTheNetworkHasBeenUpLongEnough() {
+        connected = true
+        assertFalse(gate.isReady())
+        advance(CLOCK_WAIT_LIMIT_MS - 1)
+        assertFalse(gate.isReady())
+        advance(1)
+        assertTrue(gate.isReady()) // clock still reads 1970
+        assertFalse(gate.isClockValid())
+    }
+
+    @Test
+    fun losingTheNetworkRestartsTheWaitForTheClock() {
+        connected = true
+        assertFalse(gate.isReady())
+        advance(CLOCK_WAIT_LIMIT_MS - 1000)
+        assertFalse(gate.isReady())
+
+        // The drop puts the whole wait back to the start, not just the last second of it
+        connected = false
+        assertFalse(gate.isReady())
+        connected = true
+        assertFalse(gate.isReady())
+        advance(CLOCK_WAIT_LIMIT_MS - 1000)
+        assertFalse(gate.isReady())
+        advance(1000)
         assertTrue(gate.isReady())
     }
 
@@ -89,10 +119,10 @@ class BootReadinessGateTest {
     }
 
     @Test
-    fun treatsTheClockAsSetFromTheCutoff() {
-        wallClock = EARLIEST_VALID_TIME_MS - 1
+    fun treatsAClockReadingBeforeTheApplicationWasInstalledAsUnset() {
+        wallClock = installed - 1
         assertFalse(gate.isClockValid())
-        wallClock = EARLIEST_VALID_TIME_MS
+        wallClock = installed
         assertTrue(gate.isClockValid())
     }
 }
