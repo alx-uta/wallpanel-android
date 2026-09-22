@@ -18,12 +18,15 @@ package xyz.wallpanel.pro.ui.activities
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.content.Context
 import android.content.Intent
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
+import android.net.ConnectivityManager
 import android.provider.Browser
 import android.view.*
 import android.webkit.*
@@ -40,6 +43,7 @@ import xyz.wallpanel.pro.databinding.ActivityBrowserBinding
 import xyz.wallpanel.pro.network.ConnectionLiveData
 import xyz.wallpanel.pro.ui.fragments.CodeBottomSheetFragment
 import xyz.wallpanel.pro.utils.AppRestartHelper
+import xyz.wallpanel.pro.utils.BootReadinessGate
 import xyz.wallpanel.pro.utils.InternalWebChromeClient
 import xyz.wallpanel.pro.ui.views.WebClientCallback
 import xyz.wallpanel.pro.utils.InternalWebClient
@@ -77,6 +81,35 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
 
     private val reloadPageRunnable = Runnable {
         initWebPageLoad()
+    }
+
+    // Set while the first load after a reboot waits for the clock and the network
+    private var bootGate: BootReadinessGate? = null
+    // A URL sent by command during that wait, loaded in place of the launch URL afterwards
+    private var urlDeferredByBootGate: String? = null
+
+    private val bootGateRunnable = object : Runnable {
+        override fun run() {
+            val gate = bootGate ?: return
+            if (isFinishing) {
+                return
+            }
+            if (!gate.isReady()) {
+                reconnectionHandler.postDelayed(this, BOOT_GATE_POLL_MS)
+                return
+            }
+            Timber.i("Device ready (%s), loading the dashboard", gate.describe())
+            bootGate = null
+            binding.bootWaitText.visibility = View.GONE
+            val deferredUrl = urlDeferredByBootGate
+            urlDeferredByBootGate = null
+            if (deferredUrl == null) {
+                initWebPageLoad()
+            } else {
+                prepareWebPageLoad()
+                loadWebViewUrl(deferredUrl)
+            }
+        }
     }
 
     // Android kills a cached GeckoView content process for excessive background CPU after
@@ -150,7 +183,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
 
         configureConnection()
         configureWebView(binding.root)
-        initWebPageLoad()
+        loadWhenDeviceReady()
         requestNotificationPermissions()
     }
 
@@ -254,6 +287,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
 
     override fun onDestroy() {
         super.onDestroy()
+        reconnectionHandler.removeCallbacks(bootGateRunnable)
         codeBottomSheet?.dismiss()
     }
 
@@ -342,6 +376,9 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
             val context = if (usingGeckoView) binding.activityBrowserGeckoview.context else webView?.context
             launchIntent.putExtra(Browser.EXTRA_APPLICATION_ID, context?.packageName)
             context?.startActivity(launchIntent)
+        } else if (bootGate != null) {
+            Timber.i("Holding $url until the device is ready")
+            urlDeferredByBootGate = url
         } else {
             if (usingGeckoView) {
                 geckoViewWrapper?.loadUrl(url)
@@ -655,6 +692,21 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     }
 
     private fun initWebPageLoad() {
+        if (bootGate != null) {
+            // The gate loads the page itself once it opens
+            complete()
+            return
+        }
+        prepareWebPageLoad()
+        // check if we are using playlist
+        if (configuration.appLaunchUrl.lines().size == 1) {
+            loadWebViewUrl(configuration.appLaunchUrl)
+        } else {
+            startPlaylist()
+        }
+    }
+
+    private fun prepareWebPageLoad() {
         binding.progressView.visibility = View.GONE
         if (usingGeckoView) {
             binding.activityBrowserGeckoview.visibility = View.VISIBLE
@@ -668,12 +720,33 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
             val zoomPercent = (zoomLevel * 100).toInt()
             webView?.setInitialScale(zoomPercent)
         }
-        // check if we are using playlist
-        if (configuration.appLaunchUrl.lines().size == 1) {
-            loadWebViewUrl(configuration.appLaunchUrl)
-        } else {
-            startPlaylist()
+    }
+
+    /**
+     * Load the dashboard, or right after a reboot hold it back until the clock is set and
+     * the network is up, see [BootReadinessGate].
+     */
+    private fun loadWhenDeviceReady() {
+        val gate = BootReadinessGate(
+            System::currentTimeMillis,
+            SystemClock::elapsedRealtime,
+            ::isNetworkConnected
+        )
+        if (!gate.appliesTo(configuration.appLaunchUrl)) {
+            initWebPageLoad()
+            return
         }
+        bootGate = gate
+        gate.isReady() // starts timing the connection, if there is one
+        Timber.i("Waiting for the device to be ready before loading the dashboard (%s)", gate.describe())
+        binding.bootWaitText.visibility = View.VISIBLE
+        reconnectionHandler.postDelayed(bootGateRunnable, BOOT_GATE_POLL_MS)
+    }
+
+    @Suppress("DEPRECATION")
+    private fun isNetworkConnected(): Boolean {
+        val connectivityManager = getSystemService(Context.CONNECTIVITY_SERVICE) as? ConnectivityManager
+        return connectivityManager?.activeNetworkInfo?.isConnected == true
     }
 
     private fun startPlaylist() {
@@ -756,5 +829,6 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
 
     companion object {
         const val PERMISSIONS_REQUEST_NOTIFICATIONS = 220
+        private const val BOOT_GATE_POLL_MS = 1000L
     }
 }

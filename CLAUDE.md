@@ -19,13 +19,8 @@ The `android` image carries `python3` alongside the JDK and SDK, because the scr
 need it also need `adb` -- driving the UI by parsing `uiautomator dump`, for instance. It
 is not a separate service for that reason. `node` has no Python.
 
-Two things that will bite you:
-
-- Invoke the wrapper as `./gradlew`, **not** `sh gradlew`. The script is bash-specific
-  (bash arrays, `function` keyword); `/bin/sh` in the container is dash and fails at
-  line 154.
-- `gradlew` must keep LF endings. [.gitattributes](.gitattributes) enforces this.
-  With CRLF it dies as `gradlew: 2: : not found`.
+`gradlew` must keep LF endings. [.gitattributes](.gitattributes) enforces this. With CRLF
+it dies as `gradlew: 2: : not found`.
 
 The container mounts [tools/android/container.local.properties](tools/android/container.local.properties)
 over `local.properties`, because Gradle prefers `sdk.dir` there over `ANDROID_HOME`.
@@ -93,12 +88,18 @@ the device talk out loud, the other switches on a camera in somebody's house.
 
 | | |
 |---|---|
-| AGP | 8.2.2 |
-| Gradle | 8.5 (wrapper) |
-| Kotlin | 1.9.22, kapt |
+| AGP | 8.10.1 |
+| Gradle | 8.11.1 (wrapper) |
+| Kotlin | 2.2.21, kapt |
 | JDK | 17 (container), bytecode target 17 |
-| compileSdk / buildTools | 35 / 35.0.0 |
+| compileSdk / buildTools | 36 / 36.0.0 |
 | minSdk / targetSdk | 21 / 33 |
+| GeckoView | 144.0.20251027123126 (release channel) |
+
+The toolchain floor is set by GeckoView. 144 pulls in AndroidX Core 1.17 (compileSdk 36,
+AGP 8.9.1+) and the Kotlin 2.2 stdlib (a Kotlin 2.2 compiler, and Dagger 2.57+ so kapt can
+read its metadata). AGP is 8.10 rather than 8.9 because the D8 in 8.9 predates Kotlin 2.2
+metadata and warns on every stdlib class.
 
 Three flavors: `dev` (reads credentials from `local.testconfig.properties`), `qa`, `prod`
 (hard-coded defaults). Use **prod** for routine verification — it needs no local config.
@@ -176,7 +177,8 @@ problem the change does not touch belongs in a note at the end rather than the f
 
 ## Known debt
 
-- The `gradlew` wrapper script is bash-specific and should be regenerated with
-  `gradle wrapper --gradle-version 8.5`.
-- `geckoview-nightly:134.+` is a dynamic version against Mozilla's nightly repo, which
-  prunes old builds. It resolves today; it will eventually stop resolving.
+- GeckoView is pinned to 144, the last release that runs below Android 8. 145 declares
+  minSdk 26, and from 146 `libxul.so` links symbols that only exist on Android 8.0+, so it
+  fails to load on older devices. 144 receives no further security fixes. The plan is to
+  split the build into a `legacy` flavor (minSdk 21, GeckoView 144) and a `current` one
+  (minSdk 26, current GeckoView). The current one needs AGP 9.1+ and compileSdk 37.

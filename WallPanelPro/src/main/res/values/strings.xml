@@ -198,6 +198,9 @@
     <string name="text_android_channel_description">WallPanel Pro Running…</string>
     <string name="text_restart_channel_name">WallPanel Pro Restarting</string>
     <string name="text_restart_channel_description">Reopens the dashboard after the application restarts.</string>
+    <string name="gecko_crash_notification_title">WallPanel Pro</string>
+    <string name="gecko_crash_notification_message">Recovering the browser…</string>
+    <string name="text_boot_waiting">Waiting for the network and the clock…</string>
     <string name="text_restart_notification_title">WallPanel Pro Restarting</string>
     <string name="text_restart_notification_message">Tap to reopen the dashboard.</string>
     <string name="text_camera_front">Front</string>
