@@ -61,6 +61,8 @@
     <string name="title_setting_http_port">HTTP Listening Port</string>
     <string name="title_setting_http_mjpegenabled">MJPEG Camera Streaming</string>
     <string name="title_setting_http_mjpegmaxstreams">MJPEG Camera Max Streams</string>
+    <string name="title_setting_http_mjpegfps">MJPEG Stream FPS</string>
+    <string name="pref_mjpeg_fps_description">The most frames per second the stream sends, 1 to 30. It never sends more than the camera FPS, and each frame costs CPU to encode, so raise it only as far as the device keeps up.</string>
     <string name="title_setting_mqtt_enabled">Enabled MQTT Client</string>
     <string name="title_setting_mqtt_servername">MQTT Broker Address</string>
     <string name="title_setting_mqtt_serverport">Broker Port Number</string>
@@ -214,8 +216,20 @@
     <string name="pref_camera_motionframeskip_summary">Process motion detection every Nth frame to reduce CPU usage. Higher values = lower CPU, slower detection. Set to 0 to disable frame skipping (default is 5).</string>
     <string name="pref_camera_only_screensaver_title">Camera Only During Screensaver</string>
     <string name="pref_camera_only_screensaver_summary">Only activate camera when screensaver is active to save CPU and battery.</string>
-    <string name="pref_camera_low_resolution_title">Use Low Resolution Camera</string>
-    <string name="pref_camera_low_resolution_summary">Use 320x240 resolution instead of 640x480 for faster motion detection and lower CPU usage (recommended for low-end devices).</string>
+    <string name="pref_camera_resolution_title">Camera Resolution</string>
+    <string name="pref_camera_resolution_summary">The size the camera runs at. Lower sizes use less CPU; motion detection works the same at every size. A camera that does not support the size picked opens at the closest one it has.</string>
+    <string-array name="camera_resolution_names">
+        <item>320x240 (low)</item>
+        <item>640x480 (standard)</item>
+        <item>1280x720 (HD, newer devices only)</item>
+    </string-array>
+    <string name="pref_camera_boost_title">Motion Boost</string>
+    <string name="title_setting_camera_boost_enabled">Boost Camera on Motion</string>
+    <string name="pref_camera_boost_summary">When motion is detected, switch the camera to the boost resolution and frame rate, and back once there has been no motion for the hold time. Each switch pauses the camera for a few seconds.</string>
+    <string name="title_setting_camera_boost_resolution">Boost Resolution</string>
+    <string name="title_setting_camera_boost_fps">Boost FPS</string>
+    <string name="title_setting_camera_boost_hold">Boost Hold Time</string>
+    <string name="pref_camera_boost_hold_description">Seconds without motion before the camera goes back to its normal resolution and frame rate.</string>
     <string name="pref_motion_reset_title">Motion Reset Time</string>
     <string name="pref_motion_reset_description">The time (in seconds) before resetting the motion detector.</string>
     <string name="text_front">Front</string>
@@ -314,6 +328,8 @@
     <string name="mqtt_control_settings">Open Settings</string>
     <string name="mqtt_control_screen">Keep Screen Awake</string>
     <string name="mqtt_control_camera">Camera</string>
+    <string name="mqtt_control_camera_resolution">Camera Resolution</string>
+    <string name="mqtt_control_camera_fps">Camera FPS</string>
     <string name="mqtt_control_screensaver">Screensaver</string>
     <string name="mqtt_control_brightness">Brightness</string>
     <string name="mqtt_control_volume">Volume</string>

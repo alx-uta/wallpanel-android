@@ -71,6 +71,7 @@
     <string name="default_setting_http_mjpegmaxstreams">1</string>
     <string name="default_setting_http_mjpegenabled">false</string>
     <string name="key_setting_http_mjpegmaxstreams">setting_http_mjpegmaxstreams</string>
+    <string name="key_setting_http_mjpegfps">setting_http_mjpegfps</string>
     <string name="default_setting_http_port">2971</string>
     <string name="key_setting_http_mjpegenabled">setting_http_mjpegenabled</string>
     <string name="default_setting_http_restenabled">false</string>
@@ -143,8 +144,20 @@
     <string name="key_setting_camera_only_screensaver">setting_camera_only_screensaver</string>
     <string name="default_camera_only_screensaver">false</string>
 
+    <!-- Replaced by setting_camera_resolution, still read to carry an existing choice over. -->
     <string name="key_setting_camera_low_resolution">setting_camera_low_resolution</string>
     <string name="default_camera_low_resolution">true</string>
+
+    <string name="key_setting_camera_resolution">setting_camera_resolution</string>
+
+    <string name="key_setting_camera_boost_enabled">setting_camera_boost_enabled</string>
+    <string name="default_setting_camera_boost_enabled">false</string>
+    <string name="key_setting_camera_boost_resolution">setting_camera_boost_resolution</string>
+    <string name="default_setting_camera_boost_resolution">640x480</string>
+    <string name="key_setting_camera_boost_fps">setting_camera_boost_fps</string>
+    <string name="default_setting_camera_boost_fps">15</string>
+    <string name="key_setting_camera_boost_hold">setting_camera_boost_hold</string>
+    <string name="default_setting_camera_boost_hold">30</string>
 
     <string name="key_setting_motion_clear">setting_motion_clear</string>
     <string name="default_motion_clear">30</string>
@@ -278,6 +291,12 @@
         <item>3.8</item>
         <item>3.9</item>
         <item>4.0</item>      
+    </string-array>
+
+    <string-array name="camera_resolution_values">
+        <item>320x240</item>
+        <item>640x480</item>
+        <item>1280x720</item>
     </string-array>
 
     <string-array name="flip_values">

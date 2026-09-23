@@ -22,6 +22,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.Manifest
 import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
 import android.media.MediaPlayer
@@ -59,6 +60,8 @@ import xyz.wallpanel.pro.utils.MqttUtils
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_AUDIO
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_BRIGHTNESS
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA_FPS
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA_RESOLUTION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CLEAR_CACHE
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_EVAL
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELAUNCH
@@ -141,6 +144,28 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     private var mjpegEndpointRegistered = false
     private val mBinder = WallPanelServiceBinder()
     private val motionClearHandler = Handler(Looper.getMainLooper())
+    private val clearMotionRunnable = Runnable { clearMotionDetected() }
+    // Resolution and frame rate set by command, null for "auto". They last until the
+    // process ends, so a restart of the application goes back to the configured behaviour.
+    @Volatile
+    private var cameraResolutionOverride: CameraResolution? = null
+    @Volatile
+    private var cameraFpsOverride: Int? = null
+    // Whether motion has put the camera on its boost profile. Changed on the main looper.
+    @Volatile
+    private var cameraBoosted = false
+    // What the running camera was started with, so a change that lands on the same
+    // profile does not restart it.
+    @Volatile
+    private var appliedCameraProfile: CameraProfile? = null
+    @Volatile
+    private var cameraPermissionToastShown = false
+    private val cameraProfileHandler = Handler(Looper.getMainLooper())
+    private val endCameraBoostRunnable = Runnable {
+        Timber.i("Motion boost off")
+        cameraBoosted = false
+        applyCameraProfile()
+    }
     private val appStateClearHandler = Handler(Looper.getMainLooper())
     private val qrCodeClearHandler = Handler(Looper.getMainLooper())
     private val faceClearHandler = Handler(Looper.getMainLooper())
@@ -410,6 +435,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         stopPowerOptions()
         reconnectHandler.removeCallbacksAndMessages(null)
         mjpegHandler.removeCallbacksAndMessages(null)
+        cameraProfileHandler.removeCallbacksAndMessages(null)
         discoveryExecutor.shutdown()
     }
 
@@ -451,6 +477,22 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                 state.put(MqttUtils.STATE_BRIGHTNESS_SETPOINT, configuration.screenBrightness)
                 state.put(MqttUtils.STATE_VOLUME, volumeUtils.getVolumePercent())
                 state.put(MqttUtils.STATE_SCREENSAVER_ON, isScreenSaverActive)
+                // What was asked for, which is what the Home Assistant selects read back, and
+                // what the camera is running at, which can differ: a boost moves it, and a
+                // camera without the size asked for opens at the closest one it has. The
+                // running values are null while the camera is off or could not be opened,
+                // for instance without the camera permission.
+                state.put(MqttUtils.STATE_CAMERA_RESOLUTION, cameraResolutionOverride?.toString() ?: CameraProfile.AUTO)
+                state.put(MqttUtils.STATE_CAMERA_FPS, cameraFpsOverride?.toString() ?: CameraProfile.AUTO)
+                val activeResolution = if (cameraRunning) cameraReader?.activeResolution else null
+                val activeFps = appliedCameraProfile?.fps?.takeIf { activeResolution != null }
+                state.put(MqttUtils.STATE_CAMERA_RESOLUTION_ACTIVE, activeResolution?.toString() ?: JSONObject.NULL)
+                state.put(MqttUtils.STATE_CAMERA_FPS_ACTIVE, when {
+                    activeFps == null -> JSONObject.NULL
+                    activeFps % 1f == 0f -> activeFps.toInt()
+                    else -> activeFps.toDouble()
+                })
+                state.put(MqttUtils.STATE_CAMERA_BOOSTED, cameraBoosted)
             } catch (e: JSONException) {
                 e.printStackTrace()
             }
@@ -654,12 +696,95 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         if (!configuration.cameraEnabled) {
             return
         }
+        // The camera can be switched on without the permission to use it: the setting comes
+        // back with a restored backup, a command can turn it on, and the permission can be
+        // taken away from the system settings. Opening it would only fail, on every start.
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            Timber.w("The camera is switched on but the camera permission is not granted")
+            cameraRunning = false
+            // A service start comes through here twice, from onCreate() and onStartCommand().
+            if (!cameraPermissionToastShown) {
+                cameraPermissionToastShown = true
+                sendToastMessage(getString(R.string.toast_camera_permission_denied))
+            }
+            publishApplicationState()
+            return
+        }
         if (cameraReader == null) {
-            cameraReader = CameraReader(applicationContext)
+            cameraReader = CameraReader(applicationContext).also {
+                it.hasStreamViewers = { mJpegSockets.isNotEmpty() }
+            }
         }
         val reader = cameraReader
+        val profile = currentCameraProfile()
+        appliedCameraProfile = profile
         cameraRunning = true
-        submitCamera { reader?.startCamera(cameraDetectorCallback, configuration) }
+        submitCamera {
+            reader?.startCamera(cameraDetectorCallback, configuration, profile)
+            // The state reports the size the camera opened at, which is only known now.
+            publishApplicationState()
+        }
+    }
+
+    private fun currentCameraProfile(): CameraProfile {
+        return CameraProfile.resolve(
+            idle = configuration.cameraIdleProfile,
+            boost = if (configuration.cameraBoostEnabled) configuration.cameraBoostProfile else null,
+            boosted = cameraBoosted,
+            resolutionOverride = cameraResolutionOverride,
+            fpsOverride = cameraFpsOverride,
+        )
+    }
+
+    /**
+     * Restarts a running camera when the resolution or frame rate it should have has moved
+     * away from the one it was started with. The camera takes both only when it opens, so
+     * this is a restart, and the stream pauses while it happens. Main looper only.
+     */
+    private fun applyCameraProfile() {
+        if (configuration.cameraEnabled && cameraRunning && currentCameraProfile() != appliedCameraProfile) {
+            configureCamera()
+        }
+        publishApplicationState()
+    }
+
+    /**
+     * Puts the camera on its boost profile, or keeps it there, until
+     * [Configuration.cameraBoostHoldSeconds] after the last motion. Main looper only.
+     */
+    private fun boostCamera() {
+        if (!configuration.cameraBoostEnabled) {
+            return
+        }
+        cameraProfileHandler.removeCallbacks(endCameraBoostRunnable)
+        cameraProfileHandler.postDelayed(endCameraBoostRunnable, configuration.cameraBoostHoldSeconds * 1000L)
+        if (!cameraBoosted) {
+            Timber.i("Motion boost on")
+            cameraBoosted = true
+            applyCameraProfile()
+        }
+    }
+
+    /**
+     * Takes the resolution and frame rate commands. Each is checked on its own, so a bad
+     * value in one does not drop the other.
+     */
+    private fun setCameraOverrides(commandJson: JSONObject) {
+        if (commandJson.has(COMMAND_CAMERA_RESOLUTION)) {
+            try {
+                cameraResolutionOverride = CameraProfile.parseResolutionCommand(commandJson.get(COMMAND_CAMERA_RESOLUTION))
+            } catch (e: IllegalArgumentException) {
+                Timber.w("Ignoring a camera command: %s", e.message)
+            }
+        }
+        if (commandJson.has(COMMAND_CAMERA_FPS)) {
+            try {
+                cameraFpsOverride = CameraProfile.parseFpsCommand(commandJson.get(COMMAND_CAMERA_FPS))
+            } catch (e: IllegalArgumentException) {
+                Timber.w("Ignoring a camera command: %s", e.message)
+            }
+        }
+        cameraProfileHandler.post { applyCameraProfile() }
     }
 
     private fun submitCamera(work: () -> Unit) {
@@ -834,6 +959,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     // Enable the camera in settings and start it, along with motion, face, QR and streaming
     private fun restartCamera() {
         configuration.cameraEnabled = true
+        // Asked for by a command, so it is told again why nothing starts.
+        cameraPermissionToastShown = false
         configureCamera()
         startHttp()
         if (configuration.httpMJPEGEnabled) {
@@ -850,6 +977,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
      */
     private fun stopCameraCompletely() {
         configuration.cameraEnabled = false
+        cameraProfileHandler.removeCallbacks(endCameraBoostRunnable)
+        cameraBoosted = false
         stopMJPEG()
         val reader = cameraReader
         cameraRunning = false
@@ -886,6 +1015,13 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             response.send("Camera is disabled")
             return
         }
+        // Switched on but not running, which is what a missing camera permission or a
+        // camera that failed to open leaves. The stream would stay open and never send.
+        if (!cameraRunning) {
+            response.code(503)
+            response.send("Camera is not running")
+            return
+        }
         if (mJpegSockets.size < configuration.httpMJPEGMaxStreams) {
             Timber.i("Starting new MJPEG stream")
             response.headers.add("Cache-Control", "no-cache")
@@ -905,6 +1041,11 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     private fun processCommand(commandJson: JSONObject): Boolean {
         try {
+            // Ahead of the camera switch, so a command that carries both starts the camera
+            // at the size it asks for.
+            if (commandJson.has(COMMAND_CAMERA_RESOLUTION) || commandJson.has(COMMAND_CAMERA_FPS)) {
+                setCameraOverrides(commandJson)
+            }
             if (commandJson.has(COMMAND_CAMERA)) {
                 val enableCamera = commandJson.getBoolean(COMMAND_CAMERA)
                 if (enableCamera) {
@@ -1208,8 +1349,18 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         bm.sendBroadcast(Intent(action))
     }
 
+    /**
+     * Turns the motion sensor on, and moves its reset to [Configuration.motionResetTime]
+     * after this detection. Pushing the reset back on every detection keeps the sensor on
+     * for as long as the motion lasts; scheduled only from the first one, it went off in
+     * the middle of continuous motion and came straight back on at the next frame.
+     *
+     * Runs on the main looper, where the reset runs too, so the two cannot interleave.
+     */
     private fun publishMotionDetected() {
         val delay = (configuration.motionResetTime * 1000).toLong()
+        motionClearHandler.removeCallbacks(clearMotionRunnable)
+        motionClearHandler.postDelayed(clearMotionRunnable, delay)
         if (!motionDetected) {
             val data = JSONObject()
             try {
@@ -1219,7 +1370,6 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             }
             motionDetected = true
             publishCommand(COMMAND_SENSOR_MOTION, data)
-            motionClearHandler.postDelayed({ clearMotionDetected() }, delay)
         }
     }
 
@@ -1636,7 +1786,11 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                 configurePowerOptions()
                 wakeScreen()
             }
-            publishMotionDetected()
+            // Called on the camera's detector thread.
+            motionClearHandler.post {
+                publishMotionDetected()
+                boostCamera()
+            }
         }
 
         override fun onTooDark() {

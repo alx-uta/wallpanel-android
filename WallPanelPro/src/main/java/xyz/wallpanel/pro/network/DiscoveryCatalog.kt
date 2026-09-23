@@ -47,6 +47,8 @@ object DiscoveryCatalog {
         DiscoveryChoice("settings", R.string.mqtt_control_settings),
         DiscoveryChoice("screen", R.string.mqtt_control_screen),
         DiscoveryChoice("camera", R.string.mqtt_control_camera),
+        DiscoveryChoice("cameraResolution", R.string.mqtt_control_camera_resolution),
+        DiscoveryChoice("cameraFps", R.string.mqtt_control_camera_fps),
         DiscoveryChoice("screensaver", R.string.mqtt_control_screensaver),
         DiscoveryChoice("brightness", R.string.mqtt_control_brightness),
         DiscoveryChoice("volume", R.string.mqtt_control_volume),

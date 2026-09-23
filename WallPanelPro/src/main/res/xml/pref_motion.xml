@@ -83,4 +83,48 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="@string/pref_camera_boost_title">
+
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_camera_boost_enabled"
+            android:key="@string/key_setting_camera_boost_enabled"
+            android:title="@string/title_setting_camera_boost_enabled"
+            android:summary="@string/pref_camera_boost_summary"
+            android:dependency="@string/key_setting_camera_motionenabled"/>
+
+        <ListPreference
+            android:defaultValue="@string/default_setting_camera_boost_resolution"
+            android:key="@string/key_setting_camera_boost_resolution"
+            android:title="@string/title_setting_camera_boost_resolution"
+            android:entries="@array/camera_resolution_names"
+            android:entryValues="@array/camera_resolution_values"
+            android:dependency="@string/key_setting_camera_boost_enabled"/>
+
+        <EditTextPreference
+            android:defaultValue="@string/default_setting_camera_boost_fps"
+            android:inputType="number"
+            android:key="@string/key_setting_camera_boost_fps"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_camera_boost_fps"
+            android:dependency="@string/key_setting_camera_boost_enabled"/>
+
+        <EditTextPreference
+            android:defaultValue="@string/default_setting_camera_boost_hold"
+            android:inputType="number"
+            android:key="@string/key_setting_camera_boost_hold"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_camera_boost_hold"
+            android:dependency="@string/key_setting_camera_boost_enabled"/>
+
+        <EditTextPreference
+            android:textColor="@color/light_gray"
+            android:textSize="12sp"
+            android:selectable="false"
+            android:paddingTop="0dp"
+            android:summary="@string/pref_camera_boost_hold_description"/>
+
+    </PreferenceCategory>
+
 </PreferenceScreen>

@@ -30,10 +30,13 @@ public class AggregateLumaMotionDetection implements IMotionDetection {
     private static final int mXBoxes = 10; // State based debug
     private static final int mYBoxes = 10; // State based debug
 
-    private static int[] mPrevious = null;
-    private static int mPreviousWidth;
-    private static int mPreviousHeight;
-    private static State mPreviousState = null;
+    // Per instance, so a detector built for a restarted camera starts from its first
+    // frame. Shared between instances, the new detector compared that frame against the
+    // last one the previous camera saw and reported the difference as motion.
+    private int[] mPrevious = null;
+    private int mPreviousWidth;
+    private int mPreviousHeight;
+    private State mPreviousState = null;
 
     /**
      * {@inheritDoc}

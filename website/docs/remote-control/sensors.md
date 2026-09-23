@@ -112,7 +112,7 @@ In additional to device sensor data publishing, the application can also publish
 
 Detection | Keys | Example | Notes
 -|-|-|-
-motion | value | ```{"value": false}``` | Published immediately when motion detected
+motion | value | ```{"value": false}``` | Published immediately when motion detected, and back to false once there has been no motion for the motion reset time
 face | value | ```{"value": false}``` | Published immediately when face detected
 qrcode | value | ```{"value": data}``` | Published immediately when QR Code scanned
 
@@ -162,6 +162,11 @@ brightnessSetpoint | 0-255 | ```{"brightnessSetpoint":150}``` | Brightness the a
 volume | 0-100 | ```{"volume":60}``` | Current media volume, as a percentage.
 camera | true/false | ```{"camera":false}``` | Whether the camera is enabled.
 screenSaverOn | true/false | ```{"screenSaverOn":false}``` | Whether the screensaver is currently showing.
+cameraResolution | size or auto | ```{"cameraResolution":"auto"}``` | The resolution the last `cameraResolution` command pinned, or `auto`.
+cameraFps | 1-30 or auto | ```{"cameraFps":"auto"}``` | The frame rate the last `cameraFps` command pinned, as text, or `auto`.
+cameraResolutionActive | size or null | ```{"cameraResolutionActive":"640x480"}``` | The resolution the camera is running at, which a boost or a camera without the size asked for can make different from the settings. `null` while the camera is off or could not be opened, for instance without the camera permission.
+cameraFpsActive | number or null | ```{"cameraFpsActive":15}``` | The frame rate the running camera was asked for, `null` while it is not running.
+cameraBoosted | true/false | ```{"cameraBoosted":false}``` | Whether motion has the camera on its [boost](../video-streaming.md#motion-boost) resolution and frame rate.
 
 * State values are presented together as a JSON block
   * eg, ```{"currentUrl":"http://hasbian:8123/states","screenOn":true}```
@@ -193,6 +198,8 @@ Restart App | button | `{"restartApp": true}`
 Open Settings | button | `{"settings": true}`
 Keep Screen Awake | switch | `{"wake": true / false}`
 Camera | switch | `{"camera": true / false}`
+Camera Resolution | select (auto, 320x240, 640x480, 1280x720) | `{"cameraResolution": "<value>"}`
+Camera FPS | select (auto, 5, 10 ... 30) | `{"cameraFps": "<value>"}`
 Screensaver | switch | `{"screensaver": true / false}`
 Brightness | number (0-255) | `{"brightness": <value>}`
 Volume | number (0-100) | `{"volume": <value>}`
@@ -232,6 +239,11 @@ disconnects. That needs the broker to be reachable at the time; if it is not, th
 stay behind as unavailable until MQTT is switched back on. Closing or uninstalling the
 application removes nothing: the device only shows as unavailable, which is how Home
 Assistant marks a device that is temporarily offline.
+
+**Camera Resolution** and **Camera FPS** only appear while the camera is on, and read
+back `cameraResolution` and `cameraFps` from the application state. A frame rate set by
+hand to a value the select does not list, such as 12, still applies; Home Assistant just
+logs that the select holds an option it does not know.
 
 **Shell Command** and its **Shell Result** sensor only appear once shell commands are
 enabled in **Settings &rarr; HTTP** -- see [Shell Command](./commands.md#shell-command)

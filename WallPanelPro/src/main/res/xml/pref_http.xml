@@ -73,6 +73,23 @@
             android:title="@string/title_setting_http_mjpegmaxstreams"
             android:dependency="@string/key_setting_http_mjpegenabled"/>
 
+        <!-- No defaultValue: the fragment fills it in from Configuration, which carries over
+             the rate the stream ran at before this setting existed. -->
+        <EditTextPreference
+            android:inputType="number"
+            android:key="@string/key_setting_http_mjpegfps"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_http_mjpegfps"
+            android:dependency="@string/key_setting_http_mjpegenabled"/>
+
+        <EditTextPreference
+            android:textColor="@color/light_gray"
+            android:textSize="12sp"
+            android:selectable="false"
+            android:paddingTop="0dp"
+            android:summary="@string/pref_mjpeg_fps_description"/>
+
     </PreferenceCategory>
 
 </PreferenceScreen>

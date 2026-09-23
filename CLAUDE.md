@@ -56,6 +56,10 @@ adb key.
 Keep at least one Android 8.1-era device enabled — it is what catches `minSdk 21`
 regressions that never show up on a modern device.
 
+Read a device's `notes` before rebooting it. Some devices do not keep adb over TCP across
+a reboot and only come back with a USB cable and `adb tcpip 5555`; their notes say
+**NEVER REBOOT**. A test that needs a reboot runs on a device whose notes say it is safe.
+
 ## Home Assistant discovery checks
 
 [tools/ha-verify.py](tools/ha-verify.py) checks MQTT discovery against a real broker and

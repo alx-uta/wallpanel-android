@@ -64,12 +64,21 @@
             android:title="@string/pref_camera_only_screensaver_title"
             android:dependency="pref_setting_camera_enabled"/>
 
-        <SwitchPreference
-            android:defaultValue="@string/default_camera_low_resolution"
-            android:key="@string/key_setting_camera_low_resolution"
-            android:summary="@string/pref_camera_low_resolution_summary"
-            android:title="@string/pref_camera_low_resolution_title"
+        <!-- No defaultValue: the fragment fills it in from Configuration, which carries over
+             the low resolution switch this replaced. -->
+        <ListPreference
+            android:key="@string/key_setting_camera_resolution"
+            android:title="@string/pref_camera_resolution_title"
+            android:entries="@array/camera_resolution_names"
+            android:entryValues="@array/camera_resolution_values"
             android:dependency="pref_setting_camera_enabled"/>
+
+        <EditTextPreference
+            android:textColor="@color/light_gray"
+            android:textSize="12sp"
+            android:selectable="false"
+            android:paddingTop="0dp"
+            android:summary="@string/pref_camera_resolution_summary"/>
 
         <ListPreference
             android:key="pref_setting_camera_rotate"

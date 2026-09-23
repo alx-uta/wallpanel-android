@@ -30,6 +30,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import xyz.wallpanel.pro.R
+import xyz.wallpanel.pro.modules.CameraProfile
+import xyz.wallpanel.pro.modules.CameraResolution
 
 /**
  * Exercises [Configuration] against a real SharedPreferences under Robolectric, without
@@ -168,4 +170,66 @@ class ConfigurationTest {
         assertEquals(0f, configuration.cameraRotate, 0.001f)
     }
 
+
+    @Test
+    fun `camera resolution carries over the low resolution switch it replaced`() {
+        assertEquals(CameraResolution.LOW, configuration.cameraResolution)
+
+        preferences.edit().putBoolean(context.getString(R.string.key_setting_camera_low_resolution), false).commit()
+        assertEquals(CameraResolution.STANDARD, configuration.cameraResolution)
+
+        // A resolution picked in the new list wins over the old switch.
+        configuration.cameraResolution = CameraResolution.HD
+        assertEquals(CameraResolution.HD, configuration.cameraResolution)
+    }
+
+    @Test
+    fun `an unreadable camera resolution falls back rather than failing`() {
+        preferences.edit().putString(context.getString(R.string.key_setting_camera_resolution), "huge").commit()
+
+        assertEquals(CameraResolution.LOW, configuration.cameraResolution)
+    }
+
+    @Test
+    fun `boost defaults to off at 640x480 and 15 fps held for 30 seconds`() {
+        assertFalse(configuration.cameraBoostEnabled)
+        assertEquals(CameraProfile(CameraResolution.STANDARD, 15f), configuration.cameraBoostProfile)
+        assertEquals(30, configuration.cameraBoostHoldSeconds)
+    }
+
+    @Test
+    fun `boost frame rate and hold time are kept in range`() {
+        preferences.edit()
+            .putString(context.getString(R.string.key_setting_camera_boost_fps), "120")
+            .putString(context.getString(R.string.key_setting_camera_boost_hold), "0")
+            .commit()
+
+        assertEquals(30f, configuration.cameraBoostProfile.fps)
+        assertEquals(1, configuration.cameraBoostHoldSeconds)
+    }
+
+    @Test
+    fun `stream frame rate carries over the rate the camera fps used to allow`() {
+        val cameraFps = context.getString(R.string.key_setting_camera_fps)
+        // The default camera FPS of 15.
+        assertEquals(3, configuration.httpMJPEGFps)
+        preferences.edit().putString(cameraFps, "5").commit()
+        assertEquals(2, configuration.httpMJPEGFps)
+        preferences.edit().putString(cameraFps, "20").commit()
+        assertEquals(4, configuration.httpMJPEGFps)
+        preferences.edit().putString(cameraFps, "25").commit()
+        assertEquals(30, configuration.httpMJPEGFps)
+
+        configuration.httpMJPEGFps = 12
+        assertEquals(12, configuration.httpMJPEGFps)
+    }
+
+    @Test
+    fun `stream frame rate stays within what the camera can take`() {
+        preferences.edit().putString(context.getString(R.string.key_setting_http_mjpegfps), "0").commit()
+        assertEquals(1, configuration.httpMJPEGFps)
+
+        preferences.edit().putString(context.getString(R.string.key_setting_http_mjpegfps), "60").commit()
+        assertEquals(30, configuration.httpMJPEGFps)
+    }
 }
