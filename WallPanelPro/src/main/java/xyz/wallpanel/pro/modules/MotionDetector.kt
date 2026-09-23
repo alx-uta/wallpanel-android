@@ -32,7 +32,7 @@ import timber.log.Timber
  * Created by Michael Ritchie on 7/6/18.
  */
 class MotionDetector private constructor(
-    private val minLuma: Int, 
+    private val minLuma: Int,
     private val motionLeniency: Int,
     private val frameSkip: Int
 ) : Detector<Motion>() {
@@ -56,7 +56,7 @@ class MotionDetector private constructor(
                     return SparseArray()
                 }
             }
-            
+
             val byteBuffer = frame.grayscaleImageData
             val bytes = byteBuffer.array()
             val w = frame.metadata.width
@@ -72,6 +72,7 @@ class MotionDetector private constructor(
             for (i in img) {
                 lumaSum += i
             }
+            Timber.i("MotionDetector lumaSum=%d minLuma=%d size=%dx%d", lumaSum, minLuma, w, h)
             if (lumaSum < minLuma) {
                 motion.type = MOTION_TOO_DARK
                 sparseArray.put(0, motion)
@@ -79,11 +80,10 @@ class MotionDetector private constructor(
             }
 
             try {
-                val motionDetected = aggregateLumaMotionDetection!!.detect(img, w, h)
-                if (motionDetected) {
-                    motion.type = MOTION_DETECTED
+                motion.type = if (aggregateLumaMotionDetection!!.detect(img, w, h)) {
+                    MOTION_DETECTED
                 } else {
-                    motion.type = MOTION_NOT_DETECTED
+                    MOTION_NOT_DETECTED
                 }
             } catch (e: Exception) {
                 Timber.e(e.message)
@@ -95,7 +95,7 @@ class MotionDetector private constructor(
     }
 
     class Builder(
-        private val minLuma: Int, 
+        private val minLuma: Int,
         private val motionLeniency: Int,
         private val frameSkip: Int = 10
     ) {
