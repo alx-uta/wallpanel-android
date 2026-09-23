@@ -16,12 +16,12 @@
 
 package xyz.wallpanel.pro.modules
 
+import android.os.SystemClock
 import android.util.SparseArray
 
 import com.google.android.gms.vision.Detector
 import com.google.android.gms.vision.Frame
 import com.jjoe64.motiondetection.motiondetection.AggregateLumaMotionDetection
-import com.jjoe64.motiondetection.motiondetection.ImageProcessing
 import xyz.wallpanel.pro.modules.Motion.Companion.MOTION_DETECTED
 import xyz.wallpanel.pro.modules.Motion.Companion.MOTION_NOT_DETECTED
 import xyz.wallpanel.pro.modules.Motion.Companion.MOTION_TOO_DARK
@@ -39,6 +39,9 @@ class MotionDetector private constructor(
 
     private var aggregateLumaMotionDetection: AggregateLumaMotionDetection? = null
     private var frameCount = 0
+    // Elapsed realtime of the first frame this detector was handed. A camera that has just
+    // opened is still adjusting exposure and focus, and each step of that looks like motion.
+    private var firstFrameAt = 0L
 
     init {
         aggregateLumaMotionDetection = AggregateLumaMotionDetection()
@@ -56,7 +59,13 @@ class MotionDetector private constructor(
                     return SparseArray()
                 }
             }
-            
+
+            val now = SystemClock.elapsedRealtime()
+            if (firstFrameAt == 0L) {
+                firstFrameAt = now
+            }
+            val settling = now - firstFrameAt < SETTLE_MILLIS
+
             val byteBuffer = frame.grayscaleImageData
             val bytes = byteBuffer.array()
             val w = frame.metadata.width
@@ -67,20 +76,25 @@ class MotionDetector private constructor(
             motion.width = w
             motion.height = h
 
-            val img = ImageProcessing.decodeYUV420SPtoLuma(bytes, w, h)
-            var lumaSum = 0
+            val step = MotionFrames.step(w, h)
+            val sampledWidth = w / step
+            val sampledHeight = h / step
+            val img = MotionFrames.luma(bytes, w, h, step)
+            var lumaSum = 0L
             for (i in img) {
                 lumaSum += i
             }
-            if (lumaSum < minLuma) {
-                motion.type = MOTION_TOO_DARK
+            if (lumaSum < MotionFrames.scaledMinLuma(minLuma, img.size)) {
+                motion.type = if (settling) MOTION_NOT_DETECTED else MOTION_TOO_DARK
                 sparseArray.put(0, motion)
                 return sparseArray
             }
 
             try {
-                val motionDetected = aggregateLumaMotionDetection!!.detect(img, w, h)
-                if (motionDetected) {
+                // Still fed while settling, so the frame after the window is compared with
+                // a settled one rather than with the first frame the camera produced.
+                val motionDetected = aggregateLumaMotionDetection!!.detect(img, sampledWidth, sampledHeight)
+                if (motionDetected && !settling) {
                     motion.type = MOTION_DETECTED
                 } else {
                     motion.type = MOTION_NOT_DETECTED
@@ -102,5 +116,10 @@ class MotionDetector private constructor(
         fun build(): MotionDetector {
             return MotionDetector(minLuma, motionLeniency, frameSkip)
         }
+    }
+
+    companion object {
+        // How long after the camera opens a difference between frames is not reported.
+        const val SETTLE_MILLIS = 2000L
     }
 }

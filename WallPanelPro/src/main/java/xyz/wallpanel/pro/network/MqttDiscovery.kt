@@ -23,11 +23,15 @@ import org.json.JSONArray
 import org.json.JSONObject
 import timber.log.Timber
 import xyz.wallpanel.pro.R
+import xyz.wallpanel.pro.modules.CameraProfile
+import xyz.wallpanel.pro.modules.CameraResolution
 import xyz.wallpanel.pro.modules.SensorInfo
 import xyz.wallpanel.pro.persistence.Configuration
 import xyz.wallpanel.pro.utils.ScreenUtils
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_BRIGHTNESS
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA_FPS
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA_RESOLUTION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CLEAR_CACHE
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELAUNCH
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELOAD
@@ -48,6 +52,8 @@ import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_VOLUME
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_WAKE
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_BRIGHTNESS_SETPOINT
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_CAMERA
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_CAMERA_FPS
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_CAMERA_RESOLUTION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_CURRENT_URL
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_SCREENSAVER_ON
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_SCREEN_AWAKE
@@ -281,6 +287,24 @@ constructor(
             stateField = STATE_CAMERA,
             enabled = controlOn(COMMAND_CAMERA, enabledControls),
         )
+        // Only while the camera is on, like the motion sensor: with it off there is nothing
+        // for them to change.
+        entities += select(
+            objectId = COMMAND_CAMERA_RESOLUTION,
+            displayNameRes = R.string.mqtt_control_camera_resolution,
+            command = COMMAND_CAMERA_RESOLUTION,
+            stateField = STATE_CAMERA_RESOLUTION,
+            options = listOf(CameraProfile.AUTO) + CameraResolution.SUPPORTED.map { it.toString() },
+            enabled = controlOn(COMMAND_CAMERA_RESOLUTION, enabledControls) && configuration.cameraEnabled,
+        )
+        entities += select(
+            objectId = COMMAND_CAMERA_FPS,
+            displayNameRes = R.string.mqtt_control_camera_fps,
+            command = COMMAND_CAMERA_FPS,
+            stateField = STATE_CAMERA_FPS,
+            options = listOf(CameraProfile.AUTO) + CAMERA_FPS_OPTIONS.map { it.toString() },
+            enabled = controlOn(COMMAND_CAMERA_FPS, enabledControls) && configuration.cameraEnabled,
+        )
         entities += switch(
             objectId = COMMAND_SCREENSAVER,
             displayNameRes = R.string.mqtt_control_screensaver,
@@ -424,6 +448,34 @@ constructor(
                     put("max", max)
                     put("step", 1)
                     put("mode", "slider")
+                }
+            }
+        )
+    }
+
+    /**
+     * A drop-down list. The value is sent as a JSON string, and the state field has to hold
+     * one of [options] for Home Assistant to show it.
+     */
+    private fun select(
+        objectId: String,
+        displayNameRes: Int,
+        command: String,
+        stateField: String,
+        options: List<String>,
+        enabled: Boolean,
+    ): DiscoveryEntity {
+        return DiscoveryEntity(
+            component = "select",
+            objectId = objectId,
+            config = enabled.then {
+                baseConfig(context.getString(displayNameRes), objectId).apply {
+                    put("command_topic", commandTopic)
+                    put("command_template", """{"$command": {{ value | to_json }}}""")
+                    put("state_topic", stateTopic)
+                    put("value_template", "{{ value_json.$stateField }}")
+                    put("options", JSONArray(options))
+                    put("entity_category", "config")
                 }
             }
         )
@@ -631,6 +683,10 @@ constructor(
         private const val USB_PLUGGED = "usbPlugged"
         private const val ON = "ON"
         private const val OFF = "OFF"
+
+        // The frame rates the Home Assistant select offers. The command takes any whole
+        // number from 1 to 30.
+        private val CAMERA_FPS_OPTIONS = listOf(5, 10, 15, 20, 25, 30)
 
         // Home Assistant rejects text entities longer than this.
         private const val TEXT_MAX_LENGTH = 255

@@ -21,6 +21,8 @@ speak | data | ```{"speak": "Hello!"}``` | Uses the devices TTS to speak the mes
 settings | data | ```{"settings": true}``` | Opens the settings screen remotely.
 brightness | data | ```{"brightness": 1}``` | Changes the screens brightness, value 0-255 (0 turns the backlight off).
 camera | data | ```{"camera": true}``` | Turns on/off camera, this will also disable streaming, motion, QRCode, and face detection. The REST API stays up; the stream endpoint answers 503 while the camera is off.
+cameraResolution | size or auto | ```{"cameraResolution": "1280x720"}``` | Runs the camera at `320x240`, `640x480` or `1280x720` until told otherwise; `auto` goes back to the configured resolution. See [Camera resolution and frame rate](#camera-resolution-and-frame-rate).
+cameraFps | 1-30 or auto | ```{"cameraFps": 20}``` | Runs the camera at this frame rate until told otherwise; `auto` goes back to the configured one. See [Camera resolution and frame rate](#camera-resolution-and-frame-rate).
 volume | data | ```{"volume": 100}``` | Sets the device's media volume, value 0-100 (in %). Applies to audio playback and Text-To-Speech alike.
 toast | data | ```{"toast": "Dinner is ready"}``` | Shows a short toast message over the dashboard
 screensaver | true/false | ```{"screensaver": true}``` | Shows or dismisses the screensaver. Does nothing if no screensaver is configured in the settings.
@@ -50,6 +52,32 @@ hasn't timed out yet it springs back to on a moment later, because the switch re
 real screen state rather than remembering what was last sent. It then goes off on its
 own once the OS actually blanks the screen. That's the platform being accurately
 reported, not a bug in the switch.
+
+## Camera resolution and frame rate
+
+`cameraResolution` and `cameraFps` set what the camera runs at, over the settings and over
+a [motion boost](../video-streaming.md#motion-boost). Each one replaces only its own half:
+pin the resolution and a boost still raises the frame rate, and the other way round. Send
+`"auto"` to hand either back.
+
+```json
+{"cameraResolution": "1280x720", "cameraFps": 15}
+{"cameraResolution": "auto", "cameraFps": "auto"}
+```
+
+- The resolution is one of `320x240`, `640x480` or `1280x720`. A camera without the size
+  asked for opens at the closest one it has; `cameraResolutionActive` in the
+  [application state](./sensors.md#application-state-data) reports what it got.
+- The frame rate is a whole number from 1 to 30, sent as a number or as text.
+- A value outside those is ignored and logged, and the other key in the same command still
+  applies.
+- The camera only takes a new size or frame rate when it opens, so each change restarts
+  it. The stream and the detectors pause for two to three seconds on an older device.
+- Neither survives the app restarting, which puts the camera back on its settings.
+
+With [MQTT Discovery](./sensors.md#home-assistant-discovery) these are the **Camera
+Resolution** and **Camera FPS** selects, which is the easy way to have an automation raise
+the resolution when something happens and lower it again afterwards.
 
 ## Volume
 

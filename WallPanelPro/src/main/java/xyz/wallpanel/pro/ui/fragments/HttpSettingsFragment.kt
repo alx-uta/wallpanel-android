@@ -106,6 +106,10 @@ class HttpSettingsFragment : BaseSettingsFragment() {
         bindPreferenceSummaryToValue(httpShellPreference!!)
         bindPreferenceSummaryToValue(httpMjpegPreference!!)
         bindPreferenceSummaryToValue(httpMjpegStreamsPreference!!)
+        findPreference<EditTextPreference>(getString(R.string.key_setting_http_mjpegfps))?.let {
+            it.text = configuration.httpMJPEGFps.toString()
+            bindPreferenceSummaryToValue(it)
+        }
         bindPreferenceSummaryToValue(httpPortPreference!!)
 
         val wm = requireActivity().applicationContext.getSystemService(WIFI_SERVICE) as WifiManager

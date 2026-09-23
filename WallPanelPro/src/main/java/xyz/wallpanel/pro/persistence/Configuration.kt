@@ -20,6 +20,8 @@ import android.content.Context
 import android.content.SharedPreferences
 import timber.log.Timber
 import xyz.wallpanel.pro.R
+import xyz.wallpanel.pro.modules.CameraProfile
+import xyz.wallpanel.pro.modules.CameraResolution
 import xyz.wallpanel.pro.network.DiscoveryCatalog
 import javax.inject.Inject
 
@@ -199,6 +201,29 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     val httpMJPEGMaxStreams: Int
         get() = getIntPref(R.string.key_setting_http_mjpegmaxstreams, R.string.default_setting_http_mjpegmaxstreams)
 
+    /**
+     * The most frames per second the stream sends. It never sends more than the camera takes.
+     *
+     * Until it is set, it follows the rate the stream used to be held to, which came from a
+     * fixed pause after each frame picked by the camera FPS: about 2 frames a second at 10
+     * or below, 3 at 15, 4 at 20, and no limit above that.
+     */
+    var httpMJPEGFps: Int
+        get() {
+            val stored = sharedPreferences.getString(context.getString(R.string.key_setting_http_mjpegfps), null)
+                ?.trim()?.toIntOrNull()
+            val fps = stored ?: when {
+                cameraFPS <= 10 -> 2
+                cameraFPS <= 15 -> 3
+                cameraFPS <= 20 -> 4
+                else -> CameraProfile.MAX_FPS
+            }
+            return fps.coerceIn(CameraProfile.MIN_FPS, CameraProfile.MAX_FPS)
+        }
+        set(value) {
+            sharedPreferences.edit().putString(context.getString(R.string.key_setting_http_mjpegfps), value.toString()).apply()
+        }
+
     var mqttEnabled: Boolean
         get() = getBoolPref(R.string.key_setting_mqtt_enabled, R.string.default_setting_mqtt_enabled)
         set(value) {
@@ -376,8 +401,41 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     val cameraOnlyWhenScreenSaver: Boolean
         get() = getBoolPref(R.string.key_setting_camera_only_screensaver, R.string.default_camera_only_screensaver)
 
-    val cameraLowResolution: Boolean
-        get() = getBoolPref(R.string.key_setting_camera_low_resolution, R.string.default_camera_low_resolution)
+    /**
+     * The resolution the camera normally runs at. Until one is picked in the settings this
+     * follows the low resolution switch it replaced, which chose between 320x240 and
+     * 640x480.
+     */
+    var cameraResolution: CameraResolution
+        get() = CameraResolution.parse(sharedPreferences.getString(context.getString(R.string.key_setting_camera_resolution), null))
+            ?: if (getBoolPref(R.string.key_setting_camera_low_resolution, R.string.default_camera_low_resolution)) {
+                CameraResolution.LOW
+            } else {
+                CameraResolution.STANDARD
+            }
+        set(value) {
+            sharedPreferences.edit().putString(context.getString(R.string.key_setting_camera_resolution), value.toString()).apply()
+        }
+
+    val cameraIdleProfile: CameraProfile
+        get() = CameraProfile(cameraResolution, cameraFPS)
+
+    val cameraBoostEnabled: Boolean
+        get() = getBoolPref(R.string.key_setting_camera_boost_enabled, R.string.default_setting_camera_boost_enabled)
+
+    val cameraBoostProfile: CameraProfile
+        get() {
+            val resolution = CameraResolution.parse(getStringPref(R.string.key_setting_camera_boost_resolution, R.string.default_setting_camera_boost_resolution))
+                ?: CameraResolution.STANDARD
+            val fps = getIntPref(R.string.key_setting_camera_boost_fps, R.string.default_setting_camera_boost_fps)
+                .coerceIn(CameraProfile.MIN_FPS, CameraProfile.MAX_FPS)
+            return CameraProfile(resolution, fps.toFloat())
+        }
+
+    /** Seconds without motion before a boosted camera goes back to [cameraIdleProfile]. */
+    val cameraBoostHoldSeconds: Int
+        get() = getIntPref(R.string.key_setting_camera_boost_hold, R.string.default_setting_camera_boost_hold)
+            .coerceAtLeast(1)
 
     val testZoomLevel: Float
         get() {

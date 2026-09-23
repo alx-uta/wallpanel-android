@@ -24,6 +24,7 @@ import android.hardware.Camera
 import android.os.AsyncTask
 import android.os.Handler
 import android.os.Looper
+import android.os.SystemClock
 import android.renderscript.*
 import android.view.Surface
 import android.view.WindowManager
@@ -67,6 +68,21 @@ constructor(private val context: Context) {
     private var cameraPreview: CameraSourcePreview? = null
     private val bitmapCompleteHandler = Handler(Looper.getMainLooper())
     private val bitcoinCompleteRunnable = Runnable { bitmapComplete = true }
+    // When the frame being encoded for the stream was taken, on the elapsed realtime clock.
+    private var streamFrameStartedAt = 0L
+
+    /**
+     * Whether anyone is watching the stream. Every frame handed to the encoder is converted,
+     * rotated and compressed, which is the most expensive thing the camera does, so with
+     * nobody connected the frames are dropped before that.
+     */
+    @Volatile
+    var hasStreamViewers: () -> Boolean = { true }
+
+    /** The size the running camera actually opened at, null while it is stopped. */
+    @Volatile
+    var activeResolution: CameraResolution? = null
+        private set
 
     fun getJpeg(): LiveData<ByteArray> {
         return byteArray
@@ -90,6 +106,7 @@ constructor(private val context: Context) {
 
         cameraSource?.release()
         cameraSource = null
+        activeResolution = null
 
         faceDetector?.release()
         faceDetector = null
@@ -128,28 +145,30 @@ constructor(private val context: Context) {
     // source with nothing holding it.
     @SuppressLint("MissingPermission")
     @Synchronized
-    fun startCamera(callback: CameraCallback, configuration: Configuration) {
+    fun startCamera(callback: CameraCallback, configuration: Configuration, profile: CameraProfile = configuration.cameraIdleProfile) {
         // Starting over a camera that is already running would replace the source and the
         // detectors without handing the camera back, which leaves the device holding a
         // handle nothing can release. A repeated camera command is a restart instead.
         stopCamera()
         this.cameraCallback = callback
         if (configuration.cameraEnabled) {
-            buildDetectors(configuration)
+            buildDetectors(configuration, profile.fps)
             multiDetector?.let {
                 try {
-                    cameraSource = initCamera(configuration.cameraId, configuration.cameraFPS, configuration)
+                    cameraSource = initCamera(configuration.cameraId, profile)
                     cameraSource?.start()
+                    recordActiveResolution()
                 } catch (e: Exception) {
                     Timber.e(e.message)
                     try {
                         if (configuration.cameraId == CAMERA_FACING_FRONT) {
-                            cameraSource = initCamera(CAMERA_FACING_BACK, configuration.cameraFPS, configuration)
+                            cameraSource = initCamera(CAMERA_FACING_BACK, profile)
                             cameraSource?.start()
                         } else {
-                            cameraSource = initCamera(CAMERA_FACING_FRONT, configuration.cameraFPS, configuration)
+                            cameraSource = initCamera(CAMERA_FACING_FRONT, profile)
                             cameraSource?.start()
                         }
+                        recordActiveResolution()
                     } catch (e: Exception) {
                         Timber.e(e.message)
                         cameraSource?.stop()
@@ -166,16 +185,16 @@ constructor(private val context: Context) {
         if (configuration.cameraEnabled && preview != null) {
             this.cameraCallback = callback
             this.cameraPreview = preview
-            buildDetectors(configuration)
+            buildDetectors(configuration, configuration.cameraFPS)
             if (multiDetector != null) {
-                cameraSource = initCamera(configuration.cameraId, configuration.cameraFPS, configuration)
+                cameraSource = initCamera(configuration.cameraId, configuration.cameraIdleProfile)
                 cameraPreview?.start(cameraSource, object : CameraSourcePreview.OnCameraPreviewListener {
                     override fun onCameraError() {
                         Timber.e("Camera Preview Error")
                         cameraSource = if (configuration.cameraId == CAMERA_FACING_FRONT) {
-                            initCamera(CAMERA_FACING_BACK, configuration.cameraFPS, configuration)
+                            initCamera(CAMERA_FACING_BACK, configuration.cameraIdleProfile)
                         } else {
-                            initCamera(CAMERA_FACING_FRONT, configuration.cameraFPS, configuration)
+                            initCamera(CAMERA_FACING_FRONT, configuration.cameraIdleProfile)
                         }
                         if (cameraPreview != null) {
                             try {
@@ -206,14 +225,14 @@ constructor(private val context: Context) {
             this.cameraPreview = preview
             buildCameraDetector(configuration)
             if (multiDetector != null) {
-                cameraSource = initCamera(configuration.cameraId, configuration.cameraFPS, configuration)
+                cameraSource = initCamera(configuration.cameraId, configuration.cameraIdleProfile)
                 cameraPreview?.start(cameraSource, object : CameraSourcePreview.OnCameraPreviewListener {
                     override fun onCameraError() {
                         Timber.e("Camera Preview Error")
                         cameraSource = if (configuration.cameraId == CAMERA_FACING_FRONT) {
-                            initCamera(CAMERA_FACING_BACK, configuration.cameraFPS, configuration)
+                            initCamera(CAMERA_FACING_BACK, configuration.cameraIdleProfile)
                         } else {
-                            initCamera(CAMERA_FACING_FRONT, configuration.cameraFPS, configuration)
+                            initCamera(CAMERA_FACING_FRONT, configuration.cameraIdleProfile)
                         }
                         if (cameraPreview != null) {
                             try {
@@ -265,7 +284,7 @@ constructor(private val context: Context) {
         }
     }
 
-    private fun buildDetectors(configuration: Configuration) {
+    private fun buildDetectors(configuration: Configuration, fps: Float) {
         val info = Camera.CameraInfo()
         try {
             Camera.getCameraInfo(configuration.cameraId, info)
@@ -279,38 +298,31 @@ constructor(private val context: Context) {
         var detectorAdded = false
         if (configuration.cameraEnabled && configuration.httpMJPEGEnabled) {
             val renderScript = RenderScript.create(this.context)
+            // The stream never runs faster than the camera, and the stream limit caps it below
+            // that: each frame is converted, rotated and compressed on the CPU.
+            val frameInterval = (1000f / minOf(fps, configuration.httpMJPEGFps.toFloat()).coerceAtLeast(1f)).toLong()
             streamDetector = StreamingDetector.Builder().build()
             streamDetectorProcessor = MultiProcessor.Builder<Stream> {
                 object : Tracker<Stream>() {
                     override fun onUpdate(p0: Detector.Detections<Stream>, stream: Stream) {
                         super.onUpdate(p0, stream)
-                        if (stream.byteArray != null && bitmapComplete) {
+                        if (stream.byteArray != null && bitmapComplete && hasStreamViewers()) {
                             byteArrayCreateTask = ByteArrayTask(context, renderScript, object : OnCompleteListener {
                                 override fun onComplete(byteArray: ByteArray?) {
                                     byteArray?.let {
                                         setJpeg(it)
                                     }
-                                    // For slower FPS settings we lower the rate at which we generate the bitmap to save CPU power by only
-                                    // setting the bitmapComplete flag on a delay based on the current FPS settings
-                                    when {
-                                        configuration.cameraFPS <= 5 -> {
-                                            bitmapCompleteHandler.postDelayed(bitcoinCompleteRunnable, DELAY_5_FPS)
-                                        }
-                                        configuration.cameraFPS <= 10 -> {
-                                            bitmapCompleteHandler.postDelayed(bitcoinCompleteRunnable, DELAY_10_FPS)
-                                        }
-                                        configuration.cameraFPS <= 15 -> {
-                                            bitmapCompleteHandler.postDelayed(bitcoinCompleteRunnable, DELAY_15_FPS)
-                                        }
-                                        configuration.cameraFPS <= 20 -> {
-                                            bitmapCompleteHandler.postDelayed(bitcoinCompleteRunnable, DELAY_20_FPS)
-                                        }
-                                        else -> {
-                                            bitmapComplete = true
-                                        }
+                                    // The next frame is taken no sooner than the stream's frame
+                                    // interval after this one was, counting the time the encoding took.
+                                    val wait = frameInterval - (SystemClock.elapsedRealtime() - streamFrameStartedAt)
+                                    if (wait > 0) {
+                                        bitmapCompleteHandler.postDelayed(bitcoinCompleteRunnable, wait)
+                                    } else {
+                                        bitmapComplete = true
                                     }
                                 }
                             })
+                            streamFrameStartedAt = SystemClock.elapsedRealtime()
                             byteArrayCreateTask?.execute(stream.byteArray, stream.width, stream.height, cameraOrientation, configuration.cameraRotate)
                             bitmapComplete = false
                         }
@@ -407,17 +419,20 @@ constructor(private val context: Context) {
     }
 
     @SuppressLint("MissingPermission")
-    private fun initCamera(camerId: Int, fsp: Float, configuration: Configuration): CameraSource {
-        // Use low resolution (320x240) if enabled, otherwise use standard resolution (640x480)
-        val width = if (configuration.cameraLowResolution) 320 else 640
-        val height = if (configuration.cameraLowResolution) 240 else 480
-        
+    private fun initCamera(camerId: Int, profile: CameraProfile): CameraSource {
         return CameraSource.Builder(context, multiDetector!!)
-                .setRequestedFps(fsp)
+                .setRequestedFps(profile.fps)
                 .setAutoFocusEnabled(true)
-                .setRequestedPreviewSize(width, height)
+                .setRequestedPreviewSize(profile.resolution.width, profile.resolution.height)
                 .setFacing(camerId)
                 .build()
+    }
+
+    // The camera opens at the supported size closest to the one asked for, which on an
+    // older device is often not the one asked for.
+    private fun recordActiveResolution() {
+        activeResolution = cameraSource?.previewSize?.let { CameraResolution(it.width, it.height) }
+        Timber.i("Camera running at $activeResolution")
     }
 
     interface OnCompleteListener {
@@ -502,11 +517,4 @@ constructor(private val context: Context) {
         }
     }
 
-    companion object {
-        const val DELAY_20_FPS = (100 * 2).toLong() // 200 milliseconds
-        const val DELAY_15_FPS = (100 * 3).toLong() // 300 milliseconds
-        const val DELAY_10_FPS = (100 * 4).toLong() // 400 milliseconds
-        const val DELAY_5_FPS = (100 * 5).toLong() // 500 milliseconds
-
-    }
 }

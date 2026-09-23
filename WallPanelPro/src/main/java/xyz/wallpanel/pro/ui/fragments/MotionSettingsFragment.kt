@@ -21,6 +21,7 @@ import android.content.SharedPreferences
 import android.os.Bundle
 import androidx.preference.SwitchPreference
 import androidx.preference.EditTextPreference
+import androidx.preference.Preference
 import android.view.Menu
 import android.view.MenuInflater
 import android.view.MenuItem
@@ -97,6 +98,13 @@ class MotionSettingsFragment : BaseSettingsFragment() {
         //bindPreferenceSummaryToValue(motionLeniencyPreference!!)
         bindPreferenceSummaryToValue(motionLumaPreference!!)
         bindPreferenceSummaryToValue(motionClearPreference!!)
+        listOf(
+            R.string.key_setting_camera_boost_resolution,
+            R.string.key_setting_camera_boost_fps,
+            R.string.key_setting_camera_boost_hold,
+        ).forEach { key ->
+            findPreference<Preference>(getString(key))?.let { bindPreferenceSummaryToValue(it) }
+        }
     }
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {

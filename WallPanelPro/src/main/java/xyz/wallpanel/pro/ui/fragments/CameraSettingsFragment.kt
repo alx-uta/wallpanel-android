@@ -151,6 +151,10 @@ class CameraSettingsFragment : BaseSettingsFragment() {
 
         cameraPreference?.isChecked = configuration.cameraEnabled
         bindPreferenceSummaryToValue(fpsPreference!!)
+        findPreference<ListPreference>(getString(R.string.key_setting_camera_resolution))?.let {
+            it.value = configuration.cameraResolution.toString()
+            bindPreferenceSummaryToValue(it)
+        }
         bindPreferenceSummaryToValue(frameSkipPreference!!)
 
         motionDetectionPreference = findPreference("button_key_motion_detection")

@@ -109,6 +109,36 @@ class MqttDiscoveryTest {
     }
 
     @Test
+    fun `camera selects send the chosen option as json and read the request back`() {
+        configuration.cameraEnabled = true
+        val resolution = config("select/cameraResolution")
+        assertEquals("wallpanel/kitchen/command", resolution.getString("command_topic"))
+        assertEquals("""{"cameraResolution": {{ value | to_json }}}""", resolution.getString("command_template"))
+        assertEquals("wallpanel/kitchen/state", resolution.getString("state_topic"))
+        assertEquals("{{ value_json.cameraResolution }}", resolution.getString("value_template"))
+        assertEquals(
+            listOf("auto", "320x240", "640x480", "1280x720"),
+            resolution.getJSONArray("options").let { a -> (0 until a.length()).map { a.getString(it) } }
+        )
+
+        val fps = config("select/cameraFps")
+        assertEquals("""{"cameraFps": {{ value | to_json }}}""", fps.getString("command_template"))
+        assertEquals("{{ value_json.cameraFps }}", fps.getString("value_template"))
+        assertEquals(
+            listOf("auto", "5", "10", "15", "20", "25", "30"),
+            fps.getJSONArray("options").let { a -> (0 until a.length()).map { a.getString(it) } }
+        )
+    }
+
+    @Test
+    fun `camera selects are removed while the camera is off`() {
+        configuration.cameraEnabled = false
+        val all = entities()
+        assertNull(all.getValue("select/cameraResolution").config)
+        assertNull(all.getValue("select/cameraFps").config)
+    }
+
+    @Test
     fun `brightness slider covers the full android range`() {
         configuration.useScreenBrightness = true
         val brightness = config("number/brightness")
