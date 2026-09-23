@@ -24,6 +24,7 @@ import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
 import androidx.preference.SwitchPreference
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
 import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
@@ -55,6 +56,24 @@ class CameraSettingsFragment : BaseSettingsFragment() {
     private var rotatePreference: ListPreference? = null
 
     var cameraList = ArrayList<CameraUtils.Companion.CameraList>()
+
+    // Registered on the fragment so the answer comes back here. Asked through the activity,
+    // it went to the activity and the switch stayed on after the permission was refused.
+    private val cameraPermissionRequest = registerForActivityResult(ActivityResultContracts.RequestPermission()) { granted ->
+        if (!isAdded) {
+            return@registerForActivityResult
+        }
+        if (granted) {
+            Toast.makeText(requireContext(), R.string.toast_camera_permission_granted, Toast.LENGTH_LONG).show()
+            configuration.cameraEnabled = true
+            cameraPreference?.isChecked = true
+            createCameraList()
+        } else {
+            Toast.makeText(requireContext(), R.string.toast_camera_permission_denied, Toast.LENGTH_LONG).show()
+            configuration.cameraEnabled = false
+            cameraPreference?.isChecked = false
+        }
+    }
 
     override fun onAttach(context: Context) {
         AndroidSupportInjection.inject(this)
@@ -165,6 +184,7 @@ class CameraSettingsFragment : BaseSettingsFragment() {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP && activity != null) {
             if (ActivityCompat.checkSelfPermission(requireActivity(), Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED && configuration.cameraEnabled) {
                 configuration.cameraEnabled = false
+                cameraPreference?.isChecked = false
                 dialogUtils.showAlertDialog(requireActivity(), getString(R.string.dialog_no_camera_permissions))
             }
         }
@@ -194,37 +214,6 @@ class CameraSettingsFragment : BaseSettingsFragment() {
         cameraStreaming?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
             view.let { Navigation.findNavController(it).navigate(R.id.action_camera_fragment_to_http_fragment) }
             false
-        }
-    }
-
-    private fun requestCameraPermissions() {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && !configuration.cameraPermissionsShown) {
-            if (PackageManager.PERMISSION_DENIED == ContextCompat.checkSelfPermission(requireActivity(), Manifest.permission.CAMERA)
-                    || PackageManager.PERMISSION_DENIED == ContextCompat.checkSelfPermission(requireActivity(), android.Manifest.permission.READ_EXTERNAL_STORAGE)) {
-                configuration.cameraPermissionsShown = true
-                ActivityCompat.requestPermissions(requireActivity(),
-                        arrayOf(Manifest.permission.CAMERA, Manifest.permission.READ_EXTERNAL_STORAGE),
-                        PERMISSIONS_REQUEST_CAMERA)
-            }
-        } else {
-            configuration.cameraPermissionsShown = true
-        }
-    }
-
-    override fun onRequestPermissionsResult(requestCode: Int, permissions: Array<String>, grantResults: IntArray) {
-        when (requestCode) {
-            PERMISSIONS_REQUEST_CAMERA -> {
-                // If request is cancelled, the result arrays are empty.
-                if (grantResults.isNotEmpty() && grantResults[0] == PackageManager.PERMISSION_GRANTED && configuration.cameraPermissionsShown) {
-                    Toast.makeText(requireContext(), R.string.toast_camera_permission_granted, Toast.LENGTH_LONG).show()
-                    configuration.cameraEnabled = true
-                    cameraPreference?.isChecked = true
-                } else {
-                    Toast.makeText(requireContext(), R.string.toast_camera_permission_denied, Toast.LENGTH_LONG).show()
-                    configuration.cameraEnabled = false
-                    cameraPreference?.isChecked = false
-                }
-            }
         }
     }
 
@@ -261,11 +250,13 @@ class CameraSettingsFragment : BaseSettingsFragment() {
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
         when (key) {
             PREF_CAMERA_ENABLED -> {
-                val cameraEnabled = cameraPreference?.isChecked
-                cameraEnabled?.let {
-                    if(it) {
-                        requestCameraPermissions()
-                    }
+                val cameraEnabled = cameraPreference?.isChecked ?: return
+                // Without the permission the camera stays off until it is granted. Asked every
+                // time: once the user has refused for good, Android answers straight away
+                // without a prompt, and the switch goes back off with a message.
+                if (cameraEnabled && ContextCompat.checkSelfPermission(requireContext(), Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+                    cameraPermissionRequest.launch(Manifest.permission.CAMERA)
+                } else {
                     configuration.cameraEnabled = cameraEnabled
                 }
             }
@@ -273,7 +264,6 @@ class CameraSettingsFragment : BaseSettingsFragment() {
     }
 
     companion object {
-        const val PERMISSIONS_REQUEST_CAMERA = 201
         const val PREF_CAMERA_ROTATE = "pref_setting_camera_rotate"
         const val PREF_CAMERA_ENABLED = "pref_setting_camera_enabled"
     }

@@ -22,6 +22,7 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.Manifest
 import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
 import android.media.MediaPlayer
@@ -157,6 +158,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     // profile does not restart it.
     @Volatile
     private var appliedCameraProfile: CameraProfile? = null
+    @Volatile
+    private var cameraPermissionToastShown = false
     private val cameraProfileHandler = Handler(Looper.getMainLooper())
     private val endCameraBoostRunnable = Runnable {
         Timber.i("Motion boost off")
@@ -476,13 +479,19 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                 state.put(MqttUtils.STATE_SCREENSAVER_ON, isScreenSaverActive)
                 // What was asked for, which is what the Home Assistant selects read back, and
                 // what the camera is running at, which can differ: a boost moves it, and a
-                // camera without the size asked for opens at the closest one it has.
+                // camera without the size asked for opens at the closest one it has. The
+                // running values are null while the camera is off or could not be opened,
+                // for instance without the camera permission.
                 state.put(MqttUtils.STATE_CAMERA_RESOLUTION, cameraResolutionOverride?.toString() ?: CameraProfile.AUTO)
                 state.put(MqttUtils.STATE_CAMERA_FPS, cameraFpsOverride?.toString() ?: CameraProfile.AUTO)
-                val profile = currentCameraProfile()
-                val resolution = cameraReader?.activeResolution ?: profile.resolution
-                state.put(MqttUtils.STATE_CAMERA_RESOLUTION_ACTIVE, resolution.toString())
-                state.put(MqttUtils.STATE_CAMERA_FPS_ACTIVE, if (profile.fps % 1f == 0f) profile.fps.toInt() else profile.fps.toDouble())
+                val activeResolution = if (cameraRunning) cameraReader?.activeResolution else null
+                val activeFps = appliedCameraProfile?.fps?.takeIf { activeResolution != null }
+                state.put(MqttUtils.STATE_CAMERA_RESOLUTION_ACTIVE, activeResolution?.toString() ?: JSONObject.NULL)
+                state.put(MqttUtils.STATE_CAMERA_FPS_ACTIVE, when {
+                    activeFps == null -> JSONObject.NULL
+                    activeFps % 1f == 0f -> activeFps.toInt()
+                    else -> activeFps.toDouble()
+                })
                 state.put(MqttUtils.STATE_CAMERA_BOOSTED, cameraBoosted)
             } catch (e: JSONException) {
                 e.printStackTrace()
@@ -685,6 +694,20 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
      */
     private fun configureCamera() {
         if (!configuration.cameraEnabled) {
+            return
+        }
+        // The camera can be switched on without the permission to use it: the setting comes
+        // back with a restored backup, a command can turn it on, and the permission can be
+        // taken away from the system settings. Opening it would only fail, on every start.
+        if (ContextCompat.checkSelfPermission(this, Manifest.permission.CAMERA) != PackageManager.PERMISSION_GRANTED) {
+            Timber.w("The camera is switched on but the camera permission is not granted")
+            cameraRunning = false
+            // A service start comes through here twice, from onCreate() and onStartCommand().
+            if (!cameraPermissionToastShown) {
+                cameraPermissionToastShown = true
+                sendToastMessage(getString(R.string.toast_camera_permission_denied))
+            }
+            publishApplicationState()
             return
         }
         if (cameraReader == null) {
@@ -936,6 +959,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     // Enable the camera in settings and start it, along with motion, face, QR and streaming
     private fun restartCamera() {
         configuration.cameraEnabled = true
+        // Asked for by a command, so it is told again why nothing starts.
+        cameraPermissionToastShown = false
         configureCamera()
         startHttp()
         if (configuration.httpMJPEGEnabled) {
@@ -988,6 +1013,13 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         if (!configuration.cameraEnabled) {
             response.code(503)
             response.send("Camera is disabled")
+            return
+        }
+        // Switched on but not running, which is what a missing camera permission or a
+        // camera that failed to open leaves. The stream would stay open and never send.
+        if (!cameraRunning) {
+            response.code(503)
+            response.send("Camera is not running")
             return
         }
         if (mJpegSockets.size < configuration.httpMJPEGMaxStreams) {

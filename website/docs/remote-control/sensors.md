@@ -164,8 +164,8 @@ camera | true/false | ```{"camera":false}``` | Whether the camera is enabled.
 screenSaverOn | true/false | ```{"screenSaverOn":false}``` | Whether the screensaver is currently showing.
 cameraResolution | size or auto | ```{"cameraResolution":"auto"}``` | The resolution the last `cameraResolution` command pinned, or `auto`.
 cameraFps | 1-30 or auto | ```{"cameraFps":"auto"}``` | The frame rate the last `cameraFps` command pinned, as text, or `auto`.
-cameraResolutionActive | size | ```{"cameraResolutionActive":"640x480"}``` | The resolution the camera is running at, which a boost or a camera without the size asked for can make different from the settings.
-cameraFpsActive | number | ```{"cameraFpsActive":15}``` | The frame rate the camera was asked for.
+cameraResolutionActive | size or null | ```{"cameraResolutionActive":"640x480"}``` | The resolution the camera is running at, which a boost or a camera without the size asked for can make different from the settings. `null` while the camera is off or could not be opened, for instance without the camera permission.
+cameraFpsActive | number or null | ```{"cameraFpsActive":15}``` | The frame rate the running camera was asked for, `null` while it is not running.
 cameraBoosted | true/false | ```{"cameraBoosted":false}``` | Whether motion has the camera on its [boost](../video-streaming.md#motion-boost) resolution and frame rate.
 
 * State values are presented together as a JSON block

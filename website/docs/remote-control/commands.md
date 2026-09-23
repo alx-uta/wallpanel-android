@@ -20,7 +20,7 @@ wake | false | ```{"wake": false}``` | Release screen wake (Note: screen will no
 speak | data | ```{"speak": "Hello!"}``` | Uses the devices TTS to speak the message
 settings | data | ```{"settings": true}``` | Opens the settings screen remotely.
 brightness | data | ```{"brightness": 1}``` | Changes the screens brightness, value 0-255 (0 turns the backlight off).
-camera | data | ```{"camera": true}``` | Turns on/off camera, this will also disable streaming, motion, QRCode, and face detection. The REST API stays up; the stream endpoint answers 503 while the camera is off.
+camera | data | ```{"camera": true}``` | Turns on/off camera, this will also disable streaming, motion, QRCode, and face detection. The REST API stays up; the stream endpoint answers 503 while the camera is off. Turning it on without the camera permission granted shows a "Camera permission not granted" message and the camera does not start.
 cameraResolution | size or auto | ```{"cameraResolution": "1280x720"}``` | Runs the camera at `320x240`, `640x480` or `1280x720` until told otherwise; `auto` goes back to the configured resolution. See [Camera resolution and frame rate](#camera-resolution-and-frame-rate).
 cameraFps | 1-30 or auto | ```{"cameraFps": 20}``` | Runs the camera at this frame rate until told otherwise; `auto` goes back to the configured one. See [Camera resolution and frame rate](#camera-resolution-and-frame-rate).
 volume | data | ```{"volume": 100}``` | Sets the device's media volume, value 0-100 (in %). Applies to audio playback and Text-To-Speech alike.

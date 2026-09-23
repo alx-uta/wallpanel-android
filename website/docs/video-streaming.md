@@ -8,6 +8,10 @@ If video streaming is enabled, then the stream can be accessed with this URL:
 http://yourip:2971/camera/stream
 ```
 
+The endpoint answers `503` while the camera is switched off, and while it is switched on
+but not running -- when the camera permission has not been granted, or the camera could
+not be opened.
+
 ## Frame rate
 
 **Settings &rarr; HTTP &rarr; MJPEG Stream FPS** caps how many frames a second the stream
