@@ -29,9 +29,11 @@ import android.util.AttributeSet
 import android.util.TypedValue
 import android.view.MotionEvent
 import android.view.View
+import android.view.ViewGroup
 import android.webkit.*
 import android.widget.RelativeLayout
 import android.widget.Toast
+import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
 import com.bumptech.glide.Glide
 import com.bumptech.glide.load.engine.DiskCacheStrategy
@@ -112,12 +114,37 @@ class ScreenSaverView : RelativeLayout {
     override fun onFinishInflate() {
         super.onFinishInflate()
         binding = DialogScreenSaverBinding.bind(this)
+        // The WebView is there even when the screensaver shows no web page
+        binding.screenSaverWebView.webViewClient = object : WebViewClient() {
+            @RequiresApi(Build.VERSION_CODES.O)
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                return onWebViewRendererGone(view)
+            }
+        }
     }
 
     override fun onDetachedFromWindow() {
         super.onDetachedFromWindow()
         timeHandler?.removeCallbacks(timeRunnable)
         wallPaperHandler?.removeCallbacks(wallPaperRunnable)
+        // A new screensaver brings its own view, and this WebView would otherwise linger
+        // until garbage collected, still tied to the renderer
+        binding.screenSaverWebView.destroy()
+    }
+
+    /**
+     * All of the application's WebViews share one renderer, so when the dashboard's dies this
+     * one goes too, even while it shows nothing. Returning false would end the application.
+     */
+    private fun onWebViewRendererGone(view: WebView): Boolean {
+        Timber.e("Screensaver WebView renderer gone")
+        (view.parent as? ViewGroup)?.removeView(view)
+        view.destroy()
+        // A clock or wallpaper screensaver carries on without it
+        if (showWebPage && isAttachedToWindow) {
+            closeView()
+        }
+        return true
     }
 
     fun init(hasWeb: Boolean, urlWeb: String, hasWallpaper: Boolean, hasClock: Boolean, rotationDelay: Long) {
@@ -180,11 +207,12 @@ class ScreenSaverView : RelativeLayout {
         configureWebSettings("")
         clearCache()
         binding.screenSaverWebView.webChromeClient = object : WebChromeClient() {
+            // The page is stuck until the alert is answered, however the dialog goes away
             override fun onJsAlert(view: WebView, url: String, message: String, result: JsResult): Boolean {
                 AlertDialog.Builder(view.context, R.style.CustomAlertDialog)
-                        .setTitle(context.getString(R.string.dialog_title_ssl_error))
                         .setMessage(message)
                         .setPositiveButton(android.R.string.ok, null)
+                        .setOnDismissListener { result.confirm() }
                         .show()
                 return true
             }
@@ -203,6 +231,11 @@ class ScreenSaverView : RelativeLayout {
 
             override fun onReceivedError(view: WebView, errorCode: Int, description: String, failingUrl: String) {
                 Toast.makeText(context, description, Toast.LENGTH_SHORT).show()
+            }
+
+            @RequiresApi(Build.VERSION_CODES.O)
+            override fun onRenderProcessGone(view: WebView, detail: RenderProcessGoneDetail): Boolean {
+                return onWebViewRendererGone(view)
             }
 
             // TODO we need to load SSL certificates

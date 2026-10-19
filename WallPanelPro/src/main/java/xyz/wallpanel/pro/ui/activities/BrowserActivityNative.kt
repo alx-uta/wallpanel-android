@@ -36,7 +36,6 @@ import android.view.*
 import android.webkit.*
 import android.widget.Button
 import android.widget.Toast
-import androidx.annotation.RequiresApi
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -74,7 +73,6 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     private var usingGeckoView = false
 
     private lateinit var binding: ActivityBrowserBinding
-    private var certPermissionsShown = false
     private var playlistHandler: Handler? = null
     private var codeBottomSheet: CodeBottomSheetFragment? = null
     private var webSettings: WebSettings? = null
@@ -82,7 +80,8 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     private val reconnectionHandler = Handler(Looper.getMainLooper())
     private var connectionLiveData: ConnectionLiveData? = null
     override var isConnected = true
-    private var webkitPermissionRequest: PermissionRequest? = null
+    // When the WebView's renderer last died, to slow down a page that keeps killing it
+    private var lastRendererDeath = 0L
     private var awaitingReconnect = false
     private var browserEnginePaused = false
     private var pendingGeckoReloadOnResume = false
@@ -628,10 +627,6 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
     }
 
-    override fun setWebkitPermissionRequest(request: PermissionRequest?) {
-        webkitPermissionRequest = request
-    }
-
     override fun displayProgress(): Boolean {
         return displayProgress
     }
@@ -642,13 +637,57 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         reconnectionHandler.postDelayed(reloadPageRunnable, 30000)
     }
 
-    override fun certPermissionsShown(): Boolean {
-        return certPermissionsShown
-    }
-
     override fun stopReloadDelay() {
         awaitingReconnect = false
         reconnectionHandler.removeCallbacks(reloadPageRunnable)
+    }
+
+    override fun replaceDeadWebView(deadView: WebView) {
+        val parent = deadView.parent as? ViewGroup
+        val index = parent?.indexOfChild(deadView) ?: -1
+        val layoutParams = deadView.layoutParams
+        parent?.removeView(deadView)
+        deadView.destroy()
+        if (webView !== deadView) {
+            return
+        }
+        webView = null
+        webSettings = null
+        if (parent == null || isFinishing) {
+            return
+        }
+        // Built after the WebView's callback has returned
+        reconnectionHandler.post {
+            if (isFinishing) {
+                return@post
+            }
+            val freshView = try {
+                WebView(this)
+            } catch (e: Exception) {
+                Timber.e(e, "Unable to create a new WebView, restarting the application")
+                AppRestartHelper.restartApplication(this)
+                return@post
+            }
+            freshView.id = R.id.activity_browser_webview_native
+            parent.addView(freshView, index, layoutParams)
+            configureSystemWebView(freshView)
+            val layerType = if (configuration.hardwareAccelerated) View.LAYER_TYPE_HARDWARE else View.LAYER_TYPE_SOFTWARE
+            freshView.setLayerType(layerType, null)
+            if (browserEnginePaused) {
+                freshView.onPause()
+            }
+            val now = SystemClock.elapsedRealtime()
+            val diedRecently = lastRendererDeath != 0L && now - lastRendererDeath < RENDERER_DEATH_WINDOW_MS
+            lastRendererDeath = now
+            if (diedRecently) {
+                // A page that brings the renderer down as soon as it loads would otherwise
+                // keep the device busy doing nothing else
+                Timber.w("The WebView renderer died again within a minute, loading the page later")
+                startReloadDelay()
+            } else {
+                initWebPageLoad()
+            }
+        }
     }
 
     /**
@@ -808,27 +847,6 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
-    override fun askForWebkitPermission(permission: String, requestCode: Int) {
-        if (ContextCompat.checkSelfPermission(
-                applicationContext,
-                permission
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            // Should we show an explanation?
-            if (ActivityCompat.shouldShowRequestPermissionRationale(this, permission)) {
-                // Show an explanation to the user *asynchronously* -- don't block
-                // this thread waiting for the user's response! After the user
-                // sees the explanation, try again to request the permission.
-            } else {
-                // No explanation needed, we can request the permission.
-                ActivityCompat.requestPermissions(this, arrayOf(permission), requestCode)
-            }
-        } else {
-            webkitPermissionRequest?.grant(webkitPermissionRequest?.resources)
-        }
-    }
-
     private fun configureConnection() {
         connectionLiveData = ConnectionLiveData(this)
         connectionLiveData?.observe(this) { connected ->
@@ -865,6 +883,13 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
 
                 // Configure delegates
                 configureGeckoViewDelegates()
+
+                // Unused, and left in place it would share the WebView renderer of a web
+                // screensaver with no client to handle that renderer's death
+                binding.activityBrowserWebviewNative.let { unused ->
+                    (unused.parent as? ViewGroup)?.removeView(unused)
+                    unused.destroy()
+                }
             } catch (e: Exception) {
                 Timber.e(e, "Failed to initialize GeckoView, falling back to WebView")
                 // Fallback to WebView
@@ -882,8 +907,9 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
     }
 
-    private fun configureSystemWebView() {
-        webView = binding.activityBrowserWebviewNative
+    private fun configureSystemWebView(view: WebView = binding.activityBrowserWebviewNative) {
+        webView = view
+        webSettings = null
         webView?.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
         // Force links and redirects to open in the WebView instead of in a browser
         configureWebChromeClient()
@@ -967,7 +993,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         if (usingGeckoView) {
             binding.activityBrowserGeckoview.visibility = View.VISIBLE
         } else {
-            binding.activityBrowserWebviewNative.visibility = View.VISIBLE
+            webView?.visibility = View.VISIBLE
         }
         // set user agent
         configureWebSettings(configuration.browserUserAgent)
@@ -1094,5 +1120,6 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         private const val PERMISSIONS_REQUEST_PAGE_FIRST = 300
         private const val PERMISSIONS_REQUEST_PAGE_LAST = 399
         private const val BOOT_GATE_POLL_MS = 1000L
+        private const val RENDERER_DEATH_WINDOW_MS = 60_000L
     }
 }

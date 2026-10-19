@@ -624,6 +624,9 @@ class SettingsFragment : BaseSettingsFragment() {
                             clearCache(true)
                             clearHistory()
                             clearFormData()
+                            // Left alive it would share the renderer's fate with no client to
+                            // handle its death, and take the application down with it
+                            destroy()
                         }
                         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                             android.webkit.CookieManager.getInstance().removeAllCookies(null)
