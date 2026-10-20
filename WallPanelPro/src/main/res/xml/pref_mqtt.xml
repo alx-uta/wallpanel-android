@@ -50,10 +50,9 @@
             android:summary="@string/preference_summary_tls_connection"
             android:title="@string/preference_tls_connection" />
 
-        <EditTextPreference
+        <xyz.wallpanel.pro.ui.views.NumberEditTextPreference
             android:defaultValue="@string/default_setting_mqtt_serverport"
             android:dependency="@string/key_setting_mqtt_enabled"
-            android:inputType="number"
             android:key="@string/key_setting_mqtt_serverport"
             android:selectAllOnFocus="true"
             android:singleLine="true"

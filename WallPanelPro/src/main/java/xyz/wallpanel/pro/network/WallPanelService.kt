@@ -122,6 +122,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     private var cameraRunning = false
     private var sensorsStarted = false
     private var sensorsFrequency = 0
+    private var sensorsSelection: Set<String>? = null
 
     @Inject
     lateinit var sensorReader: SensorReader
@@ -614,15 +615,19 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     /**
      * Brings the readings in line with the settings, which the settings screen can change
      * without the service stopping. Restarting them resends the readings that never change,
-     * so it happens only when they are not running or the interval moved.
+     * so it happens only when they are not running, the interval moved or the choice of
+     * sensors changed. The sensors unticked in the discovery settings are not read at all
+     * while discovery is on; with it off the picker is greyed out and every reading goes out.
      */
     private fun startSensors() {
         val frequency = configuration.mqttSensorFrequency
+        val selection = if (configuration.mqttDiscovery) configuration.mqttDiscoverySensorIds else null
         if (configuration.sensorsEnabled && mqttOptions.isValid) {
-            if (!sensorsStarted || sensorsFrequency != frequency) {
+            if (!sensorsStarted || sensorsFrequency != frequency || sensorsSelection != selection) {
                 sensorsStarted = true
                 sensorsFrequency = frequency
-                sensorReader.startReadings(frequency, sensorCallback)
+                sensorsSelection = selection
+                sensorReader.startReadings(frequency, sensorCallback, selection)
             }
         } else if (sensorsStarted) {
             sensorsStarted = false
@@ -1083,14 +1088,18 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         if (mJpegSockets.size < configuration.httpMJPEGMaxStreams) {
             Timber.i("Starting new MJPEG stream")
             response.headers.add("Cache-Control", "no-cache")
-            response.headers.add("Connection", "close")
+            // Replaces the server's own Keep-Alive. With it, the server would also send the
+            // stream with chunked transfer encoding, which some MJPEG viewers do not read.
+            response.headers.set("Connection", "close")
             response.headers.add("Pragma", "no-cache")
-            response.setContentType("multipart/x-mixed-replace; boundary=--jpgboundary")
+            // The boundary as declared here goes without the two dashes each part opens with
+            response.setContentType("multipart/x-mixed-replace; boundary=jpgboundary")
             response.code(200)
             response.writeHead()
             mJpegSockets.add(response)
         } else {
             Timber.i("MJPEG stream limit was reached, not starting")
+            response.code(503)
             response.send("Max streams exceeded")
             response.end()
         }

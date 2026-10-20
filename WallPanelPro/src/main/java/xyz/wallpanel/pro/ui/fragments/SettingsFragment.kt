@@ -208,6 +208,14 @@ class SettingsFragment : BaseSettingsFragment() {
         fullScreenPreference.isChecked = configuration.fullScreen
         settingsTransparentPreference.isChecked = configuration.settingsTransparent
         settingsDisablePreference.isChecked = configuration.settingsDisabled
+        settingsDisablePreference.setOnPreferenceChangeListener { _, newValue ->
+            if (newValue == true) {
+                confirmDisableSettingsButton()
+                false
+            } else {
+                true
+            }
+        }
         useDarkThemeSettings.isChecked = configuration.useDarkTheme
         userAgentPreference.text = configuration.browserUserAgent
         dashboardPreference?.text = configuration.appLaunchUrl
@@ -641,6 +649,26 @@ class SettingsFragment : BaseSettingsFragment() {
                     Timber.e(e, "Error clearing cache")
                     Toast.makeText(requireContext(), "Error clearing cache: ${e.message}", Toast.LENGTH_LONG).show()
                 }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /**
+     * Hiding the button leaves nothing to tap on the dashboard, so it is confirmed first,
+     * with the ways that are left to open the settings.
+     */
+    private fun confirmDisableSettingsButton() {
+        val message = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
+            R.string.dialog_settings_button_disable_message_shortcut
+        } else {
+            R.string.dialog_settings_button_disable_message
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.dialog_settings_button_disable_title)
+            .setMessage(message)
+            .setPositiveButton(R.string.button_settings_button_disable) { _, _ ->
+                settingsDisablePreference.isChecked = true
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()

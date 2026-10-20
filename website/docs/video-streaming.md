@@ -12,6 +12,14 @@ The endpoint answers `503` while the camera is switched off, and while it is swi
 but not running -- when the camera permission has not been granted, or the camera could
 not be opened.
 
+## Viewers
+
+By default the stream serves **one viewer at a time**. While Home Assistant, go2rtc or a
+browser tab holds the stream, a second one is turned away with `503 Max streams exceeded`,
+which looks like a broken stream from the second client's side. Raise **Settings &rarr; HTTP
+&rarr; MJPEG Camera Max Streams** to allow more. Each viewer gets every frame, so on an
+older device each extra one adds to the CPU cost below.
+
 ## Frame rate
 
 **Settings &rarr; HTTP &rarr; MJPEG Stream FPS** caps how many frames a second the stream

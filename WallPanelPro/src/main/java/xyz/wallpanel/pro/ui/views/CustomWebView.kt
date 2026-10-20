@@ -44,7 +44,6 @@ class CustomWebView @JvmOverloads constructor(
         isFocusable = true
         isFocusableInTouchMode = true
         webChromeClient = WebChromeClient()
-        //webViewClient = WebClientRenderWrapper(WebViewClient())
         //addJavascriptInterface(androidInterface, "Android")
 
         settings.javaScriptEnabled = true

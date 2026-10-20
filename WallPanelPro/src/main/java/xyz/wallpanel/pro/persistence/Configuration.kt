@@ -258,9 +258,14 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
             sharedPreferences.edit().putString(context.getString(R.string.key_setting_mqtt_serverport), value.toString()).apply()
         }
 
+    /**
+     * Every topic is the base topic with a suffix added straight on, so a base topic typed
+     * without its closing slash is given one: `wallpanel/kitchen` would otherwise put the
+     * commands on `wallpanel/kitchencommand`.
+     */
     var mqttBaseTopic: String
-        get() = getStringPref(R.string.key_setting_mqtt_basetopic,
-                R.string.default_setting_mqtt_basetopic)
+        get() = normalizeBaseTopic(getStringPref(R.string.key_setting_mqtt_basetopic,
+                R.string.default_setting_mqtt_basetopic))
         set(value) {
             sharedPreferences.edit().putString(context.getString(R.string.key_setting_mqtt_basetopic), value).apply()
         }
@@ -487,8 +492,23 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         set(value) =
             sharedPreferences.edit().putBoolean(context.getString(R.string.key_screensaver_blank), value).apply()
 
+    /**
+     * Earlier versions kept this under the key `c`, and the switch on the settings screen
+     * under the one used now. The value under `c` is the one that took effect, so it is
+     * carried over the first time it is read.
+     */
     var hasDimScreenSaver: Boolean
-        get() = getBoolPref(R.string.key_screensaver_dim, R.string.default_screensaver_dim)
+        get() {
+            if (sharedPreferences.contains(PREF_SCREENSAVER_DIM_LEGACY)) {
+                val value = sharedPreferences.getBoolean(PREF_SCREENSAVER_DIM_LEGACY, false)
+                sharedPreferences.edit()
+                    .putBoolean(context.getString(R.string.key_screensaver_dim), value)
+                    .remove(PREF_SCREENSAVER_DIM_LEGACY)
+                    .apply()
+                return value
+            }
+            return getBoolPref(R.string.key_screensaver_dim, R.string.default_screensaver_dim)
+        }
         set(value) =
             sharedPreferences.edit().putBoolean(context.getString(R.string.key_screensaver_dim), value).apply()
 
@@ -593,6 +613,13 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     }
 
     companion object {
+        /** See [mqttBaseTopic]. Surrounding spaces are dropped, an empty topic stays empty. */
+        fun normalizeBaseTopic(topic: String): String {
+            val trimmed = topic.trim()
+            return if (trimmed.isEmpty() || trimmed.endsWith("/")) trimmed else "$trimmed/"
+        }
+
+        private const val PREF_SCREENSAVER_DIM_LEGACY = "c"
         private const val PREF_BROWSER_SETTINGS_UPDATED = "pref_browser_settings_updated"
         private const val PREF_DARK_THEME = "pref_dark_theme"
         private const val PREF_FULL_SCREEN = "pref_full_screen"

@@ -16,6 +16,8 @@
 
 package xyz.wallpanel.pro.ui.fragments
 
+import android.content.Context
+import android.content.DialogInterface
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
@@ -32,7 +34,16 @@ import com.google.android.material.bottomsheet.BottomSheetDialogFragment
 import xyz.wallpanel.pro.R
 import xyz.wallpanel.pro.databinding.FragmentCodeBottomSheetBinding
 
-class CodeBottomSheetFragment (private val alarmListener: OnAlarmCodeFragmentListener) : BottomSheetDialogFragment() {
+/**
+ * The keypad that asks for the settings code. The host activity is the listener, which is
+ * what lets the sheet come back after a rotation: the fragment is then rebuilt with no
+ * arguments but its saved ones.
+ */
+class CodeBottomSheetFragment : BottomSheetDialogFragment() {
+
+    private lateinit var alarmListener: OnAlarmCodeFragmentListener
+    private val currentCode: String
+        get() = arguments?.getString(ARG_CODE).orEmpty()
 
     private var codeComplete = false
     private var enteredCode = ""
@@ -56,6 +67,17 @@ class CodeBottomSheetFragment (private val alarmListener: OnAlarmCodeFragmentLis
         fun onComplete(code: String)
         fun onCodeError()
         fun onCancel()
+    }
+
+    override fun onAttach(context: Context) {
+        super.onAttach(context)
+        alarmListener = context as OnAlarmCodeFragmentListener
+    }
+
+    // Back, or a touch outside the sheet
+    override fun onCancel(dialog: DialogInterface) {
+        super.onCancel(dialog)
+        alarmListener.onCancel()
     }
 
     override fun onViewCreated(view: View, savedInstanceState: Bundle?) {
@@ -126,12 +148,14 @@ class CodeBottomSheetFragment (private val alarmListener: OnAlarmCodeFragmentLis
         enteredCode = ""
         showFilledPins(0)
         alarmListener.onCancel()
-        dismiss()
+        dismissAllowingStateLoss()
     }
 
     private fun onComplete(code: String) {
         alarmListener.onComplete(code)
-        dismiss()
+        // The code is checked half a second after the last digit, by when the screen may
+        // have gone off and the activity saved its state
+        dismissAllowingStateLoss()
     }
 
     private fun onError() {
@@ -205,11 +229,12 @@ class CodeBottomSheetFragment (private val alarmListener: OnAlarmCodeFragmentLis
 
     companion object {
         private  val MAX_CODE_LENGTH = 4
-        private var currentCode: String = ""
+        private const val ARG_CODE = "code"
 
-        fun newInstance(code: String, listener : OnAlarmCodeFragmentListener): CodeBottomSheetFragment {
-            currentCode = code
-            return CodeBottomSheetFragment(listener)
+        fun newInstance(code: String): CodeBottomSheetFragment {
+            return CodeBottomSheetFragment().apply {
+                arguments = Bundle().apply { putString(ARG_CODE, code) }
+            }
         }
     }
 }

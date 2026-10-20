@@ -22,15 +22,23 @@ import android.content.Context
 import android.content.Intent
 import android.os.Bundle
 import android.view.MenuItem
+import android.widget.Toast
+import androidx.lifecycle.Lifecycle
 import xyz.wallpanel.pro.R
 import xyz.wallpanel.pro.network.WallPanelService
 import xyz.wallpanel.pro.persistence.Configuration
+import xyz.wallpanel.pro.ui.fragments.CodeBottomSheetFragment
 import xyz.wallpanel.pro.utils.DialogUtils
 import dagger.android.support.DaggerAppCompatActivity
 import timber.log.Timber
 import javax.inject.Inject
 
-class SettingsActivity : DaggerAppCompatActivity() {
+/**
+ * The settings screen. It asks for the security code itself, so every way in is covered:
+ * the dashboard button, the `settings` command, the Home Assistant Settings button and the
+ * launcher shortcut. Nothing outside the application can start it.
+ */
+class SettingsActivity : DaggerAppCompatActivity(), CodeBottomSheetFragment.OnAlarmCodeFragmentListener {
 
     @Inject
     lateinit var configuration: Configuration
@@ -38,10 +46,11 @@ class SettingsActivity : DaggerAppCompatActivity() {
     @Inject
     lateinit var dialogUtils: DialogUtils
 
+    // Whether the code has been entered, or is not needed. Kept across a rotation.
+    private var unlocked = false
+
     public override fun onCreate(savedInstance: Bundle?) {
         super.onCreate(savedInstance)
-
-        setContentView(R.layout.activity_settings)
 
         supportActionBar?.show()
         supportActionBar?.setDisplayHomeAsUpEnabled(true)
@@ -49,21 +58,67 @@ class SettingsActivity : DaggerAppCompatActivity() {
         supportActionBar?.title = (getString(R.string.title_settings))
 
         lifecycle.addObserver(dialogUtils)
+
+        unlocked = savedInstance?.getBoolean(STATE_UNLOCKED) == true ||
+                configuration.isFirstTime || !configuration.settingsCodeRequired
+        if (unlocked) {
+            showSettings()
+        } else if (savedInstance == null) {
+            // After a rotation the code sheet comes back by itself
+            CodeBottomSheetFragment.newInstance(configuration.settingsCode)
+                .show(supportFragmentManager, CODE_SHEET_TAG)
+        }
+    }
+
+    // The settings are only inflated once the code is in, so nothing shows behind the sheet
+    private fun showSettings() {
+        setContentView(R.layout.activity_settings)
+    }
+
+    override fun onSaveInstanceState(outState: Bundle) {
+        super.onSaveInstanceState(outState)
+        outState.putBoolean(STATE_UNLOCKED, unlocked)
+    }
+
+    override fun onComplete(code: String) {
+        if (unlocked) {
+            return
+        }
+        unlocked = true
+        showSettings()
+        if (lifecycle.currentState.isAtLeast(Lifecycle.State.STARTED)) {
+            settingsScreenStarted(this)
+        }
+    }
+
+    override fun onCodeError() {
+        Toast.makeText(this, R.string.toast_code_invalid, Toast.LENGTH_SHORT).show()
+    }
+
+    override fun onCancel() {
+        if (!unlocked) {
+            finish()
+        }
     }
 
     /**
      * The camera is lent out while this screen is on view, not for as long as it exists: a
      * settings screen left behind another app would otherwise keep the camera, and motion
-     * and face detection with it, switched off.
+     * and face detection with it, switched off. Nothing is lent out while the code is
+     * still being asked for.
      */
     override fun onStart() {
         super.onStart()
-        settingsScreenStarted(this)
+        if (unlocked) {
+            settingsScreenStarted(this)
+        }
     }
 
     override fun onStop() {
         super.onStop()
-        settingsScreenStopped(this)
+        if (unlocked) {
+            settingsScreenStopped(this)
+        }
     }
 
     override fun onOptionsItemSelected(item: MenuItem): Boolean {
@@ -77,6 +132,8 @@ class SettingsActivity : DaggerAppCompatActivity() {
 
     companion object {
         const val PERMISSIONS_REQUEST_WRITE_SETTINGS = 200
+        private const val STATE_UNLOCKED = "unlocked"
+        private const val CODE_SHEET_TAG = "settings_code"
 
         // Settings screens stopped for a rotation, by class name, whose next start is the
         // same screen coming back

@@ -35,7 +35,7 @@ import dagger.android.support.DaggerApplication
 import org.mozilla.geckoview.GeckoRuntime
 import timber.log.Timber
 import xyz.wallpanel.pro.di.DaggerApplicationComponent
-import xyz.wallpanel.pro.utils.CrashlyticsDebugTree
+import xyz.wallpanel.pro.utils.ReleaseTree
 import xyz.wallpanel.pro.utils.LauncherShortcuts
 import xyz.wallpanel.pro.utils.WallpanelDebugTree
 
@@ -64,8 +64,7 @@ class WallPanel : DaggerApplication() {
             Timber.plant(WallpanelDebugTree())
             // Timber.plant(Timber.DebugTree())
         } else {
-            Timber.plant(CrashlyticsDebugTree())
-            // Timber.plant(CrashlyticsTree())
+            Timber.plant(ReleaseTree())
         }
         strictMode()
         LauncherShortcuts.createShortcuts(this)

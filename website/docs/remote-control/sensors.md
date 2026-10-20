@@ -262,7 +262,11 @@ absence of that. That means an entity WallPanel adds in a future version arrives
 rather than silently staying off until someone opens it and ticks it by hand.
 
 Unticking an entity removes it from Home Assistant rather than leaving it behind
-unavailable, and ticking it again brings it back. This is the way to drop controls you
+unavailable, and ticking it again brings it back. An unticked sensor is also no longer read
+or published to the broker at all, so it stops adding traffic as well as entities. The
+battery reading keeps going while any of **Battery Level**, **Charging**, **AC Plugged** or **USB
+Plugged** is ticked, since the other three are read from its payload. With MQTT Discovery
+switched off the pickers are greyed out and every sensor is published. This is the way to drop controls you
 don't want on a shared dashboard -- **Restart App** and **Shell Command**, say -- or to cut
 down sensor noise across a fleet.
 

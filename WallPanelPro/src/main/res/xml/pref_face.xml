@@ -31,8 +31,7 @@
             android:summary="@string/pref_face_wake_summary"
             android:dependency="@string/key_setting_camera_faceenabled"/>
 
-        <EditTextPreference
-            android:inputType="number"
+        <xyz.wallpanel.pro.ui.views.NumberEditTextPreference
             android:key="@string/key_setting_camera_face_size"
             android:selectAllOnFocus="true"
             android:singleLine="true"
