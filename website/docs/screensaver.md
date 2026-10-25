@@ -4,13 +4,15 @@ title: Screensaver and Brightness Control
 
 On some older devices, there is no screensaver support such as Google Daydream that automatically dims the screen.  Therefore the application provides a screensaver feature.  This feature along with the screen brightness option, allows the screen to dim when the screensaver is active.  With the Camera and Motion feature, the device can be automatically awaken when motion is detected.  Optionally, you can send an MQTT command to wake the screen or just touch the screen to deactivate the screensaver.
 
-There is setting to dim screen a set percentage when the screensaver is active, this requires the screen brightness setting be enabled. When set to a value above 0%, the screen will dim by the percent value set when the screensaver is active. So if the setting is 75%, the screen will dim to a value that is 75% of the default device brightness levels.
+There is a setting to dim the screen by a set percentage when the screensaver is active. When set to a value above 0%, the screen dims by that percentage, so at 75% it is left at a quarter of its usual brightness.
+
+The Dim Screen Saver works whether or not the screen brightness option is on. With it off, the application dims only its own window: the device's brightness level and its automatic brightness setting are left alone, and the screen goes back to them as soon as the screensaver ends. On Android 8 and older with automatic brightness on, the device does not report the brightness on screen, so the page is shaded by the dim percentage instead. With the screen brightness option on, the application sets the device brightness itself, to the dimmed level during any screensaver and back to the captured level afterwards.
 
 Using the screen brightness option requires some extra permissions.  This is because controlling the devices screen brightness is considered a dangerous permission by Google and so users have to manually turn this on.  When you first select the screen brightness option, you will be taken to the setting on your device to enable the permission.  The screen brightness feature behaves in the following manner:
 
 - There is a general brightness setting that must be enabled (and permissions given) in order for the application to manually set the device brightness.  If at any time you revoke the permissions in the device settings for the application to control the brightness, this option will be disabled.
 
-- The brightness mode can be disabled in the settings, returning the device back to its automatic brightness control. If brightness is disabled the application will no longer be able to change the devices brightness level including via MQTT commands.
+- The brightness mode can be disabled in the settings. The device goes back to automatic brightness if that is what it was on before the option was enabled, and stays on manual brightness otherwise. If brightness is disabled the application will no longer be able to change the devices brightness level including via MQTT commands.
 
 - Brightness level is read at the time brightness control is enabled and permissions granted. However, there is also a new capture button in the settings to manually capture the devices current brightness level. To use this, first go into the app settings, then adjust your devices brightness level, then press the capture button to save the new brightness level.  The application will then use this brightness level to set the device brightness level.
 

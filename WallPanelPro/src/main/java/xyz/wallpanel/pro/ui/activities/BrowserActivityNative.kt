@@ -190,13 +190,18 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
             playlistIndex %= urls.size
             loadWebViewUrl(urls[playlistIndex])
             playlistIndex = (playlistIndex + 1) % urls.size
-            val minute = TimeUnit.MINUTES.toMillis(1)
-            var delay = minute - System.currentTimeMillis() % minute
-            if (delay < PLAYLIST_MIN_PAGE_TIME) {
-                delay += minute
-            }
-            playlistHandler.postDelayed(this, delay)
+            scheduleNextPlaylistPage()
         }
+    }
+
+    private fun scheduleNextPlaylistPage() {
+        playlistHandler.removeCallbacks(playlistRunnable)
+        val minute = TimeUnit.MINUTES.toMillis(1)
+        var delay = minute - System.currentTimeMillis() % minute
+        if (delay < PLAYLIST_MIN_PAGE_TIME) {
+            delay += minute
+        }
+        playlistHandler.postDelayed(playlistRunnable, delay)
     }
 
     // The launch URL holds one page per line. Blank lines are not pages.
@@ -642,12 +647,22 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     override fun startReloadDelay() {
         awaitingReconnect = true
         playlistHandler.removeCallbacksAndMessages(null)
+        // A second error before the retry moves the retry back rather than adding another
+        reconnectionHandler.removeCallbacks(reloadPageRunnable)
         reconnectionHandler.postDelayed(reloadPageRunnable, 30000)
     }
 
+    /**
+     * A page that loads while a retry is waiting cancels the retry. The retry is what would
+     * have started the playlist again, so the playlist carries on from here instead.
+     */
     override fun stopReloadDelay() {
+        val wasAwaiting = awaitingReconnect
         awaitingReconnect = false
         reconnectionHandler.removeCallbacks(reloadPageRunnable)
+        if (wasAwaiting && bootGate == null && playlistUrls().size > 1) {
+            scheduleNextPlaylistPage()
+        }
     }
 
     override fun replaceDeadWebView(deadView: WebView) {

@@ -155,7 +155,6 @@ class MQTT3Service(
             Timber.i("Service Configuration:")
             Timber.i("Client ID: %s", mqttOptions!!.getClientId())
             Timber.i("Username: %s", mqttOptions!!.getUsername())
-            Timber.i("Password: %s", mqttOptions!!.getPassword())
             Timber.i("TslConnect: %s", mqttOptions!!.getTlsConnection())
             Timber.i("MQTT Configuration:")
             Timber.i("Broker: %s", mqttOptions?.brokerUrl)

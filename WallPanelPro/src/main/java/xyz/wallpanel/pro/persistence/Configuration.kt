@@ -546,6 +546,14 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         get() = this.sharedPreferences.getBoolean(PREF_SCREEN_BRIGHTNESS, false)
         set(value) = this.sharedPreferences.edit().putBoolean(PREF_SCREEN_BRIGHTNESS, value).apply()
 
+    /**
+     * Set when the app switched the device from automatic to manual brightness so it could
+     * set the level itself, so that switching brightness control off puts automatic back.
+     */
+    var deviceBrightnessWasAutomatic: Boolean
+        get() = sharedPreferences.getBoolean(PREF_DEVICE_BRIGHTNESS_WAS_AUTOMATIC, false)
+        set(value) = sharedPreferences.edit().putBoolean(PREF_DEVICE_BRIGHTNESS_WAS_AUTOMATIC, value).apply()
+
     val ignoreSSLErrors: Boolean
         get() = getBoolPref(R.string.key_setting_ignore_ssl_errors,
                 R.string.default_setting_ignore_ssl_errors)
@@ -628,6 +636,7 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         private const val PREF_SETTINGS_TRANSPARENT = "pref_settings_transparent"
         private const val PREF_SETTINGS_DISABLE = "pref_settings_disable"
         private const val PREF_SETTINGS_LOCATION = "pref_settings_location"
+        private const val PREF_DEVICE_BRIGHTNESS_WAS_AUTOMATIC = "pref_device_brightness_was_automatic"
         const val PREF_FIRST_TIME = "pref_first_time"
         const val PREF_CAMERA_PERMISSIONS = "pref_camera_permissions"
         const val PREF_SHELL_PERMISSIONS = "pref_shell_permissions"

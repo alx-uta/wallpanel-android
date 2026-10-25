@@ -70,6 +70,8 @@ class GeckoWebChromeClientAdapter(
     private var geckoView: android.view.View? = null
     // Prompts on screen and not yet answered
     private val openPrompts = mutableSetOf<PromptAnswer>()
+    // The page loading now
+    private var startedUrl: String? = null
 
     fun setGeckoView(view: android.view.View) {
         geckoView = view
@@ -83,14 +85,18 @@ class GeckoWebChromeClientAdapter(
     @UiThread
     override fun onPageStart(session: GeckoSession, url: String) {
         openPrompts.toList().forEach { it.withdraw() }
+        startedUrl = url
         callback.geckoPageStarted()
     }
 
     @UiThread
     override fun onPageStop(session: GeckoSession, success: Boolean) {
         snackbar?.dismiss()
-        // As the WebView does when a page finishes: a load that worked while connected ends
-        // any retry still waiting.
+        // As the WebView does when a page finishes: a page of the user's that loaded shows
+        // the server can be reached again, and ends any retry still waiting.
+        if (success && startedUrl != GeckoWebClientAdapter.ERROR_PAGE && startedUrl != "about:blank") {
+            callback.isConnected = true
+        }
         if (success && callback.isConnected) {
             callback.stopReloadDelay()
         }

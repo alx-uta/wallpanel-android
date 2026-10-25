@@ -22,6 +22,8 @@ open class InternalWebClient(val resources: Resources, private val callback: Web
 
     private var pageLoaded = false
     private var currentUrl = ""
+    // The page loading now hit an error, so finishing it is not a sign the server is back
+    private var loadFailed = false
 
     // The certificate warning on screen, and every load waiting on its answer
     private var sslDialog: AlertDialog? = null
@@ -81,6 +83,9 @@ open class InternalWebClient(val resources: Resources, private val callback: Web
         if (isCurrentUrl(url)) {
             pageLoaded = false
         }
+        if (!isPlaceholderPage(url)) {
+            loadFailed = false
+        }
     }
 
     /**
@@ -95,9 +100,10 @@ open class InternalWebClient(val resources: Resources, private val callback: Web
         failingUrl: String
     ) {
         Timber.e("WebView could not load $failingUrl: $errorCode $description")
+        loadFailed = true
         if (!callback.isFinishing()) {
             view.loadUrl("about:blank")
-            view.loadUrl("file:///android_asset/error_page.html")
+            view.loadUrl(ERROR_PAGE)
             if (errorCode != ERROR_FAILED_SSL_HANDSHAKE) {
                 callback.isConnected = false
                 callback.startReloadDelay()
@@ -168,7 +174,14 @@ open class InternalWebClient(val resources: Resources, private val callback: Web
         super.doUpdateVisitedHistory(view, url, isReload)
     }
 
+    /**
+     * A page of the user's that loads without an error shows the server can be reached
+     * again, so it ends any retry still waiting, whatever page failed before it.
+     */
     override fun onPageFinished(view: WebView, url: String) {
+        if (!loadFailed && !isPlaceholderPage(url)) {
+            callback.isConnected = true
+        }
         if (callback.isConnected) {
             callback.stopReloadDelay()
         }
@@ -190,5 +203,14 @@ open class InternalWebClient(val resources: Resources, private val callback: Web
         sslDialog?.dismiss()
         callback.replaceDeadWebView(view)
         return true
+    }
+
+    // The pages the client loads itself while a page fails, which say nothing about the server
+    private fun isPlaceholderPage(url: String): Boolean {
+        return url == ERROR_PAGE || url == "about:blank"
+    }
+
+    companion object {
+        const val ERROR_PAGE = "file:///android_asset/error_page.html"
     }
 }

@@ -157,7 +157,7 @@ Key | Value | Example | Description
 currentUrl | URL String | ```{"currentUrl":"http://hasbian:8123/states"}``` | Current URL the Dashboard is displaying
 screenOn | true/false | ```{"screenOn":true}``` | If the screen is currently on.
 screenAwake | true/false | ```{"screenAwake":false}``` | Whether a `wake` command is currently holding the screen awake.
-brightness | 0-255 | ```{"brightness":100}``` | Brightness the screen is showing right now. While the screensaver is dimming, this is the dimmed value.
+brightness | 0-255 | ```{"brightness":100}``` | Brightness the screen is showing right now. While the screensaver is dimming with screen brightness control on, this is the dimmed value. The Dim Screen Saver with brightness control off dims only the application window and leaves this unchanged.
 brightnessSetpoint | 0-255 | ```{"brightnessSetpoint":150}``` | Brightness the application is configured to use, i.e. what the last `brightness` command set.
 volume | 0-100 | ```{"volume":60}``` | Current media volume, as a percentage.
 camera | true/false | ```{"camera":false}``` | Whether the camera is enabled.

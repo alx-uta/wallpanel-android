@@ -290,7 +290,7 @@
     <string name="preference_title_screensaver_dim">Dim screen…</string>
     <string name="preference_summary_inactivity_seconds">After %1$s seconds of inactivity screensaver is active.</string>
     <string name="preference_summary_inactivity_minutes">After %1$s minute(s) of inactivity screensaver is active.</string>
-    <string name="preference_summary_dim_screensaver" formatted="false">By %1$s percent when screensaver is active (requires screen brightness permission).</string>
+    <string name="preference_summary_dim_screensaver" formatted="false">By %1$s percent when screensaver is active.</string>
 
     <string name="preference_camera_flip_title">Rotate Camera</string>
     <string name="preference_camera_flip_summary">Depending on your camera, you may need to rotate or flip the camera. Currently %1$s.</string>
