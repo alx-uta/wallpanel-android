@@ -204,6 +204,45 @@ class SensorReaderTest {
         sensorReader.stopReadings()
     }
 
+    /** https://github.com/TheTimeWalker/wallpanel-android/issues/41 */
+    @Test
+    fun `a sensor left out of the selection is not published`() {
+        val names = publishedWith(setOf(SensorReader.UPTIME, SensorReader.MEMORY_USAGE))
+        assertTrue(names.contains(SensorReader.UPTIME))
+        assertTrue(names.contains(SensorReader.MEMORY_USAGE))
+        assertFalse(names.contains(SensorReader.BATTERY))
+        assertFalse(names.contains(SensorReader.APP_VERSION))
+        assertFalse(names.contains(SensorReader.STORAGE_FREE))
+        assertFalse(names.contains(SensorReader.CPU_USAGE))
+    }
+
+    @Test
+    fun `the battery payload is published while only a charging flag is selected`() {
+        val names = publishedWith(setOf(SensorReader.CHARGING))
+        assertEquals(setOf(SensorReader.BATTERY), names)
+    }
+
+    @Test
+    fun `no selection publishes every reading`() {
+        val names = publishedWith(null)
+        assertTrue(names.containsAll(listOf(SensorReader.BATTERY, SensorReader.UPTIME, SensorReader.APP_VERSION)))
+    }
+
+    private fun publishedWith(selection: Set<String>?): Set<String> {
+        val names = ConcurrentHashMap.newKeySet<String>()
+        val published = AtomicInteger()
+        sensorReader.startReadings(SENSOR_FREQUENCY_SECONDS, object : SensorCallback {
+            override fun publishSensorData(sensorName: String, sensorData: JSONObject) {
+                names.add(sensorName)
+                published.incrementAndGet()
+            }
+        }, selection)
+        sensorReader.refreshSensors()
+        drainCycle(published)
+        sensorReader.stopReadings()
+        return names
+    }
+
     /**
      * Runs one publish cycle and returns the payload for a single sensor. Readings are
      * driven by a handler on the main looper, which Robolectric only runs when the looper

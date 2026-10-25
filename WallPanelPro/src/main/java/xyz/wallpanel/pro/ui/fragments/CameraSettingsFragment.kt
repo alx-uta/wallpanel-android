@@ -23,7 +23,6 @@ import android.content.SharedPreferences
 import android.content.pm.PackageManager
 import android.os.Build
 import android.os.Bundle
-import android.text.InputType
 import androidx.preference.SwitchPreference
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.core.app.ActivityCompat
@@ -124,9 +123,6 @@ class CameraSettingsFragment : BaseSettingsFragment() {
 
         fpsPreference = findPreference<EditTextPreference>(getString(R.string.key_setting_camera_fps)) as EditTextPreference
         val frameSkipPreference = findPreference<EditTextPreference>(getString(R.string.key_setting_camera_motionframeskip)) as EditTextPreference
-        // A number of seconds: the preference XML's inputType does not reach the dialog's field
-        findPreference<EditTextPreference>(getString(R.string.key_setting_camera_wake_time))
-            ?.setOnBindEditTextListener { it.inputType = InputType.TYPE_CLASS_NUMBER }
         cameraPreference = findPreference<SwitchPreference>(PREF_CAMERA_ENABLED) as SwitchPreference
         rotatePreference = findPreference<ListPreference>(PREF_CAMERA_ROTATE) as ListPreference
         rotatePreference!!.setDefaultValue(configuration.cameraRotate)
@@ -140,12 +136,14 @@ class CameraSettingsFragment : BaseSettingsFragment() {
         } else if (configuration.cameraRotate == -180f) {
             rotatePreference!!.setValueIndex(3)
         }
+        // The listener runs before the preference takes the new value, so it reads newValue
         rotatePreference?.setOnPreferenceChangeListener { preference, newValue ->
             if (preference is ListPreference) {
-                val valueFloat = rotatePreference!!.value
-                val valueName = rotatePreference!!.entry.toString()
-                rotatePreference!!.summary = getString(R.string.preference_camera_flip_summary, valueName)
-                configuration.cameraRotate = valueFloat.toFloat()
+                val index = preference.findIndexOfValue(newValue.toString())
+                if (index >= 0) {
+                    preference.summary = getString(R.string.preference_camera_flip_summary, preference.entries[index])
+                }
+                newValue.toString().toFloatOrNull()?.let { configuration.cameraRotate = it }
             }
             true
         }

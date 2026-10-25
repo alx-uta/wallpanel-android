@@ -23,10 +23,9 @@
             android:title="@string/title_enable_sensor_data"
             android:summary="@string/summary_enable_sensor_data"/>
 
-        <EditTextPreference
+        <xyz.wallpanel.pro.ui.views.NumberEditTextPreference
             android:defaultValue="@string/default_setting_mqtt_sensorfrequency"
             android:dependency="@string/key_setting_sensors_enabled"
-            android:inputType="number"
             android:key="@string/key_setting_mqtt_sensorfrequency"
             android:selectAllOnFocus="true"
             android:singleLine="true"

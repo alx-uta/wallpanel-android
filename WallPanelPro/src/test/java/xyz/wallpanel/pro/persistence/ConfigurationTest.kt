@@ -232,4 +232,45 @@ class ConfigurationTest {
         preferences.edit().putString(context.getString(R.string.key_setting_http_mjpegfps), "60").commit()
         assertEquals(30, configuration.httpMJPEGFps)
     }
+
+    /** https://github.com/TheTimeWalker/wallpanel-android/issues/86 */
+    @Test
+    fun `a base topic without its closing slash is given one`() {
+        configuration.mqttBaseTopic = "wallpanel/kitchen"
+        assertEquals("wallpanel/kitchen/", configuration.mqttBaseTopic)
+    }
+
+    @Test
+    fun `a base topic with its closing slash is left alone`() {
+        configuration.mqttBaseTopic = "wallpanel/kitchen/"
+        assertEquals("wallpanel/kitchen/", configuration.mqttBaseTopic)
+    }
+
+    @Test
+    fun `an empty base topic stays empty`() {
+        assertEquals("", Configuration.normalizeBaseTopic(""))
+        assertEquals("", Configuration.normalizeBaseTopic("  "))
+        assertEquals("wallpanel/kitchen/", Configuration.normalizeBaseTopic(" wallpanel/kitchen "))
+    }
+
+    @Test
+    fun `the dim screensaver setting is carried over from its old key`() {
+        preferences.edit().putBoolean("c", true).commit()
+
+        assertTrue(configuration.hasDimScreenSaver)
+        assertFalse(preferences.contains("c"))
+        assertTrue(preferences.getBoolean(context.getString(R.string.key_screensaver_dim), false))
+        assertTrue(Configuration(context, preferences).hasDimScreenSaver)
+    }
+
+    @Test
+    fun `the old dim screensaver key wins over the switch's own`() {
+        preferences.edit()
+            .putBoolean("c", false)
+            .putBoolean(context.getString(R.string.key_screensaver_dim), true)
+            .commit()
+
+        assertFalse(configuration.hasDimScreenSaver)
+        assertFalse(Configuration(context, preferences).hasDimScreenSaver)
+    }
 }

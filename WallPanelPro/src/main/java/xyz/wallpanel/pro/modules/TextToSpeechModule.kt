@@ -27,7 +27,6 @@ import android.speech.tts.UtteranceProgressListener
 import androidx.annotation.RequiresApi
 import xyz.wallpanel.pro.BuildConfig
 import timber.log.Timber
-import java.util.*
 
 /**
  * Module to use Google Text-to-Speech to speak the payload of MQTT messages.
@@ -53,7 +52,8 @@ class TextToSpeechModule( base: Context?) : ContextWrapper(base),
 
     override fun onInit(status: Int) {
         if (status == TextToSpeech.SUCCESS && textToSpeech != null) {
-            textToSpeech?.language = Locale.getDefault()
+            // The language and voice are left to the engine, which speaks with the ones
+            // chosen in the Android text-to-speech settings.
             textToSpeech?.setOnUtteranceProgressListener(object : UtteranceProgressListener() {
                 override fun onError(p0: String?) {
                     Timber.e(p0)

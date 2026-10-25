@@ -89,6 +89,9 @@ constructor(private val context: Context){
     private var deviceInfoPublished: Boolean = false
     @Volatile
     private var backgroundReadings: Thread? = null
+    // The readings to take, by object id, or null for all of them. See [startReadings].
+    @Volatile
+    private var selectedSensors: Set<String>? = null
 
     private val sensorUpdateRunnable = object : Runnable {
         override fun run() {
@@ -108,8 +111,12 @@ constructor(private val context: Context){
      */
     private fun readImmediateSensors() {
         try {
-            getBatteryReading()
-            getUptimeReading()
+            if (isSelected(BATTERY)) {
+                getBatteryReading()
+            }
+            if (isSelected(UPTIME)) {
+                getUptimeReading()
+            }
             if (!deviceInfoPublished) {
                 getDeviceInfoReadings()
                 deviceInfoPublished = true
@@ -131,12 +138,18 @@ constructor(private val context: Context){
         }
         backgroundReadings = Thread {
             try {
-                if (!cpuUsageUnavailable) {
+                if (!cpuUsageUnavailable && isSelected(CPU_USAGE)) {
                     getCpuUsage()
                 }
-                getMemoryUsage()
-                getStorageReading()
-                getNetworkReadings()
+                if (isSelected(MEMORY_USAGE)) {
+                    getMemoryUsage()
+                }
+                if (isSelected(STORAGE_FREE)) {
+                    getStorageReading()
+                }
+                if (isSelected(IP_ADDRESS) || isSelected(WIFI_SIGNAL)) {
+                    getNetworkReadings()
+                }
             } catch (e: Exception) {
                 Timber.e(e, "Error taking the background sensor readings")
             }
@@ -225,8 +238,15 @@ constructor(private val context: Context){
         return context.packageManager.hasSystemFeature(PackageManager.FEATURE_WIFI)
     }
 
-    fun startReadings(freqSeconds: Int, callback: SensorCallback) {
+    /**
+     * Starts the reading cycle. [sensors] are the object ids to read and publish, the ones
+     * left ticked in the discovery settings, or null for every reading. A sensor left out is
+     * neither read nor published, and its hardware listener is not registered.
+     */
+    fun startReadings(freqSeconds: Int, callback: SensorCallback, sensors: Set<String>? = null) {
         this.callback = callback
+        selectedSensors = sensors
+        stopSensorReading()
         if (freqSeconds >= 0) {
             updateFrequencyMilliSeconds = 1000 * freqSeconds
             deviceInfoPublished = false
@@ -253,9 +273,22 @@ constructor(private val context: Context){
     }
 
     private fun publishSensorData(sensorName: String?, sensorData: JSONObject) {
-        if(sensorName != null) {
+        if(sensorName != null && isSelected(sensorName)) {
             callback?.publishSensorData(sensorName, sensorData)
         }
+    }
+
+    /**
+     * Whether a reading was asked for. The battery payload also carries the charging and
+     * plugged-in flags, which Home Assistant reads from it, so it is taken while any of
+     * them is wanted.
+     */
+    private fun isSelected(sensorName: String): Boolean {
+        val selected = selectedSensors ?: return true
+        if (sensorName == BATTERY) {
+            return BATTERY_PAYLOAD_SENSORS.any { it in selected }
+        }
+        return sensorName in selected
     }
 
     private fun getSensorName(sensorType: Int): String? {
@@ -367,7 +400,8 @@ constructor(private val context: Context){
     private fun startSensorReadings() {
         if(mSensorManager != null) {
             for (item in mSensorList) {
-                if (item is Sensor) {
+                val name = (item as? Sensor)?.let { getSensorName(it.type) } ?: continue
+                if (isSelected(name)) {
                     mSensorManager.registerListener(sensorListener, item, 1000)
                 }
             }
@@ -806,6 +840,7 @@ constructor(private val context: Context){
          * broker reconnect.
          */
         val DEVICE_INFO_SENSORS: Set<String> = setOf(APP_VERSION, ANDROID_VERSION)
+        private val BATTERY_PAYLOAD_SENSORS: Set<String> = setOf(BATTERY, CHARGING, AC_PLUGGED, USB_PLUGGED)
         const val UNIT_C: String = "°C"
         const val UNIT_PERCENTAGE: String = "%"
         const val UNIT_HPA: String = "hPa"

@@ -36,7 +36,6 @@ import android.view.*
 import android.webkit.*
 import android.widget.Button
 import android.widget.Toast
-import androidx.annotation.RequiresApi
 import androidx.activity.OnBackPressedCallback
 import androidx.activity.result.contract.ActivityResultContracts
 import androidx.appcompat.app.AlertDialog
@@ -47,7 +46,6 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleObserver
 import xyz.wallpanel.pro.databinding.ActivityBrowserBinding
 import xyz.wallpanel.pro.network.ConnectionLiveData
-import xyz.wallpanel.pro.ui.fragments.CodeBottomSheetFragment
 import xyz.wallpanel.pro.utils.AppRestartHelper
 import xyz.wallpanel.pro.utils.BootReadinessGate
 import xyz.wallpanel.pro.utils.InternalWebChromeClient
@@ -74,15 +72,13 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     private var usingGeckoView = false
 
     private lateinit var binding: ActivityBrowserBinding
-    private var certPermissionsShown = false
-    private var playlistHandler: Handler? = null
-    private var codeBottomSheet: CodeBottomSheetFragment? = null
+    private val playlistHandler = Handler(Looper.getMainLooper())
     private var webSettings: WebSettings? = null
-    private val calendar: Calendar = Calendar.getInstance()
     private val reconnectionHandler = Handler(Looper.getMainLooper())
     private var connectionLiveData: ConnectionLiveData? = null
     override var isConnected = true
-    private var webkitPermissionRequest: PermissionRequest? = null
+    // When the WebView's renderer last died, to slow down a page that keeps killing it
+    private var lastRendererDeath = 0L
     private var awaitingReconnect = false
     private var browserEnginePaused = false
     private var pendingGeckoReloadOnResume = false
@@ -176,21 +172,41 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
     }
 
-    // To save current index
+    // The playlist page to show next
     private var playlistIndex = 0
 
+    /**
+     * Shows the next playlist page and waits for the next whole minute on the clock. A
+     * minute boundary closer than [PLAYLIST_MIN_PAGE_TIME] is skipped, so a page is never
+     * shown for only a moment.
+     */
     private val playlistRunnable = object : Runnable {
         override fun run() {
             // TODO: allow users to set their own value in settings
-            val offset = 60L - calendar.get(Calendar.SECOND)
-            val urls: List<String> = configuration.appLaunchUrl.lines()
-            // Avoid IndexOutOfBound
-            playlistIndex = (playlistIndex + 1) % urls.size
-            if (urls.isNotEmpty() && urls.size >= playlistIndex) {
-                loadWebViewUrl(urls[playlistIndex])
-                playlistHandler?.postDelayed(this, TimeUnit.SECONDS.toMillis(offset))
+            val urls = playlistUrls()
+            if (urls.isEmpty()) {
+                return
             }
+            playlistIndex %= urls.size
+            loadWebViewUrl(urls[playlistIndex])
+            playlistIndex = (playlistIndex + 1) % urls.size
+            scheduleNextPlaylistPage()
         }
+    }
+
+    private fun scheduleNextPlaylistPage() {
+        playlistHandler.removeCallbacks(playlistRunnable)
+        val minute = TimeUnit.MINUTES.toMillis(1)
+        var delay = minute - System.currentTimeMillis() % minute
+        if (delay < PLAYLIST_MIN_PAGE_TIME) {
+            delay += minute
+        }
+        playlistHandler.postDelayed(playlistRunnable, delay)
+    }
+
+    // The launch URL holds one page per line. Blank lines are not pages.
+    private fun playlistUrls(): List<String> {
+        return configuration.appLaunchUrl.lines().map { it.trim() }.filter { it.isNotEmpty() }
     }
 
     @SuppressLint("SetJavaScriptEnabled", "ClickableViewAccessibility")
@@ -226,12 +242,9 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
             return
         }
 
+        // The settings screen asks for the code itself
         binding.launchSettingsFab.setOnClickListener {
-            if (configuration.isFirstTime || !configuration.settingsCodeRequired) {
-                openSettings()
-            } else {
-                showCodeBottomSheet()
-            }
+            openSettings()
         }
 
         configureConnection()
@@ -394,8 +407,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     override fun onDestroy() {
         super.onDestroy()
         reconnectionHandler.removeCallbacks(bootGateRunnable)
-        codeBottomSheet?.dismiss()
-        codeBottomSheet = null
+        playlistHandler.removeCallbacksAndMessages(null)
         // Closing the session lets Gecko drop its references to this activity's view, which
         // otherwise outlive it.
         geckoViewWrapper?.destroy()
@@ -628,27 +640,77 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
     }
 
-    override fun setWebkitPermissionRequest(request: PermissionRequest?) {
-        webkitPermissionRequest = request
-    }
-
     override fun displayProgress(): Boolean {
         return displayProgress
     }
 
     override fun startReloadDelay() {
         awaitingReconnect = true
-        playlistHandler?.removeCallbacksAndMessages(null)
+        playlistHandler.removeCallbacksAndMessages(null)
+        // A second error before the retry moves the retry back rather than adding another
+        reconnectionHandler.removeCallbacks(reloadPageRunnable)
         reconnectionHandler.postDelayed(reloadPageRunnable, 30000)
     }
 
-    override fun certPermissionsShown(): Boolean {
-        return certPermissionsShown
-    }
-
+    /**
+     * A page that loads while a retry is waiting cancels the retry. The retry is what would
+     * have started the playlist again, so the playlist carries on from here instead.
+     */
     override fun stopReloadDelay() {
+        val wasAwaiting = awaitingReconnect
         awaitingReconnect = false
         reconnectionHandler.removeCallbacks(reloadPageRunnable)
+        if (wasAwaiting && bootGate == null && playlistUrls().size > 1) {
+            scheduleNextPlaylistPage()
+        }
+    }
+
+    override fun replaceDeadWebView(deadView: WebView) {
+        val parent = deadView.parent as? ViewGroup
+        val index = parent?.indexOfChild(deadView) ?: -1
+        val layoutParams = deadView.layoutParams
+        parent?.removeView(deadView)
+        deadView.destroy()
+        if (webView !== deadView) {
+            return
+        }
+        webView = null
+        webSettings = null
+        if (parent == null || isFinishing) {
+            return
+        }
+        // Built after the WebView's callback has returned
+        reconnectionHandler.post {
+            if (isFinishing) {
+                return@post
+            }
+            val freshView = try {
+                WebView(this)
+            } catch (e: Exception) {
+                Timber.e(e, "Unable to create a new WebView, restarting the application")
+                AppRestartHelper.restartApplication(this)
+                return@post
+            }
+            freshView.id = R.id.activity_browser_webview_native
+            parent.addView(freshView, index, layoutParams)
+            configureSystemWebView(freshView)
+            val layerType = if (configuration.hardwareAccelerated) View.LAYER_TYPE_HARDWARE else View.LAYER_TYPE_SOFTWARE
+            freshView.setLayerType(layerType, null)
+            if (browserEnginePaused) {
+                freshView.onPause()
+            }
+            val now = SystemClock.elapsedRealtime()
+            val diedRecently = lastRendererDeath != 0L && now - lastRendererDeath < RENDERER_DEATH_WINDOW_MS
+            lastRendererDeath = now
+            if (diedRecently) {
+                // A page that brings the renderer down as soon as it loads would otherwise
+                // keep the device busy doing nothing else
+                Timber.w("The WebView renderer died again within a minute, loading the page later")
+                startReloadDelay()
+            } else {
+                initWebPageLoad()
+            }
+        }
     }
 
     /**
@@ -808,27 +870,6 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
     }
 
-    @RequiresApi(Build.VERSION_CODES.LOLLIPOP)
-    override fun askForWebkitPermission(permission: String, requestCode: Int) {
-        if (ContextCompat.checkSelfPermission(
-                applicationContext,
-                permission
-            ) != PackageManager.PERMISSION_GRANTED
-        ) {
-            // Should we show an explanation?
-            if (ActivityCompat.shouldShowRequestPermissionRationale(this, permission)) {
-                // Show an explanation to the user *asynchronously* -- don't block
-                // this thread waiting for the user's response! After the user
-                // sees the explanation, try again to request the permission.
-            } else {
-                // No explanation needed, we can request the permission.
-                ActivityCompat.requestPermissions(this, arrayOf(permission), requestCode)
-            }
-        } else {
-            webkitPermissionRequest?.grant(webkitPermissionRequest?.resources)
-        }
-    }
-
     private fun configureConnection() {
         connectionLiveData = ConnectionLiveData(this)
         connectionLiveData?.observe(this) { connected ->
@@ -865,6 +906,13 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
 
                 // Configure delegates
                 configureGeckoViewDelegates()
+
+                // Unused, and left in place it would share the WebView renderer of a web
+                // screensaver with no client to handle that renderer's death
+                binding.activityBrowserWebviewNative.let { unused ->
+                    (unused.parent as? ViewGroup)?.removeView(unused)
+                    unused.destroy()
+                }
             } catch (e: Exception) {
                 Timber.e(e, "Failed to initialize GeckoView, falling back to WebView")
                 // Fallback to WebView
@@ -882,8 +930,9 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
     }
 
-    private fun configureSystemWebView() {
-        webView = binding.activityBrowserWebviewNative
+    private fun configureSystemWebView(view: WebView = binding.activityBrowserWebviewNative) {
+        webView = view
+        webSettings = null
         webView?.setLayerType(View.LAYER_TYPE_SOFTWARE, null)
         // Force links and redirects to open in the WebView instead of in a browser
         configureWebChromeClient()
@@ -955,10 +1004,11 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
         prepareWebPageLoad()
         // check if we are using playlist
-        if (configuration.appLaunchUrl.lines().size == 1) {
-            loadWebViewUrl(configuration.appLaunchUrl)
-        } else {
+        if (playlistUrls().size > 1) {
             startPlaylist()
+        } else {
+            playlistHandler.removeCallbacksAndMessages(null)
+            loadWebViewUrl(playlistUrls().firstOrNull() ?: configuration.appLaunchUrl)
         }
     }
 
@@ -967,7 +1017,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         if (usingGeckoView) {
             binding.activityBrowserGeckoview.visibility = View.VISIBLE
         } else {
-            binding.activityBrowserWebviewNative.visibility = View.VISIBLE
+            webView?.visibility = View.VISIBLE
         }
         // set user agent
         configureWebSettings(configuration.browserUserAgent)
@@ -1008,34 +1058,10 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         return connectivityManager?.activeNetworkInfo?.isConnected == true
     }
 
+    // Whichever timer was running is replaced, so the pages keep to one rotation
     private fun startPlaylist() {
-        playlistHandler = Handler(Looper.getMainLooper())
-        playlistHandler?.postDelayed(playlistRunnable, 10)
-    }
-
-    private fun showCodeBottomSheet() {
-        codeBottomSheet = CodeBottomSheetFragment.newInstance(configuration.settingsCode,
-            object : CodeBottomSheetFragment.OnAlarmCodeFragmentListener {
-                override fun onComplete(code: String) {
-                    codeBottomSheet?.dismiss()
-                    codeBottomSheet = null
-                    openSettings()
-                }
-
-                override fun onCodeError() {
-                    Toast.makeText(
-                        this@BrowserActivityNative,
-                        R.string.toast_code_invalid,
-                        Toast.LENGTH_SHORT
-                    ).show()
-                }
-
-                override fun onCancel() {
-                    codeBottomSheet?.dismiss()
-                    codeBottomSheet = null
-                }
-            })
-        codeBottomSheet?.show(supportFragmentManager, codeBottomSheet?.tag)
+        playlistHandler.removeCallbacksAndMessages(null)
+        playlistHandler.postDelayed(playlistRunnable, 10)
     }
 
     private fun setupSettingsButton() {
@@ -1094,5 +1120,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         private const val PERMISSIONS_REQUEST_PAGE_FIRST = 300
         private const val PERMISSIONS_REQUEST_PAGE_LAST = 399
         private const val BOOT_GATE_POLL_MS = 1000L
+        private const val RENDERER_DEATH_WINDOW_MS = 60_000L
+        private const val PLAYLIST_MIN_PAGE_TIME = 10_000L
     }
 }

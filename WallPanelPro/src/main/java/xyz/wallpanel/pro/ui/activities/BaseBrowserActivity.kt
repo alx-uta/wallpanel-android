@@ -21,11 +21,13 @@ import android.content.BroadcastReceiver
 import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
+import android.graphics.Color
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
 import android.view.View
+import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.view.WindowManager
 import android.widget.Toast
@@ -74,6 +76,8 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     private var userPresent: Boolean = false
     private var hasWakeScreen = false
     private var screenSaverActive = false
+    // Shades the page for the dim screensaver when the brightness on screen is not known
+    private var dimShade: View? = null
     private var inForeground = false
     var displayProgress = true
     var zoomLevel = 1.0f
@@ -422,8 +426,45 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
      */
     protected open fun onScreenSaverCovering(covering: Boolean) {}
 
+    /**
+     * The dim screensaver dims through the window when the system brightness is not the
+     * app's to set. That needs no permission, leaves the device's brightness and its
+     * automatic mode alone, and lifts as soon as the override is cleared or the page is
+     * no longer in front. When the level on screen is not known, there is no lower level
+     * to set the window to, so the page is shaded instead.
+     */
     open fun resetScreenBrightness(screenSaver: Boolean = false) {
         screenUtils.resetScreenBrightness(screenSaver)
+        val dimWindow = screenSaver && configuration.hasDimScreenSaver && !screenUtils.controlsSystemBrightness()
+        val levelKnown = !dimWindow || screenUtils.screenBrightnessKnown()
+        setWindowBrightness(
+            if (dimWindow && levelKnown) screenUtils.screenSaverWindowBrightness()
+            else WindowManager.LayoutParams.BRIGHTNESS_OVERRIDE_NONE
+        )
+        setDimShade(if (dimWindow && !levelKnown) screenUtils.screenSaverShade() else 0f)
+    }
+
+    private fun setDimShade(shade: Float) {
+        if (shade <= 0f) {
+            dimShade?.visibility = View.GONE
+            return
+        }
+        val view = dimShade ?: View(this).also {
+            it.setBackgroundColor(Color.BLACK)
+            addContentView(it, ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT))
+            dimShade = it
+        }
+        view.alpha = shade
+        view.visibility = View.VISIBLE
+    }
+
+    private fun setWindowBrightness(brightness: Float) {
+        val params = window.attributes
+        if (params.screenBrightness == brightness) {
+            return
+        }
+        params.screenBrightness = brightness
+        window.attributes = params
     }
 
     /**

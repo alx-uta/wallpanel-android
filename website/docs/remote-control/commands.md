@@ -18,7 +18,7 @@ url | URL | ```{"url": "http://<url>"}``` | Browse to a new URL immediately
 wake | true | ```{"wake": true, "wakeTime": 180}``` | Wakes the screen if it is asleep. Optional wakeTime (in seconds). If no wake time provided, screen will wake but return to screensaver mode on user inactivity.  Sending false value will return app to normal screensaver mode and display screensaver on user inactivity.
 wake | false | ```{"wake": false}``` | Release screen wake (Note: screen will not turn off before Androids Display Timeout finished)
 speak | data | ```{"speak": "Hello!"}``` | Uses the devices TTS to speak the message
-settings | data | ```{"settings": true}``` | Opens the settings screen remotely.
+settings | data | ```{"settings": true}``` | Opens the settings screen remotely. With **Require Security Code** on, the settings still ask for the code on the device before they show.
 brightness | data | ```{"brightness": 1}``` | Changes the screens brightness, value 0-255 (0 turns the backlight off).
 camera | data | ```{"camera": true}``` | Turns on/off camera, this will also disable streaming, motion, QRCode, and face detection. The REST API stays up; the stream endpoint answers 503 while the camera is off. Turning it on without the camera permission granted shows a "Camera permission not granted" message and the camera does not start.
 cameraResolution | size or auto | ```{"cameraResolution": "1280x720"}``` | Runs the camera at `320x240`, `640x480` or `1280x720` until told otherwise; `auto` goes back to the configured resolution. See [Camera resolution and frame rate](#camera-resolution-and-frame-rate).

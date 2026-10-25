@@ -46,16 +46,13 @@ constructor(private val configuration: Configuration) {
     val isValid: Boolean
         get() = isConfigured && (configuration.mqttEnabled || connectWhileDisabled)
 
-    /** Whether there is enough to reach a broker with, whether or not MQTT is switched on. */
+    /**
+     * Whether there is enough to reach a broker with, whether or not MQTT is switched on.
+     * A username and password are optional with TLS as without it: a broker can take
+     * anonymous clients over TLS.
+     */
     val isConfigured: Boolean
-        get() = if (getTlsConnection()) {
-            !TextUtils.isEmpty(getBroker()) &&
-                    !TextUtils.isEmpty(getClientId()) &&
-                    !TextUtils.isEmpty(getBaseTopic()) &&
-                    !TextUtils.isEmpty(getUsername()) &&
-                    !TextUtils.isEmpty(getStateTopic()) &&
-                    !TextUtils.isEmpty(getPassword())
-        } else !TextUtils.isEmpty(getBroker()) &&
+        get() = !TextUtils.isEmpty(getBroker()) &&
                 !TextUtils.isEmpty(getStateTopic()) &&
                 !TextUtils.isEmpty(getClientId())
 

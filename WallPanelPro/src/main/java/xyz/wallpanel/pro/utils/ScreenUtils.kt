@@ -18,6 +18,8 @@ package xyz.wallpanel.pro.utils
 
 import android.content.Context
 import android.content.ContextWrapper
+import android.hardware.Sensor
+import android.hardware.SensorManager
 import android.os.Build
 import android.provider.Settings
 import xyz.wallpanel.pro.persistence.Configuration
@@ -27,20 +29,58 @@ import javax.inject.Inject
 open class ScreenUtils @Inject
 constructor(context: Context, private val configuration: Configuration): ContextWrapper(context) {
 
+    /**
+     * Sets the system brightness to the level for the page or for the screensaver. Only
+     * while screen brightness control is on and allowed; otherwise the device's own
+     * brightness, and its brightness mode, are left as the user set them.
+     */
     fun resetScreenBrightness(screenSaver: Boolean = true) {
-        val useScreenBrightness = configuration.useScreenBrightness
-        val canWriteSettings = canWriteScreenSetting()
-        if(useScreenBrightness) {
-            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && canWriteSettings) {
-                setDeviceBrightnessControl(screenSaver)
-            } else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M && canWriteSettings.not()) {
-                restoreDeviceBrightnessControl()
-            } else {
-                setDeviceBrightnessControl(screenSaver)
-            }
-        } else {
-            restoreDeviceBrightnessControl()
+        if (controlsSystemBrightness()) {
+            setDeviceBrightnessControl(screenSaver)
         }
+    }
+
+    /** Whether the app sets the system brightness, rather than leaving it to the device. */
+    fun controlsSystemBrightness(): Boolean {
+        return configuration.useScreenBrightness && canWriteScreenSetting()
+    }
+
+    /**
+     * The window brightness, from 0 to 1, for the dim screensaver when the system
+     * brightness is not the app's to change: the device's current level, less the dim
+     * amount.
+     */
+    fun screenSaverWindowBrightness(): Float {
+        val dim = configuration.screenSaverDimValue.coerceIn(0, 100)
+        val level = getCurrentScreenBrightness().coerceIn(0, 255)
+        return (level * (100 - dim) / 100) / 255f
+    }
+
+    /**
+     * Whether the system brightness setting is the level on screen. Before Android 9,
+     * automatic brightness leaves the setting at the last level the user picked by hand. On
+     * a device with a light sensor, that can be far from the level on screen.
+     */
+    open fun screenBrightnessKnown(): Boolean {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            return true
+        }
+        val mode = try {
+            Settings.System.getInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE)
+        } catch (e: Exception) {
+            Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL
+        }
+        val sensorManager = getSystemService(Context.SENSOR_SERVICE) as? SensorManager
+        val hasLightSensor = sensorManager?.getDefaultSensor(Sensor.TYPE_LIGHT) != null
+        return brightnessSettingIsOnScreen(Build.VERSION.SDK_INT, mode, hasLightSensor)
+    }
+
+    /**
+     * How dark, from 0 to 1, the dim screensaver shades the page when the level on screen
+     * is not known: the dim amount, whatever the level.
+     */
+    fun screenSaverShade(): Float {
+        return configuration.screenSaverDimValue.coerceIn(0, 100) / 100f
     }
 
     fun getCurrentScreenBrightness(): Int {
@@ -98,25 +138,16 @@ constructor(context: Context, private val configuration: Configuration): Context
         }
     }
 
-    // The user no longer has screen write permission or has chosen to not use this permission
-    // we want reset device to automatic mode and reset the screen brightness to the last brightens settings
-    // we also want to stop using screen brightness
+    /**
+     * Runs when the user switches screen brightness control off. The brightness stays where
+     * it is, and the device goes back to automatic brightness if that is what it was on
+     * before the app took over.
+     */
     fun restoreDeviceBrightnessControl() {
-        if(canWriteScreenSetting()) {
-            configuration.useScreenBrightness = false
-            Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS, getCurrentScreenBrightness())
-            configuration.screenBrightness = getCurrentScreenBrightness()
-            try {
-                if(configuration.screenSaverDimValue > 0) {
-                    val dimAmount = configuration.screenBrightness - (configuration.screenBrightness * configuration.screenSaverDimValue/100)
-                    configuration.screenScreenSaverBrightness = dimAmount
-                } else {
-                    configuration.screenScreenSaverBrightness = configuration.screenBrightness
-                }
-            } catch (e: Exception) {
-                e.printStackTrace()
-            }
+        configuration.useScreenBrightness = false
+        if (configuration.deviceBrightnessWasAutomatic && canWriteScreenSetting()) {
             setDeviceBrightnessMode(true)
+            configuration.deviceBrightnessWasAutomatic = false
         }
     }
 
@@ -137,6 +168,7 @@ constructor(context: Context, private val configuration: Configuration): Context
                 if (mode == Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC) {
                     //Automatic mode, need to be in manual to change brightness
                     Settings.System.putInt(contentResolver, Settings.System.SCREEN_BRIGHTNESS_MODE, Settings.System.SCREEN_BRIGHTNESS_MODE_MANUAL)
+                    configuration.deviceBrightnessWasAutomatic = true
                 }
             }
         } catch (e: SecurityException) {
@@ -155,5 +187,14 @@ constructor(context: Context, private val configuration: Configuration): Context
             hasPermission = Settings.System.canWrite(applicationContext)
         }
         return hasPermission
+    }
+
+    companion object {
+        /** See [screenBrightnessKnown]. */
+        fun brightnessSettingIsOnScreen(sdkInt: Int, mode: Int, hasLightSensor: Boolean): Boolean {
+            return sdkInt >= Build.VERSION_CODES.P ||
+                    mode != Settings.System.SCREEN_BRIGHTNESS_MODE_AUTOMATIC ||
+                    !hasLightSensor
+        }
     }
 }

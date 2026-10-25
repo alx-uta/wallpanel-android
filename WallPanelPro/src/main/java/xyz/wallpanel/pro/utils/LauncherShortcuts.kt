@@ -8,6 +8,7 @@ import android.content.pm.ShortcutManager
 import android.graphics.drawable.Icon
 import android.os.Build
 import xyz.wallpanel.pro.R
+import xyz.wallpanel.pro.ui.activities.BrowserActivityNative
 import xyz.wallpanel.pro.ui.activities.SettingsActivity
 import java.util.*
 
@@ -46,15 +47,22 @@ class LauncherShortcuts {
                     .setLongLabel(context.getString(R.string.shortcut_settings_longlabel))
                     .setIcon(Icon.createWithResource(context, R.drawable.ic_settings_cyan))
                     .setDisabledMessage(context.getString(R.string.shortcut_settings_disabled_message))
-                    .setIntent(
-                            Intent(context, SettingsActivity::class.java)
-                                    .setAction(Intent.ACTION_VIEW)
-                                    .setFlags(
-                                            Intent.FLAG_ACTIVITY_NEW_TASK or
-                                                    Intent.FLAG_ACTIVITY_CLEAR_TOP or
-                                                    Intent.FLAG_ACTIVITY_CLEAR_TASK))
+                    .setIntents(settingsShortcutIntents(context))
                     .setRank(rank)
                     .build()
+        }
+
+        /**
+         * The settings open over the dashboard, so Back from them lands on the dashboard
+         * rather than the launcher. The dashboard is only created once the settings close.
+         */
+        fun settingsShortcutIntents(context: Context): Array<Intent> {
+            return arrayOf(
+                    Intent(context, BrowserActivityNative::class.java)
+                            .setAction(Intent.ACTION_MAIN)
+                            .setFlags(Intent.FLAG_ACTIVITY_NEW_TASK or Intent.FLAG_ACTIVITY_CLEAR_TASK),
+                    Intent(context, SettingsActivity::class.java)
+                            .setAction(Intent.ACTION_VIEW))
         }
     }
 

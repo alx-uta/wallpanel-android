@@ -1,16 +1,12 @@
 package xyz.wallpanel.pro.ui.views
 
 import android.net.Uri
-import android.webkit.PermissionRequest
+import android.webkit.WebView
 
 interface WebClientCallback {
-    fun askForWebkitPermission(permission: String, requestCode: Int)
-
     fun complete()
 
     fun pageLoadComplete(url: String)
-
-    fun setWebkitPermissionRequest(request: PermissionRequest?)
 
     var isConnected: Boolean
 
@@ -27,7 +23,11 @@ interface WebClientCallback {
      */
     fun recreateGeckoSession()
 
-    fun certPermissionsShown() : Boolean
+    /**
+     * The WebView's renderer is gone and [deadView] with it. It is taken out and destroyed,
+     * and a new WebView loads the page in its place.
+     */
+    fun replaceDeadWebView(deadView: WebView)
 
     /**
      * Hands a URI the browser cannot show, an `intent:` or an app's own scheme such as

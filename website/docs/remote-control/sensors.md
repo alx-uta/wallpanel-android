@@ -157,7 +157,7 @@ Key | Value | Example | Description
 currentUrl | URL String | ```{"currentUrl":"http://hasbian:8123/states"}``` | Current URL the Dashboard is displaying
 screenOn | true/false | ```{"screenOn":true}``` | If the screen is currently on.
 screenAwake | true/false | ```{"screenAwake":false}``` | Whether a `wake` command is currently holding the screen awake.
-brightness | 0-255 | ```{"brightness":100}``` | Brightness the screen is showing right now. While the screensaver is dimming, this is the dimmed value.
+brightness | 0-255 | ```{"brightness":100}``` | Brightness the screen is showing right now. While the screensaver is dimming with screen brightness control on, this is the dimmed value. The Dim Screen Saver with brightness control off dims only the application window and leaves this unchanged.
 brightnessSetpoint | 0-255 | ```{"brightnessSetpoint":150}``` | Brightness the application is configured to use, i.e. what the last `brightness` command set.
 volume | 0-100 | ```{"volume":60}``` | Current media volume, as a percentage.
 camera | true/false | ```{"camera":false}``` | Whether the camera is enabled.
@@ -262,7 +262,11 @@ absence of that. That means an entity WallPanel adds in a future version arrives
 rather than silently staying off until someone opens it and ticks it by hand.
 
 Unticking an entity removes it from Home Assistant rather than leaving it behind
-unavailable, and ticking it again brings it back. This is the way to drop controls you
+unavailable, and ticking it again brings it back. An unticked sensor is also no longer read
+or published to the broker at all, so it stops adding traffic as well as entities. The
+battery reading keeps going while any of **Battery Level**, **Charging**, **AC Plugged** or **USB
+Plugged** is ticked, since the other three are read from its payload. With MQTT Discovery
+switched off the pickers are greyed out and every sensor is published. This is the way to drop controls you
 don't want on a shared dashboard -- **Restart App** and **Shell Command**, say -- or to cut
 down sensor noise across a fleet.
 

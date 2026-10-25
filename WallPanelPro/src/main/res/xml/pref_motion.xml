@@ -35,7 +35,7 @@
 
     <PreferenceCategory android:title="@string/pref_motion_adjustments_title">
 
-        <EditTextPreference
+        <xyz.wallpanel.pro.ui.views.NumberEditTextPreference
             android:layout_width="wrap_content"
             android:layout_height="wrap_content"
             android:defaultValue="@string/default_motion_clear"
@@ -51,7 +51,7 @@
             android:paddingTop="0dp"
             android:summary="@string/pref_motion_reset_description"/>
 
-        <EditTextPreference
+        <xyz.wallpanel.pro.ui.views.NumberEditTextPreference
             android:defaultValue="@string/default_setting_camera_motionleniency"
             android:key="pref_setting_camera_latency"
             android:title="@string/title_setting_camera_motionleniency"
@@ -64,9 +64,8 @@
             android:paddingTop="0dp"
             android:summary="@string/pref_motion_leniency_description"/>
 
-        <EditTextPreference
+        <xyz.wallpanel.pro.ui.views.NumberEditTextPreference
             android:defaultValue="@string/default_setting_camera_motionminluma"
-            android:inputType="number"
             android:key="@string/key_setting_camera_motionminluma"
             android:selectAllOnFocus="true"
             android:singleLine="true"
@@ -100,18 +99,16 @@
             android:entryValues="@array/camera_resolution_values"
             android:dependency="@string/key_setting_camera_boost_enabled"/>
 
-        <EditTextPreference
+        <xyz.wallpanel.pro.ui.views.NumberEditTextPreference
             android:defaultValue="@string/default_setting_camera_boost_fps"
-            android:inputType="number"
             android:key="@string/key_setting_camera_boost_fps"
             android:selectAllOnFocus="true"
             android:singleLine="true"
             android:title="@string/title_setting_camera_boost_fps"
             android:dependency="@string/key_setting_camera_boost_enabled"/>
 
-        <EditTextPreference
+        <xyz.wallpanel.pro.ui.views.NumberEditTextPreference
             android:defaultValue="@string/default_setting_camera_boost_hold"
-            android:inputType="number"
             android:key="@string/key_setting_camera_boost_hold"
             android:selectAllOnFocus="true"
             android:singleLine="true"
