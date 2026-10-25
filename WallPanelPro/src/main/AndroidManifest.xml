@@ -60,6 +60,14 @@
         android:name="android.hardware.camera.autofocus"
         android:required="false" />
 
+    <!-- Android 11+ package visibility: the WebView's Web Speech API (SpeechRecognition) binds the
+         system speech recognition service, which this app must be able to see. -->
+    <queries>
+        <intent>
+            <action android:name="android.speech.RecognitionService" />
+        </intent>
+    </queries>
+
     <application
         android:name="xyz.wallpanel.pro.WallPanel"
         android:allowBackup="true"
