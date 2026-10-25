@@ -375,13 +375,15 @@
     <string name="preference_summary_security_code">Set the code to access the settings (default is 1234).</string>
     <string name="preference_title_security_code">Security Code</string>
     <string name="preference_title_settings_button_disable">Settings Disabled</string>
-    <string name="preference_summary_settings_button_disable">Removes the settings button from the screen. Settings then open only with the settings command, the Home Assistant Settings button, or the app shortcut in the launcher.</string>
+    <string name="preference_summary_settings_button_disable">Removes the settings button from the screen. Settings then open only with the settings command or the Home Assistant Settings button.</string>
+    <string name="preference_summary_settings_button_disable_shortcut">Removes the settings button from the screen. Settings then open only with the settings command, the Home Assistant Settings button, or the app shortcut in the launcher.</string>
     <string name="dialog_settings_button_disable_title">Remove the settings button?</string>
     <string name="dialog_settings_button_disable_message">Nothing on the dashboard will open the settings any more. To get back in, send the settings command over MQTT or HTTP ({\"settings\": true}), or press the Settings button WallPanel adds to Home Assistant through MQTT discovery.\n\nTo keep a button you can still tap, make it transparent instead.</string>
     <string name="dialog_settings_button_disable_message_shortcut">Nothing on the dashboard will open the settings any more. To get back in, long-press the WallPanel icon in the launcher and pick Settings, send the settings command over MQTT or HTTP ({\"settings\": true}), or press the Settings button WallPanel adds to Home Assistant through MQTT discovery.\n\nTo keep a button you can still tap, make it transparent instead.</string>
     <string name="button_settings_button_disable">Remove</string>
     <string name="preference_title_settings_code_required">Require Security Code</string>
-    <string name="preference_summary_settings_code_required">Require the security code whenever Settings open: from the dashboard button, the settings command, Home Assistant or the launcher shortcut.</string>
+    <string name="preference_summary_settings_code_required">Require the security code whenever Settings open: from the dashboard button, the settings command or Home Assistant.</string>
+    <string name="preference_summary_settings_code_required_shortcut">Require the security code whenever Settings open: from the dashboard button, the settings command, Home Assistant or the launcher shortcut.</string>
     <string name="title_enter_code">Enter Code</string>
     <string name="text_confirm_code">Please confirm the new code.</string>
     <string name="text_enter_new_code">Please enter the new code.</string>

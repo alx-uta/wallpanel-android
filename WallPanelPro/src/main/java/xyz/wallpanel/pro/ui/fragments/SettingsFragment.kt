@@ -208,6 +208,12 @@ class SettingsFragment : BaseSettingsFragment() {
         fullScreenPreference.isChecked = configuration.fullScreen
         settingsTransparentPreference.isChecked = configuration.settingsTransparent
         settingsDisablePreference.isChecked = configuration.settingsDisabled
+        // Launcher shortcuts arrived in Android 7.1, so before it there is no shortcut to mention
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.N_MR1) {
+            settingsDisablePreference.setSummary(R.string.preference_summary_settings_button_disable_shortcut)
+            findPreference<Preference>(getString(R.string.key_setting_settings_code_required))
+                ?.setSummary(R.string.preference_summary_settings_code_required_shortcut)
+        }
         settingsDisablePreference.setOnPreferenceChangeListener { _, newValue ->
             if (newValue == true) {
                 confirmDisableSettingsButton()
