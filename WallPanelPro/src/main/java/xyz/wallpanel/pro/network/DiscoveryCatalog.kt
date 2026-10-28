@@ -44,6 +44,7 @@ object DiscoveryCatalog {
         DiscoveryChoice("relaunch", R.string.mqtt_control_relaunch),
         DiscoveryChoice("wake", R.string.mqtt_control_wake),
         DiscoveryChoice("playNotification", R.string.mqtt_control_play_notification),
+        DiscoveryChoice("foreground", R.string.mqtt_control_foreground),
         DiscoveryChoice("restartApp", R.string.mqtt_control_restart_app),
         DiscoveryChoice("settings", R.string.mqtt_control_settings),
         DiscoveryChoice("screen", R.string.mqtt_control_screen),
@@ -56,6 +57,13 @@ object DiscoveryCatalog {
         DiscoveryChoice("url", R.string.mqtt_control_url),
         DiscoveryChoice("speak", R.string.mqtt_control_speak),
         DiscoveryChoice("toast", R.string.mqtt_control_toast),
+        DiscoveryChoice("notification", R.string.mqtt_control_notify),
+        DiscoveryChoice("screenSaverMode", R.string.mqtt_control_screensaver_mode),
+        DiscoveryChoice("inactivityTime", R.string.mqtt_control_inactivity_time),
+        DiscoveryChoice("screenSaverDim", R.string.mqtt_control_screensaver_dim),
+        DiscoveryChoice("preventSleep", R.string.mqtt_control_prevent_sleep),
+        DiscoveryChoice("darkTheme", R.string.mqtt_control_dark_theme),
+        DiscoveryChoice("screenSaverUrl", R.string.mqtt_control_screensaver_url),
         DiscoveryChoice("shell", R.string.mqtt_control_shell),
     )
 
@@ -82,6 +90,7 @@ object DiscoveryCatalog {
         DiscoveryChoice(MqttDiscovery.OBJECT_MOTION, R.string.mqtt_sensor_motion_detected),
         DiscoveryChoice(MqttDiscovery.OBJECT_FACE, R.string.mqtt_sensor_face_detected),
         DiscoveryChoice(MqttDiscovery.OBJECT_QR, R.string.mqtt_sensor_qr_code),
+        DiscoveryChoice(MqttDiscovery.OBJECT_BUTTONS, R.string.mqtt_sensor_buttons),
     )
 
     /**
@@ -115,6 +124,7 @@ object DiscoveryCatalog {
         MqttDiscovery.OBJECT_MOTION,
         MqttDiscovery.OBJECT_FACE,
         MqttDiscovery.OBJECT_QR,
+        MqttDiscovery.OBJECT_BUTTONS,
         SensorReader.CHARGING,
         SensorReader.AC_PLUGGED,
         SensorReader.USB_PLUGGED,

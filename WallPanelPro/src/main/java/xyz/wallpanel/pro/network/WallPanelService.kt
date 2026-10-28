@@ -52,7 +52,10 @@ import timber.log.Timber
 import xyz.wallpanel.pro.R
 import xyz.wallpanel.pro.modules.*
 import xyz.wallpanel.pro.persistence.Configuration
+import xyz.wallpanel.pro.persistence.RemoteConfig
 import xyz.wallpanel.pro.persistence.ScheduleRepository
+import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_CONFIG_CHANGED
+import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_NOTIFICATION
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_CLEAR_BROWSER_CACHE
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_JS_EXEC
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_LOAD_URL
@@ -69,6 +72,10 @@ import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA_FPS
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA_RESOLUTION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CLEAR_CACHE
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CONFIG
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_FOREGROUND
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_NOTIFICATION
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR_BUTTON
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_EVAL
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_EXIT
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_PLAY_NOTIFICATION
@@ -195,6 +202,16 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     private val wakeScreenHandler = Handler(Looper.getMainLooper())
     private val mjpegHandler = Handler(Looper.getMainLooper())
     private var textToSpeechModule: TextToSpeechModule? = null
+    // Asking Home Assistant to speak waits on the network, one message at a time so they
+    // are spoken in the order they came.
+    private val speechExecutor = Executors.newSingleThreadExecutor()
+    private val audioHandler = Handler(Looper.getMainLooper())
+    // Whether the browser is on screen, and the countdown that brings it back after another
+    // app has been left in front. Main looper only.
+    private var browserVisible = false
+    private var returnToBrowserOnScreenOn = false
+    private val returnToBrowserHandler = Handler(Looper.getMainLooper())
+    private val returnToBrowserRunnable = Runnable { returnToBrowser() }
     private var mqttModule: MQTTModule? = null
     // A client opened only to take the entities down after MQTT was switched off, see
     // retractDiscoveryWhileDisabled().
@@ -298,6 +315,9 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         filter.addAction(BROADCAST_EVENT_SCREEN_TOUCH)
         filter.addAction(BROADCAST_SCREENSAVER_STARTED)
         filter.addAction(BROADCAST_SCREENSAVER_STOPPED)
+        filter.addAction(BROADCAST_BROWSER_SHOWN)
+        filter.addAction(BROADCAST_BROWSER_HIDDEN)
+        filter.addAction(BROADCAST_EVENT_BUTTON)
         localBroadCastManager = LocalBroadcastManager.getInstance(this)
         localBroadCastManager?.registerReceiver(mBroadcastReceiver, filter)
 
@@ -482,9 +502,12 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         faceClearHandler.removeCallbacksAndMessages(null)
         wakeScreenHandler.removeCallbacksAndMessages(null)
         notificationSoundHandler.removeCallbacksAndMessages(null)
+        returnToBrowserHandler.removeCallbacksAndMessages(null)
+        audioHandler.removeCallbacksAndMessages(null)
         notificationSound?.stop()
         notificationSound = null
         discoveryExecutor.shutdown()
+        speechExecutor.shutdownNow()
     }
 
     override fun onBind(intent: Intent): IBinder {
@@ -541,6 +564,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                     else -> activeFps.toDouble()
                 })
                 state.put(MqttUtils.STATE_CAMERA_BOOSTED, cameraBoosted)
+                RemoteConfig(configuration).putState(state)
             } catch (e: JSONException) {
                 e.printStackTrace()
             }
@@ -1147,6 +1171,10 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     private fun processCommand(commandJson: JSONObject): Boolean {
         try {
+            // First, so a command that also shows the screensaver shows the one it set up.
+            if (commandJson.has(COMMAND_CONFIG)) {
+                applyConfig(commandJson.getJSONObject(COMMAND_CONFIG))
+            }
             // Ahead of the camera switch, so a command that carries both starts the camera
             // at the size it asks for.
             if (commandJson.has(COMMAND_CAMERA_RESOLUTION) || commandJson.has(COMMAND_CAMERA_FPS)) {
@@ -1212,6 +1240,14 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             }
             if (commandJson.has(COMMAND_TOAST)) {
                 sendToastMessage(commandJson.getString(COMMAND_TOAST))
+            }
+            if (commandJson.has(COMMAND_NOTIFICATION)) {
+                showNotification(commandJson.get(COMMAND_NOTIFICATION))
+            }
+            if (commandJson.has(COMMAND_FOREGROUND)) {
+                if (commandJson.getBoolean(COMMAND_FOREGROUND)) {
+                    bringBrowserToFront()
+                }
             }
             if (commandJson.has(COMMAND_SCREENSAVER)) {
                 setScreenSaver(commandJson.getBoolean(COMMAND_SCREENSAVER))
@@ -1384,11 +1420,157 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     // TODO we need to url decode incoming strings to support other languages
     private fun speakMessage(message: String) {
+        if (configuration.speechHaEnabled) {
+            speakThroughHomeAssistant(message)
+            return
+        }
+        speakOnDevice(message)
+    }
+
+    private fun speakOnDevice(message: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             textToSpeechModule?.speakText(message)
         } else {
             sendAlertMessage("Text to Speech is not supported on this device's version of Android")
         }
+    }
+
+    /**
+     * Has Home Assistant render the message and plays the result, falling back to the
+     * device's own engine when Home Assistant is not set up or does not answer, so a message
+     * is never silently lost.
+     */
+    private fun speakThroughHomeAssistant(message: String) {
+        val baseUrl = HomeAssistantSpeech.baseUrl(configuration.speechHaUrl, configuration.appLaunchUrl)
+        val token = configuration.speechHaToken
+        if (baseUrl == null || token.isEmpty()) {
+            Timber.w("Speaking through Home Assistant needs its address and an access token, using the device")
+            speakOnDevice(message)
+            return
+        }
+        val speech = HomeAssistantSpeech(baseUrl, token, configuration.speechHaEngine, configuration.speechHaLanguage)
+        try {
+            speechExecutor.execute {
+                val url = speech.audioUrl(message)
+                audioHandler.post {
+                    // The answer can come back after the service has gone
+                    if (speechExecutor.isShutdown) {
+                        return@post
+                    }
+                    if (url != null) {
+                        playAudio(url)
+                    } else {
+                        speakOnDevice(message)
+                    }
+                }
+            }
+        } catch (e: RejectedExecutionException) {
+            Timber.d("Not speaking, the service is shutting down")
+        }
+    }
+
+    /**
+     * Puts a message on the dashboard that stays until it is touched, for Home Assistant's
+     * notify entity. Takes the text alone or `{"message", "title", "timeout"}`.
+     */
+    private fun showNotification(value: Any) {
+        val notification = value as? JSONObject
+        val message = notification?.optString(NOTIFICATION_MESSAGE) ?: value.toString()
+        if (message.isBlank()) {
+            Timber.w("Ignoring a notification without a message")
+            return
+        }
+        val intent = Intent(BROADCAST_ACTION_NOTIFICATION)
+        intent.putExtra(NOTIFICATION_MESSAGE, message)
+        notification?.optString(NOTIFICATION_TITLE)?.takeIf { it.isNotBlank() }?.let {
+            intent.putExtra(NOTIFICATION_TITLE, it)
+        }
+        val timeout = notification?.optLong(NOTIFICATION_TIMEOUT, 0L) ?: 0L
+        if (timeout > 0) {
+            intent.putExtra(NOTIFICATION_TIMEOUT, timeout)
+        }
+        LocalBroadcastManager.getInstance(applicationContext).sendBroadcast(intent)
+    }
+
+    /** The `config` command. The browser applies what changed to what is on screen. */
+    private fun applyConfig(settings: JSONObject) {
+        val applied = RemoteConfig(configuration).apply(settings)
+        if (applied.isEmpty()) {
+            return
+        }
+        Timber.i("Changed by command: $applied")
+        val intent = Intent(BROADCAST_ACTION_CONFIG_CHANGED)
+        intent.putExtra(BROADCAST_ACTION_CONFIG_CHANGED, applied.toTypedArray())
+        LocalBroadcastManager.getInstance(applicationContext).sendBroadcast(intent)
+        publishApplicationState()
+    }
+
+    private fun bringBrowserToFront() {
+        returnToBrowserHandler.post {
+            if (!AppExit.exiting) {
+                AppRestartHelper.bringBrowserToFront(applicationContext)
+            }
+        }
+    }
+
+    /**
+     * Starts the countdown that brings the browser back when it has gone from the screen
+     * with the screen still on, which is another app, or the settings, opening over it.
+     * The screen going off stops the browser too, and that is not a reason to come back.
+     */
+    private fun onBrowserHidden() {
+        browserVisible = false
+        returnToBrowserHandler.removeCallbacks(returnToBrowserRunnable)
+        val minutes = configuration.appReturnMinutes
+        if (minutes > 0 && !AppExit.exiting && isInteractive()) {
+            returnToBrowserHandler.postDelayed(returnToBrowserRunnable, TimeUnit.MINUTES.toMillis(minutes.toLong()))
+        }
+    }
+
+    private fun onBrowserShown() {
+        browserVisible = true
+        returnToBrowserOnScreenOn = false
+        returnToBrowserHandler.removeCallbacks(returnToBrowserRunnable)
+    }
+
+    /**
+     * The settings screen is left alone, it goes back to the browser itself when closed. A
+     * screen that has gone dark in the meantime gets the browser when it next comes on, so
+     * starting it does not light the screen up.
+     */
+    private fun returnToBrowser() {
+        if (browserVisible || AppExit.exiting) {
+            return
+        }
+        if (settingsScreensShown > 0) {
+            returnToBrowserHandler.postDelayed(returnToBrowserRunnable,
+                TimeUnit.MINUTES.toMillis(configuration.appReturnMinutes.coerceAtLeast(1).toLong()))
+            return
+        }
+        if (!isInteractive()) {
+            returnToBrowserOnScreenOn = true
+            return
+        }
+        Timber.i("Another app was left in front, bringing WallPanel back")
+        AppRestartHelper.bringBrowserToFront(applicationContext)
+    }
+
+    private fun isInteractive(): Boolean {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        return powerManager.isInteractive
+    }
+
+    /** A hardware key reported by the browser, see BaseBrowserActivity.dispatchKeyEvent(). */
+    private fun publishButton(key: String, action: String) {
+        val data = JSONObject()
+        try {
+            data.put(BUTTON_EVENT_TYPE, "${key}_$action")
+            data.put(BUTTON_KEY, key)
+            data.put(BUTTON_ACTION, action)
+        } catch (ex: JSONException) {
+            ex.printStackTrace()
+        }
+        publishCommand(COMMAND_SENSOR_BUTTON, data)
     }
 
     // TODO temporarily wake screen
@@ -1898,6 +2080,10 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                 Timber.i("Screen turned on")
                 publishApplicationState()
                 sendBrowserEngineResume()
+                if (returnToBrowserOnScreenOn) {
+                    returnToBrowserOnScreenOn = false
+                    returnToBrowser()
+                }
             } else if (Intent.ACTION_USER_PRESENT == intent.action) {
                 Timber.i("User present")
                 publishApplicationState()
@@ -1911,6 +2097,16 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                 Timber.i("Screensaver stopped")
                 isScreenSaverActive = false
                 publishApplicationState()
+            } else if (BROADCAST_BROWSER_SHOWN == intent.action) {
+                onBrowserShown()
+            } else if (BROADCAST_BROWSER_HIDDEN == intent.action) {
+                onBrowserHidden()
+            } else if (BROADCAST_EVENT_BUTTON == intent.action) {
+                val key = intent.getStringExtra(BUTTON_KEY)
+                val action = intent.getStringExtra(BUTTON_ACTION)
+                if (key != null && action != null) {
+                    publishButton(key, action)
+                }
             }
         }
     }
@@ -2008,6 +2204,15 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         const val BROADCAST_BROWSER_ENGINE_RESUME = "BROADCAST_BROWSER_ENGINE_RESUME"
         const val BROADCAST_SCREENSAVER_STARTED = "BROADCAST_SCREENSAVER_STARTED"
         const val BROADCAST_SCREENSAVER_STOPPED = "BROADCAST_SCREENSAVER_STOPPED"
+        const val BROADCAST_BROWSER_SHOWN = "BROADCAST_BROWSER_SHOWN"
+        const val BROADCAST_BROWSER_HIDDEN = "BROADCAST_BROWSER_HIDDEN"
+        const val BROADCAST_EVENT_BUTTON = "BROADCAST_EVENT_BUTTON"
+        const val BUTTON_EVENT_TYPE = "event_type"
+        const val BUTTON_KEY = "key"
+        const val BUTTON_ACTION = "action"
+        const val NOTIFICATION_MESSAGE = "message"
+        const val NOTIFICATION_TITLE = "title"
+        const val NOTIFICATION_TIMEOUT = "timeout"
         const val BROADCAST_CONNTED = "BROADCAST_SCREEN_BRIGHTNESS_CHANGE"
         const val ACTION_RUN_COMMAND = "xyz.wallpanel.pro.action.RUN_COMMAND"
         const val ACTION_SETTINGS_OPENED = "xyz.wallpanel.pro.action.SETTINGS_OPENED"

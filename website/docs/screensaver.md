@@ -35,3 +35,9 @@ away: on a touch, a `wake` command, motion or a face, or the screen coming back 
 dashboard that has been in the background for hours, or whose connection dropped while
 the screen was off, then shows current values. See
 [Reloading the dashboard](./dashboard-refresh.md) for the other ways to keep a page fresh.
+
+## Changing the screensaver remotely
+
+The screensaver type, its timeout, the dim level, the web screensaver's page and
+**Prevent Sleep** can all be changed by the [`config` command](./remote-control/commands.md#changing-settings),
+or from the matching Home Assistant entities, to dim at night and stay bright by day.

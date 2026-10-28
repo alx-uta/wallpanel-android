@@ -515,4 +515,65 @@ class MqttDiscoveryTest {
             .map { SensorInfo(it.objectId, null, null, it.objectId) } +
             SensorInfo("battery", "%", "battery", "Battery Level", "measurement")
     }
+
+    @Test
+    fun `config controls set one setting each through the config command`() {
+        val mode = config("select/screenSaverMode")
+        assertEquals("""{"config": {"screenSaverMode": {{ value | to_json }}}}""", mode.getString("command_template"))
+        assertEquals("{{ value_json.screenSaverMode }}", mode.getString("value_template"))
+        assertEquals(
+            listOf("off", "clock", "dim", "wallpaper", "web"),
+            mode.getJSONArray("options").let { a -> (0 until a.length()).map { a.getString(it) } }
+        )
+
+        val timeout = config("number/inactivityTime")
+        assertEquals("""{"config": {"inactivityTime": {{ value | int }}}}""", timeout.getString("command_template"))
+        assertEquals("s", timeout.getString("unit_of_measurement"))
+        assertEquals("box", timeout.getString("mode"))
+        assertEquals(5, timeout.getInt("min"))
+
+        val dim = config("number/screenSaverDim")
+        assertEquals("""{"config": {"screenSaverDim": {{ value | int }}}}""", dim.getString("command_template"))
+        assertEquals(99, dim.getInt("max"))
+
+        val sleep = config("switch/preventSleep")
+        assertEquals("""{"config": {"preventSleep": true}}""", sleep.getString("payload_on"))
+        assertEquals("""{"config": {"preventSleep": false}}""", sleep.getString("payload_off"))
+        assertEquals("{% if value_json.preventSleep %}ON{% else %}OFF{% endif %}", sleep.getString("value_template"))
+        assertEquals("config", sleep.getString("entity_category"))
+
+        val theme = config("switch/darkTheme")
+        assertEquals("""{"config": {"darkTheme": true}}""", theme.getString("payload_on"))
+
+        val url = config("text/screenSaverUrl")
+        assertEquals("""{"config": {"screenSaverUrl": {{ value | to_json }}}}""", url.getString("command_template"))
+    }
+
+    @Test
+    fun `the notify entity sends the message as the notification command`() {
+        val notify = config("notify/notification")
+        assertEquals("wallpanel/kitchen/command", notify.getString("command_topic"))
+        assertEquals("""{"notification": {{ value | to_json }}}""", notify.getString("command_template"))
+    }
+
+    @Test
+    fun `bring to front is a button`() {
+        assertEquals("""{"foreground": true}""", config("button/foreground").getString("payload_press"))
+    }
+
+    @Test
+    fun `the volume key event follows its setting and its tick`() {
+        assertNull(entities().getValue("event/button").config)
+
+        setBool(R.string.key_setting_sensors_volume_keys, true)
+        val event = config("event/button")
+        assertEquals("wallpanel/kitchen/sensor/button", event.getString("state_topic"))
+        assertEquals(
+            listOf("volume_up_press", "volume_up_long_press", "volume_down_press", "volume_down_long_press"),
+            event.getJSONArray("event_types").let { a -> (0 until a.length()).map { a.getString(it) } }
+        )
+
+        configuration.mqttDiscoverySensorIds = configuration.mqttDiscoverySensorIds - MqttDiscovery.OBJECT_BUTTONS
+        assertNull(entities().getValue("event/button").config)
+    }
 }

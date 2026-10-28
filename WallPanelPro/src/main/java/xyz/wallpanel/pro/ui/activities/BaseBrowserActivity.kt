@@ -22,14 +22,26 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.StyleSpan
+import android.util.TypedValue
+import android.view.Gravity
+import android.view.KeyEvent
 import android.view.View
+import android.view.ViewConfiguration
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
@@ -50,9 +62,12 @@ import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_SCREEN_WAK
 import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_SERVICE_STARTED
 import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_TOAST_MESSAGE
 import xyz.wallpanel.pro.persistence.Configuration
+import xyz.wallpanel.pro.persistence.RemoteConfig
 import xyz.wallpanel.pro.utils.AppExit
 import xyz.wallpanel.pro.utils.DialogUtils
+import xyz.wallpanel.pro.utils.MqttUtils
 import xyz.wallpanel.pro.utils.ScreenUtils
+import xyz.wallpanel.pro.utils.VolumeKeys
 import javax.inject.Inject
 
 
@@ -80,6 +95,19 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     // Shades the page for the dim screensaver when the brightness on screen is not known
     private var dimShade: View? = null
     private var inForeground = false
+    // Set while a config command puts the screensaver up again, which is not a dismissal
+    private var reshowingScreenSaver = false
+    // Messages from the notification command, newest at the bottom
+    private var notificationViews: LinearLayout? = null
+    private val notificationHandler = Handler(Looper.getMainLooper())
+    private val volumeKeys by lazy {
+        VolumeKeys(ViewConfiguration.getLongPressTimeout().toLong()) { key, action ->
+            val intent = Intent(WallPanelService.BROADCAST_EVENT_BUTTON)
+            intent.putExtra(WallPanelService.BUTTON_KEY, key)
+            intent.putExtra(WallPanelService.BUTTON_ACTION, action)
+            LocalBroadcastManager.getInstance(applicationContext).sendBroadcast(intent)
+        }
+    }
     var displayProgress = true
     var zoomLevel = 1.0f
 
@@ -158,6 +186,19 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
                 hideScreenSaver()
             } else if (BROADCAST_SERVICE_STARTED == intent.action && !isFinishing) {
                 //firstLoadUrl() // load the url after service started
+            } else if (BROADCAST_ACTION_CONFIG_CHANGED == intent.action && !isFinishing) {
+                val keys = intent.getStringArrayExtra(BROADCAST_ACTION_CONFIG_CHANGED)
+                keys?.let { onConfigChanged(it.toSet()) }
+            } else if (BROADCAST_ACTION_NOTIFICATION == intent.action && !isFinishing) {
+                val message = intent.getStringExtra(WallPanelService.NOTIFICATION_MESSAGE)
+                message?.let {
+                    stopDisconnectTimer()
+                    showNotification(
+                        intent.getStringExtra(WallPanelService.NOTIFICATION_TITLE),
+                        it,
+                        intent.getLongExtra(WallPanelService.NOTIFICATION_TIMEOUT, 0L)
+                    )
+                }
             }
         }
     }
@@ -228,6 +269,8 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         filter.addAction(BROADCAST_BROWSER_ENGINE_RESUME)
         filter.addAction(BROADCAST_SERVICE_STARTED)
         filter.addAction(AppExit.BROADCAST_EXIT)
+        filter.addAction(BROADCAST_ACTION_CONFIG_CHANGED)
+        filter.addAction(BROADCAST_ACTION_NOTIFICATION)
         LocalBroadcastManager.getInstance(this).registerReceiver(mBroadcastReceiver, filter)
     }
 
@@ -242,13 +285,7 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
             )
         }
-        if (configuration.appPreventSleep) {
-            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            decorView?.keepScreenOn = true
-        } else {
-            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
-            decorView?.keepScreenOn = false
-        }
+        applyKeepScreenOn()
         wallPanelService = Intent(this, WallPanelService::class.java)
         // Started again while the application exits, the service would come back after the
         // process has gone
@@ -260,12 +297,142 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
             }
         }
         resetScreenBrightness(false)
+        LocalBroadcastManager.getInstance(this).sendBroadcast(Intent(WallPanelService.BROADCAST_BROWSER_SHOWN))
+    }
+
+    override fun onStop() {
+        super.onStop()
+        LocalBroadcastManager.getInstance(this).sendBroadcast(Intent(WallPanelService.BROADCAST_BROWSER_HIDDEN))
+    }
+
+    /**
+     * The volume keys go to Home Assistant instead of the volume when that is switched on.
+     * The screensaver has a window of its own and passes them on here, see [showScreenSaver].
+     */
+    override fun dispatchKeyEvent(event: KeyEvent): Boolean {
+        if (handleVolumeKey(event)) {
+            return true
+        }
+        return super.dispatchKeyEvent(event)
+    }
+
+    private fun handleVolumeKey(event: KeyEvent): Boolean {
+        return configuration.sensorsVolumeKeys && volumeKeys.handle(event)
+    }
+
+    /** Keeps the screen on for the Prevent Sleep setting, without undoing a wake command. */
+    private fun applyKeepScreenOn() {
+        if (configuration.appPreventSleep) {
+            window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            decorView?.keepScreenOn = true
+        } else {
+            if (!hasWakeScreen) {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
+            decorView?.keepScreenOn = false
+        }
+    }
+
+    /**
+     * Brings what is on screen in line with settings the config command changed. Nothing
+     * else needs telling: the screensaver reads its settings each time it comes up.
+     */
+    private fun onConfigChanged(keys: Set<String>) {
+        if (MqttUtils.STATE_PREVENT_SLEEP in keys) {
+            applyKeepScreenOn()
+        }
+        if (MqttUtils.STATE_SCREENSAVER_DIM in keys) {
+            screenUtils.updateScreenSaverBrightness()
+            if (screenSaverActive) {
+                resetScreenBrightness(true)
+            }
+        }
+        if (MqttUtils.STATE_DARK_THEME in keys) {
+            applyDarkTheme()
+        }
+        if (screenSaverActive && keys.any { it in RemoteConfig.SCREENSAVER_KEYS }) {
+            reshowingScreenSaver = true
+            try {
+                hideScreenSaver()
+            } finally {
+                reshowingScreenSaver = false
+            }
+            if (isInForeground()) {
+                showScreenSaver()
+            }
+            if (!screenSaverActive) {
+                restartInactivityCountdown()
+            }
+        } else if (MqttUtils.STATE_INACTIVITY_TIME in keys && !screenSaverActive) {
+            restartInactivityCountdown()
+        }
+    }
+
+    /** Starts the countdown to the screensaver again, at the inactivity time as it is now. */
+    private fun restartInactivityCountdown() {
+        inactivityHandler.removeCallbacks(inactivityCallback)
+        if (isInForeground() && !hasWakeScreen) {
+            inactivityHandler.postDelayed(inactivityCallback, configuration.inactivityTime)
+        }
+    }
+
+    /** The dark theme setting changed while the page is up. */
+    protected open fun applyDarkTheme() {}
+
+    /**
+     * Puts a message over the page until it is touched, or for [timeoutSeconds] when that
+     * is above 0. Messages stack, the oldest going once there are [MAX_NOTIFICATIONS].
+     */
+    private fun showNotification(title: String?, message: String, timeoutSeconds: Long) {
+        val container = notificationViews ?: LinearLayout(this).also {
+            it.orientation = LinearLayout.VERTICAL
+            val params = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP)
+            addContentView(it, params)
+            notificationViews = it
+        }
+        while (container.childCount >= MAX_NOTIFICATIONS) {
+            container.removeViewAt(0)
+        }
+        val text = SpannableStringBuilder()
+        if (!title.isNullOrBlank()) {
+            text.append(title, StyleSpan(Typeface.BOLD), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            text.append("\n")
+        }
+        text.append(message)
+        val margin = dp(12)
+        val view = TextView(this).apply {
+            this.text = text
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+            setPadding(dp(20), dp(16), dp(20), dp(16))
+            background = GradientDrawable().apply {
+                setColor(NOTIFICATION_BACKGROUND)
+                cornerRadius = dp(12).toFloat()
+            }
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(margin, margin, margin, 0)
+            }
+        }
+        val remove = Runnable { container.removeView(view) }
+        view.setOnClickListener {
+            notificationHandler.removeCallbacks(remove)
+            remove.run()
+        }
+        container.addView(view)
+        if (timeoutSeconds > 0) {
+            notificationHandler.postDelayed(remove, timeoutSeconds * 1000)
+        }
+    }
+
+    private fun dp(value: Int): Int {
+        return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value.toFloat(), resources.displayMetrics).toInt()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         LocalBroadcastManager.getInstance(this).unregisterReceiver(mBroadcastReceiver)
         inactivityHandler.removeCallbacks(inactivityCallback)
+        notificationHandler.removeCallbacksAndMessages(null)
         // The screensaver goes with the activity. Left unreported, the service keeps
         // publishing it as on and the Home Assistant switch never comes back down.
         setScreenSaverActive(false)
@@ -392,7 +559,7 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         }
         setScreenSaverActive(false)
         onScreenSaverCovering(false)
-        if ((wasActive || dialogDismissed) && configuration.browserReloadOnWake) {
+        if ((wasActive || dialogDismissed) && configuration.browserReloadOnWake && !reshowingScreenSaver) {
             reloadAfterScreenSaver()
         }
     }
@@ -441,7 +608,8 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
                 configuration.imageRotation.toLong(),
                 configuration.appPreventSleep,
                 configuration.clockScreenSaverScale,
-                configuration.clockScreenSaverMoves
+                configuration.clockScreenSaverMoves,
+                ::handleVolumeKey
             )
             resetScreenBrightness(true)
             setScreenSaverActive(true)
@@ -545,6 +713,10 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         const val BROADCAST_ACTION_OPEN_SETTINGS = "BROADCAST_ACTION_OPEN_SETTINGS"
         const val BROADCAST_ACTION_SHOW_SCREENSAVER = "BROADCAST_ACTION_SHOW_SCREENSAVER"
         const val BROADCAST_ACTION_HIDE_SCREENSAVER = "BROADCAST_ACTION_HIDE_SCREENSAVER"
+        const val BROADCAST_ACTION_CONFIG_CHANGED = "BROADCAST_ACTION_CONFIG_CHANGED"
+        const val BROADCAST_ACTION_NOTIFICATION = "BROADCAST_ACTION_NOTIFICATION"
+        private const val MAX_NOTIFICATIONS = 5
+        private const val NOTIFICATION_BACKGROUND = 0xE6303030.toInt()
         const val REQUEST_CODE_PERMISSION_AUDIO = 12
         const val REQUEST_CODE_PERMISSION_CAMERA = 13
     }

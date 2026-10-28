@@ -20,6 +20,7 @@ import android.app.Dialog
 import android.content.Context
 import android.content.ContextWrapper
 import android.content.DialogInterface
+import android.view.KeyEvent
 import android.view.LayoutInflater
 import android.view.View
 import android.view.WindowManager
@@ -168,7 +169,8 @@ class DialogUtils(base: Context?) : ContextWrapper(base), LifecycleObserver {
                         rotationInterval: Long,
                         preventSleep: Boolean,
                         clockScale: Float = 1f,
-                        clockMoves: Boolean = true) {
+                        clockMoves: Boolean = true,
+                        onKey: ((KeyEvent) -> Boolean)? = null) {
         if (screenSaverDialog != null && screenSaverDialog!!.isShowing) {
             return
         }
@@ -179,6 +181,8 @@ class DialogUtils(base: Context?) : ContextWrapper(base), LifecycleObserver {
         screenSaverView.setOnClickListener(onClickListener)
         screenSaverView.init(hasWeb, webUrl, hasWallpaper, hasClock, rotationInterval, clockScale, clockMoves)
         screenSaverDialog = buildImmersiveDialog(activity, true, screenSaverView, true)
+        // Keys go to the window in front, which is this one and not the activity's
+        onKey?.let { handler -> screenSaverDialog?.setOnKeyListener { _, _, event -> handler(event) } }
         if (screenSaverDialog != null && preventSleep) {
             screenSaverDialog?.window?.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         }

@@ -209,6 +209,8 @@
     <string name="text_boot_waiting">Waiting for the network and the clock…</string>
     <string name="text_restart_notification_title">WallPanel Pro Restarting</string>
     <string name="text_restart_notification_message">Tap to reopen the dashboard.</string>
+    <string name="text_foreground_notification_title">WallPanel Pro</string>
+    <string name="text_foreground_notification_message">Tap to go back to the dashboard.</string>
     <string name="text_camera_front">Front</string>
     <string name="text_camera_back">Back</string>
     <string name="toast_camera_source_error">Could not start camera source, you may want to try again.</string>
@@ -342,6 +344,15 @@
     <string name="mqtt_control_restart_app">Restart App</string>
     <string name="mqtt_control_wake">Wake Screen</string>
     <string name="mqtt_control_play_notification">Play Notification Sound</string>
+    <string name="mqtt_control_foreground">Bring to Front</string>
+    <string name="mqtt_control_notify">Notification</string>
+    <string name="mqtt_control_screensaver_mode">Screensaver Type</string>
+    <string name="mqtt_control_inactivity_time">Screensaver Timeout</string>
+    <string name="mqtt_control_screensaver_dim">Screensaver Dim Level</string>
+    <string name="mqtt_control_prevent_sleep">Prevent Sleep</string>
+    <string name="mqtt_control_dark_theme">Dark Theme</string>
+    <string name="mqtt_control_screensaver_url">Screensaver URL</string>
+    <string name="mqtt_sensor_buttons">Volume Keys</string>
     <string name="mqtt_control_settings">Open Settings</string>
     <string name="mqtt_control_screen">Keep Screen Awake</string>
     <string name="mqtt_control_camera">Camera</string>
@@ -542,4 +553,23 @@
     <string name="dialog_exit_message">MQTT, the HTTP server and the camera stop until WallPanel is opened again, so it can\'t be controlled remotely in the meantime.</string>
     <string name="dialog_exit_message_home">MQTT, the HTTP server and the camera stop until WallPanel is opened again, so it can\'t be controlled remotely in the meantime.\n\nWallPanel is the home app, so Android would open it again straight away. The home app setting opens next for another one to be picked.</string>
     <string name="button_exit">Exit</string>
+
+    <string name="title_setting_app_return_minutes">Return to WallPanel</string>
+    <string name="summary_setting_app_return_minutes">Minutes after which WallPanel comes back to the front when another app was left open. Currently %1$s. 0 turns this off.</string>
+
+    <string name="title_setting_sensors_volume_keys">Report Volume Keys</string>
+    <string name="summary_setting_sensors_volume_keys">Publishes volume key presses to Home Assistant instead of changing the volume. Only while WallPanel is on the screen.</string>
+
+    <string name="pref_speech_category">Speech</string>
+    <string name="title_setting_speech_ha_enabled">Speak Through Home Assistant</string>
+    <string name="summary_setting_speech_ha_enabled">The speak command asks Home Assistant to turn the message into audio and plays it, instead of using this device\'s text to speech. Falls back to the device if Home Assistant can\'t be reached.</string>
+    <string name="title_setting_speech_ha_url">Home Assistant Address</string>
+    <string name="summary_setting_speech_ha_url_default">Taken from the dashboard address: %1$s</string>
+    <string name="title_setting_speech_ha_token">Home Assistant Access Token</string>
+    <string name="summary_setting_speech_ha_token_off">Not set. Create a long-lived access token on your Home Assistant profile page.</string>
+    <string name="summary_setting_speech_ha_token_on">Set.</string>
+    <string name="title_setting_speech_ha_engine">Text-to-Speech Entity</string>
+    <string name="summary_setting_speech_ha_engine_default">Not set, the first one Home Assistant has is used. Example: tts.google_translate_en_com</string>
+    <string name="title_setting_speech_ha_language">Language</string>
+    <string name="summary_setting_speech_ha_language_default">Not set, the engine\'s own language is used. Example: en</string>
 </resources>

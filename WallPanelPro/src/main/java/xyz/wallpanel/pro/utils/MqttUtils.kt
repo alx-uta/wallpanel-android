@@ -33,6 +33,7 @@ class MqttUtils {
         const val COMMAND_SENSOR_QR_CODE = "sensor/qrcode"
         const val COMMAND_SENSOR_MOTION = "sensor/motion"
         const val COMMAND_SENSOR_SHELL = "sensor/shell"
+        const val COMMAND_SENSOR_BUTTON = "sensor/button"
         const val STATE_CURRENT_URL = "currentUrl"
         const val STATE_SCREEN_ON = "screenOn"
         const val STATE_SCREEN_AWAKE = "screenAwake"
@@ -47,6 +48,12 @@ class MqttUtils {
         const val STATE_CAMERA_RESOLUTION_ACTIVE = "cameraResolutionActive"
         const val STATE_CAMERA_FPS_ACTIVE = "cameraFpsActive"
         const val STATE_CAMERA_BOOSTED = "cameraBoosted"
+        const val STATE_SCREENSAVER_MODE = "screenSaverMode"
+        const val STATE_INACTIVITY_TIME = "inactivityTime"
+        const val STATE_SCREENSAVER_DIM = "screenSaverDim"
+        const val STATE_PREVENT_SLEEP = "preventSleep"
+        const val STATE_DARK_THEME = "darkTheme"
+        const val STATE_SCREENSAVER_URL = "screenSaverUrl"
         const val COMMAND_SENSOR = "sensor/"
         const val COMMAND_URL = "url"
         const val COMMAND_CAMERA = "camera"
@@ -69,6 +76,9 @@ class MqttUtils {
         const val COMMAND_RESTART_APP = "restartApp"
         const val COMMAND_PLAY_NOTIFICATION = "playNotification"
         const val COMMAND_EXIT = "exit"
+        const val COMMAND_CONFIG = "config"
+        const val COMMAND_FOREGROUND = "foreground"
+        const val COMMAND_NOTIFICATION = "notification"
 
         private val topicsList = ArrayList<String>()
 

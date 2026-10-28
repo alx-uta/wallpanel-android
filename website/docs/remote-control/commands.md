@@ -19,7 +19,10 @@ playNotification | true | ```{"playNotification": true}``` | Plays the device's 
 url | URL | ```{"url": "http://<url>"}``` | Browse to a new URL immediately
 wake | true | ```{"wake": true, "wakeTime": 180}``` | Wakes the screen if it is asleep. Optional wakeTime (in seconds). If no wake time provided, screen will wake but return to screensaver mode on user inactivity.  Sending false value will return app to normal screensaver mode and display screensaver on user inactivity.
 wake | false | ```{"wake": false}``` | Release screen wake (Note: screen will not turn off before Androids Display Timeout finished)
-speak | data | ```{"speak": "Hello!"}``` | Uses the devices TTS to speak the message
+speak | data | ```{"speak": "Hello!"}``` | Uses the devices TTS to speak the message, or [Home Assistant's](#speaking-through-home-assistant) when that is set up
+notification | text or object | ```{"notification": "The washing is done"}``` | Puts a message on the dashboard that stays until it is touched. See [Notifications](#notifications).
+config | object | ```{"config": {"screenSaverMode": "dim", "preventSleep": false}}``` | Changes screensaver and display settings. See [Changing settings](#changing-settings).
+foreground | true | ```{"foreground": true}``` | Brings WallPanel back in front of another app, keeping the page it had. See [Bringing WallPanel to the front](#bringing-wallpanel-to-the-front).
 settings | data | ```{"settings": true}``` | Opens the settings screen remotely. With **Require Security Code** on, the settings still ask for the code on the device before they show.
 brightness | data | ```{"brightness": 1}``` | Changes the screens brightness, value 0-255 (0 turns the backlight off).
 camera | data | ```{"camera": true}``` | Turns on/off camera, this will also disable streaming, motion, QRCode, and face detection. The REST API stays up; the stream endpoint answers 503 while the camera is off. Turning it on without the camera permission granted shows a "Camera permission not granted" message and the camera does not start.
@@ -75,6 +78,127 @@ WallPanel back remotely: it opens again when it is launched, when the device res
 
 When WallPanel is the device's home app, Android would open it again straight away, so
 the system's home app setting opens instead, for another one to be picked.
+
+## Changing settings
+
+`config` changes the settings a day and night routine wants to move, which the
+**Settings** screen otherwise keeps to itself. They stay changed, the same as if they had
+been set on the device, and take effect straight away.
+
+```json
+{"config": {"screenSaverMode": "dim", "screenSaverDim": 75, "inactivityTime": 60, "preventSleep": false}}
+{"config": {"screenSaverMode": "clock", "preventSleep": true, "darkTheme": false}}
+```
+
+Key | Value | Setting
+-|-|-
+screenSaverMode | `off`, `clock`, `dim`, `wallpaper` or `web` | Which screensaver comes up. `wallpaper` keeps the clock on top of it if the clock was on.
+inactivityTime | seconds, 5 to 86400 | How long without a touch before the screensaver comes up
+screenSaverDim | 0 to 99 | How far the dim screensaver dims, in %
+screenSaverUrl | URL | The page the `web` screensaver shows
+preventSleep | true/false | **Prevent Sleep**: keep the screen on while WallPanel is in front
+darkTheme | true/false | The dark theme. The page reloads to pick it up; with the WebView engine the dashboard loads again from the start.
+
+- A key that isn't listed, or a value that doesn't fit, is ignored and logged to
+  `adb logcat`, and the rest of the command still applies.
+- A screensaver that is up when its settings change is put up again with the new ones.
+- Everything but `screenSaverUrl` comes back in the [application state](./sensors.md#application-state-data).
+- With [MQTT Discovery](./sensors.md#home-assistant-discovery) each one is an entity of
+  its own: **Screensaver Type**, **Screensaver Timeout**, **Screensaver Dim Level**,
+  **Screensaver URL**, **Prevent Sleep** and **Dark Theme**.
+
+The dark theme reaches the page as `prefers-color-scheme`, so a Home Assistant dashboard
+follows it when its theme is set to follow the system. The WebView engine on Android 9 and
+older has no dark preference to pass on, so there the page stays light; GeckoView passes it
+on everywhere.
+
+A Home Assistant automation that dims the screensaver at night and keeps the screen on by
+day:
+
+```yaml
+automation:
+  - alias: "Panel night mode"
+    triggers:
+      - trigger: time
+        at: "22:00:00"
+    actions:
+      - action: mqtt.publish
+        data:
+          topic: wallpanel/mywallpanel/command
+          payload: '{"config": {"screenSaverMode": "dim", "screenSaverDim": 90, "preventSleep": false}}'
+  - alias: "Panel day mode"
+    triggers:
+      - trigger: time
+        at: "07:00:00"
+    actions:
+      - action: mqtt.publish
+        data:
+          topic: wallpanel/mywallpanel/command
+          payload: '{"config": {"screenSaverMode": "clock", "preventSleep": true}}'
+```
+
+## Notifications
+
+`notification` puts a message across the top of the dashboard. It stays until it is
+touched, so it is still there for someone who walks up later, unlike `toast`. It also
+dismisses the screensaver so it can be seen.
+
+```json
+{"notification": "The washing is done"}
+{"notification": {"title": "Front door", "message": "Someone is at the door", "timeout": 60}}
+```
+
+`title` and `timeout` are optional. `timeout` takes the message down after that many
+seconds if nobody touched it. Up to five messages show at once, the oldest going first.
+A screensaver that comes up later covers them; they are there again when it goes.
+
+With [MQTT Discovery](./sensors.md#home-assistant-discovery) this is a **Notification**
+entity, so Home Assistant's `notify.send_message` action works like it does for a phone:
+
+```yaml
+action: notify.send_message
+target:
+  entity_id: notify.mywallpanel_notification
+data:
+  message: "The washing is done"
+```
+
+Home Assistant's MQTT notify entity passes on the message only, not a title. Send the
+command yourself for a title or a timeout. Pair it with `playNotification` to get
+attention.
+
+## Bringing WallPanel to the front
+
+`{"foreground": true}` brings WallPanel back when another app was opened over it, a
+camera app after a doorbell for instance, with the dashboard as it was. **Settings &rarr;
+Return to WallPanel** does the same on its own once another app has been in front for that
+many minutes, for a tablet that people leave on whatever app they used last. The countdown
+only starts while the screen is on; if the screen has gone off by the time it runs out,
+WallPanel comes back when the screen next comes on.
+
+From Android 10, an app may only bring itself to the front with **Display over other
+apps** allowed, which WallPanel asks for on first start and offers in its settings.
+Without it WallPanel shows a notification that opens it when tapped, and Android only
+opens it by itself on a locked or sleeping screen.
+
+## Speaking through Home Assistant
+
+The device's own text-to-speech is missing or poor on many older tablets. With **Settings
+&rarr; Speech &rarr; Speak Through Home Assistant** on, `speak` asks Home Assistant to turn
+the message into audio and plays the result, so any engine Home Assistant has works: Google
+Translate, Piper, Home Assistant Cloud and the rest.
+
+- **Home Assistant Access Token** is required: create a long-lived access token at the
+  bottom of your Home Assistant profile page.
+- **Home Assistant Address** can stay empty when the dashboard is served by Home Assistant;
+  its address is used.
+- **Text-to-Speech Entity**, such as `tts.google_translate_en_com`, picks the engine.
+  Empty uses the first one Home Assistant has.
+- **Language** is optional and passed to the engine as is, `en` or `de` for instance.
+
+The audio plays at the media volume, like the `audio` command. If Home Assistant can't be
+reached or refuses, the message is spoken by the device's engine instead, so it isn't
+lost. A refused token shows in `adb logcat` as a 401.
 
 ## Wake and the screen switch
 

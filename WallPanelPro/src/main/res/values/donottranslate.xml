@@ -177,6 +177,19 @@
     <string name="key_setting_browser_reload_interval">setting_browser_reload_interval</string>
     <string name="default_setting_browser_reload_interval">0</string>
 
+    <string name="key_setting_app_return_minutes">setting_app_return_minutes</string>
+    <string name="default_setting_app_return_minutes">0</string>
+
+    <string name="key_setting_sensors_volume_keys">setting_sensors_volume_keys</string>
+    <string name="default_setting_sensors_volume_keys">false</string>
+
+    <string name="key_setting_speech_ha_enabled">setting_speech_ha_enabled</string>
+    <string name="default_setting_speech_ha_enabled">false</string>
+    <string name="key_setting_speech_ha_url">setting_speech_ha_url</string>
+    <string name="key_setting_speech_ha_token">setting_speech_ha_token</string>
+    <string name="key_setting_speech_ha_engine">setting_speech_ha_engine</string>
+    <string name="key_setting_speech_ha_language">setting_speech_ha_language</string>
+
     <string name="key_setting_camera_mirror">setting_camera_mirror</string>
     <string name="default_setting_camera_mirror">false</string>
 

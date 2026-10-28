@@ -27,18 +27,25 @@ import xyz.wallpanel.pro.modules.CameraProfile
 import xyz.wallpanel.pro.modules.CameraResolution
 import xyz.wallpanel.pro.modules.SensorInfo
 import xyz.wallpanel.pro.persistence.Configuration
+import xyz.wallpanel.pro.persistence.RemoteConfig
+import xyz.wallpanel.pro.persistence.ScreenSaverMode
 import xyz.wallpanel.pro.utils.ScreenUtils
+import xyz.wallpanel.pro.utils.VolumeKeys
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_BRIGHTNESS
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA_FPS
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA_RESOLUTION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CLEAR_CACHE
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CONFIG
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_FOREGROUND
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_NOTIFICATION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_PLAY_NOTIFICATION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELAUNCH
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELOAD
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RESTART_APP
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SCREENSAVER
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR_BUTTON
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR_FACE
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR_MOTION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR_QR_CODE
@@ -56,6 +63,12 @@ import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_CAMERA
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_CAMERA_FPS
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_CAMERA_RESOLUTION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_CURRENT_URL
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_DARK_THEME
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_INACTIVITY_TIME
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_PREVENT_SLEEP
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_SCREENSAVER_DIM
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_SCREENSAVER_MODE
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_SCREENSAVER_URL
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_SCREENSAVER_ON
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_SCREEN_AWAKE
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_VOLUME
@@ -182,6 +195,20 @@ constructor(
             ) }
         )
 
+        // A device trigger rather than a sensor: Home Assistant fires an event per press
+        // and keeps no state between them.
+        entities += DiscoveryEntity(
+            component = "event",
+            objectId = OBJECT_BUTTONS,
+            config = (configuration.sensorsVolumeKeys && OBJECT_BUTTONS in enabledSensors).then {
+                baseConfig(context.getString(R.string.mqtt_sensor_buttons), OBJECT_BUTTONS).apply {
+                    put("state_topic", "$baseTopic$COMMAND_SENSOR_BUTTON")
+                    put("event_types", JSONArray(VolumeKeys.EVENT_TYPES))
+                    put("device_class", "button")
+                }
+            }
+        )
+
         return entities
     }
 
@@ -270,6 +297,7 @@ constructor(
         entities += button(COMMAND_RELAUNCH, R.string.mqtt_control_relaunch, """{"$COMMAND_RELAUNCH": true}""", controlOn(COMMAND_RELAUNCH, enabledControls))
         entities += button(COMMAND_WAKE, R.string.mqtt_control_wake, """{"$COMMAND_WAKE": true}""", controlOn(COMMAND_WAKE, enabledControls))
         entities += button(COMMAND_PLAY_NOTIFICATION, R.string.mqtt_control_play_notification, """{"$COMMAND_PLAY_NOTIFICATION": true}""", controlOn(COMMAND_PLAY_NOTIFICATION, enabledControls))
+        entities += button(COMMAND_FOREGROUND, R.string.mqtt_control_foreground, """{"$COMMAND_FOREGROUND": true}""", controlOn(COMMAND_FOREGROUND, enabledControls))
         entities += button(COMMAND_RESTART_APP, R.string.mqtt_control_restart_app, """{"$COMMAND_RESTART_APP": true}""", controlOn(COMMAND_RESTART_APP, enabledControls), configCategory = true)
         entities += button(COMMAND_SETTINGS, R.string.mqtt_control_settings, """{"$COMMAND_SETTINGS": true}""", controlOn(COMMAND_SETTINGS, enabledControls), configCategory = true)
 
@@ -342,6 +370,79 @@ constructor(
         entities += text(COMMAND_URL, R.string.mqtt_control_url, COMMAND_URL, controlOn(COMMAND_URL, enabledControls))
         entities += text(COMMAND_SPEAK, R.string.mqtt_control_speak, COMMAND_SPEAK, controlOn(COMMAND_SPEAK, enabledControls))
         entities += text(COMMAND_TOAST, R.string.mqtt_control_toast, COMMAND_TOAST, controlOn(COMMAND_TOAST, enabledControls))
+        // Home Assistant's notify.send_message, the way phones and other devices take messages
+        entities += DiscoveryEntity(
+            component = "notify",
+            objectId = COMMAND_NOTIFICATION,
+            config = controlOn(COMMAND_NOTIFICATION, enabledControls).then {
+                baseConfig(context.getString(R.string.mqtt_control_notify), COMMAND_NOTIFICATION).apply {
+                    put("command_topic", commandTopic)
+                    put("command_template", """{"$COMMAND_NOTIFICATION": {{ value | to_json }}}""")
+                }
+            }
+        )
+
+        // Settings, through the config command. Their values come back in the state.
+        entities += select(
+            objectId = STATE_SCREENSAVER_MODE,
+            displayNameRes = R.string.mqtt_control_screensaver_mode,
+            command = STATE_SCREENSAVER_MODE,
+            stateField = STATE_SCREENSAVER_MODE,
+            options = ScreenSaverMode.values().map { it.id },
+            enabled = controlOn(STATE_SCREENSAVER_MODE, enabledControls),
+            commandTemplate = configTemplate(STATE_SCREENSAVER_MODE, "value | to_json"),
+        )
+        entities += number(
+            objectId = STATE_INACTIVITY_TIME,
+            displayNameRes = R.string.mqtt_control_inactivity_time,
+            command = STATE_INACTIVITY_TIME,
+            stateField = STATE_INACTIVITY_TIME,
+            min = RemoteConfig.MIN_INACTIVITY_SECONDS.toInt(),
+            max = RemoteConfig.MAX_INACTIVITY_SECONDS.toInt(),
+            enabled = controlOn(STATE_INACTIVITY_TIME, enabledControls),
+            commandTemplate = configTemplate(STATE_INACTIVITY_TIME, "value | int"),
+            unit = "s",
+            mode = "box",
+            configCategory = true,
+        )
+        entities += number(
+            objectId = STATE_SCREENSAVER_DIM,
+            displayNameRes = R.string.mqtt_control_screensaver_dim,
+            command = STATE_SCREENSAVER_DIM,
+            stateField = STATE_SCREENSAVER_DIM,
+            min = 0,
+            max = RemoteConfig.MAX_DIM.toInt(),
+            enabled = controlOn(STATE_SCREENSAVER_DIM, enabledControls),
+            commandTemplate = configTemplate(STATE_SCREENSAVER_DIM, "value | int"),
+            unit = "%",
+            configCategory = true,
+        )
+        entities += switch(
+            objectId = STATE_PREVENT_SLEEP,
+            displayNameRes = R.string.mqtt_control_prevent_sleep,
+            onPayload = """{"$COMMAND_CONFIG": {"$STATE_PREVENT_SLEEP": true}}""",
+            offPayload = """{"$COMMAND_CONFIG": {"$STATE_PREVENT_SLEEP": false}}""",
+            stateField = STATE_PREVENT_SLEEP,
+            enabled = controlOn(STATE_PREVENT_SLEEP, enabledControls),
+            configCategory = true,
+        )
+        entities += switch(
+            objectId = STATE_DARK_THEME,
+            displayNameRes = R.string.mqtt_control_dark_theme,
+            onPayload = """{"$COMMAND_CONFIG": {"$STATE_DARK_THEME": true}}""",
+            offPayload = """{"$COMMAND_CONFIG": {"$STATE_DARK_THEME": false}}""",
+            stateField = STATE_DARK_THEME,
+            enabled = controlOn(STATE_DARK_THEME, enabledControls),
+            configCategory = true,
+        )
+        entities += text(
+            STATE_SCREENSAVER_URL,
+            R.string.mqtt_control_screensaver_url,
+            STATE_SCREENSAVER_URL,
+            controlOn(STATE_SCREENSAVER_URL, enabledControls),
+            configCategory = true,
+            commandTemplate = configTemplate(STATE_SCREENSAVER_URL, "value | to_json"),
+        )
 
         // The shell command carries the same risk over MQTT as it does over HTTP, so its
         // entities follow the same opt-in toggle rather than appearing for everyone.
@@ -410,6 +511,7 @@ constructor(
         offPayload: String,
         stateField: String,
         enabled: Boolean,
+        configCategory: Boolean = false,
     ): DiscoveryEntity {
         return DiscoveryEntity(
             component = "switch",
@@ -423,6 +525,9 @@ constructor(
                     put("value_template", onOffTemplate(stateField))
                     put("state_on", ON)
                     put("state_off", OFF)
+                    if (configCategory) {
+                        put("entity_category", "config")
+                    }
                 }
             }
         )
@@ -436,6 +541,10 @@ constructor(
         min: Int,
         max: Int,
         enabled: Boolean,
+        commandTemplate: String = """{"$command": {{ value | int }}}""",
+        unit: String? = null,
+        mode: String = "slider",
+        configCategory: Boolean = false,
     ): DiscoveryEntity {
         return DiscoveryEntity(
             component = "number",
@@ -443,13 +552,17 @@ constructor(
             config = enabled.then {
                 baseConfig(context.getString(displayNameRes), objectId).apply {
                     put("command_topic", commandTopic)
-                    put("command_template", """{"$command": {{ value | int }}}""")
+                    put("command_template", commandTemplate)
                     put("state_topic", stateTopic)
                     put("value_template", "{{ value_json.$stateField }}")
                     put("min", min)
                     put("max", max)
                     put("step", 1)
-                    put("mode", "slider")
+                    put("mode", mode)
+                    unit?.let { put("unit_of_measurement", it) }
+                    if (configCategory) {
+                        put("entity_category", "config")
+                    }
                 }
             }
         )
@@ -466,6 +579,7 @@ constructor(
         stateField: String,
         options: List<String>,
         enabled: Boolean,
+        commandTemplate: String = """{"$command": {{ value | to_json }}}""",
     ): DiscoveryEntity {
         return DiscoveryEntity(
             component = "select",
@@ -473,7 +587,7 @@ constructor(
             config = enabled.then {
                 baseConfig(context.getString(displayNameRes), objectId).apply {
                     put("command_topic", commandTopic)
-                    put("command_template", """{"$command": {{ value | to_json }}}""")
+                    put("command_template", commandTemplate)
                     put("state_topic", stateTopic)
                     put("value_template", "{{ value_json.$stateField }}")
                     put("options", JSONArray(options))
@@ -494,6 +608,7 @@ constructor(
         command: String,
         enabled: Boolean,
         configCategory: Boolean = false,
+        commandTemplate: String = """{"$command": {{ value | to_json }}}""",
     ): DiscoveryEntity {
         return DiscoveryEntity(
             component = "text",
@@ -501,7 +616,7 @@ constructor(
             config = enabled.then {
                 baseConfig(context.getString(displayNameRes), objectId).apply {
                     put("command_topic", commandTopic)
-                    put("command_template", """{"$command": {{ value | to_json }}}""")
+                    put("command_template", commandTemplate)
                     put("max", TEXT_MAX_LENGTH)
                     if (configCategory) {
                         put("entity_category", "config")
@@ -509,6 +624,11 @@ constructor(
                 }
             }
         )
+    }
+
+    /** A command template that sets one setting through the config command. */
+    private fun configTemplate(key: String, valueExpression: String): String {
+        return """{"$COMMAND_CONFIG": {"$key": {{ $valueExpression }}}}"""
     }
 
     private fun sensor(objectId: String, config: JSONObject?): DiscoveryEntity {
@@ -676,6 +796,7 @@ constructor(
         const val OBJECT_FACE = "face"
         const val OBJECT_QR = "qr"
         const val OBJECT_SCREEN = "screen"
+        const val OBJECT_BUTTONS = "button"
 
         private const val SENSOR = "sensor"
         private const val BINARY_SENSOR = "binary_sensor"

@@ -167,6 +167,11 @@ cameraFps | 1-30 or auto | ```{"cameraFps":"auto"}``` | The frame rate the last 
 cameraResolutionActive | size or null | ```{"cameraResolutionActive":"640x480"}``` | The resolution the camera is running at, which a boost or a camera without the size asked for can make different from the settings. `null` while the camera is off or could not be opened, for instance without the camera permission.
 cameraFpsActive | number or null | ```{"cameraFpsActive":15}``` | The frame rate the running camera was asked for, `null` while it is not running.
 cameraBoosted | true/false | ```{"cameraBoosted":false}``` | Whether motion has the camera on its [boost](../video-streaming.md#motion-boost) resolution and frame rate.
+screenSaverMode | off, clock, dim, wallpaper, web | ```{"screenSaverMode":"clock"}``` | Which screensaver is set up. See [Changing settings](./commands.md#changing-settings).
+inactivityTime | seconds | ```{"inactivityTime":30}``` | How long without a touch before the screensaver comes up.
+screenSaverDim | 0-99 | ```{"screenSaverDim":25}``` | How far the dim screensaver dims, in %.
+preventSleep | true/false | ```{"preventSleep":true}``` | Whether **Prevent Sleep** is on.
+darkTheme | true/false | ```{"darkTheme":false}``` | Whether the dark theme is on.
 
 * State values are presented together as a JSON block
   * eg, ```{"currentUrl":"http://hasbian:8123/states","screenOn":true}```
@@ -195,6 +200,7 @@ Clear Cache | button | `{"clearCache": true}`
 Relaunch Dashboard | button | `{"relaunch": true}`
 Wake Screen | button | `{"wake": true}`
 Play Notification Sound | button | `{"playNotification": true}`
+Bring to Front | button | `{"foreground": true}`
 Restart App | button | `{"restartApp": true}`
 Open Settings | button | `{"settings": true}`
 Keep Screen Awake | switch | `{"wake": true / false}`
@@ -207,6 +213,13 @@ Volume | number (0-100) | `{"volume": <value>}`
 Navigate URL | text | `{"url": "<value>"}`
 Text to Speech | text | `{"speak": "<value>"}`
 Toast Message | text | `{"toast": "<value>"}`
+Notification | notify | `{"notification": "<message>"}`
+Screensaver Type | select (off, clock, dim, wallpaper, web) | `{"config": {"screenSaverMode": "<value>"}}`
+Screensaver Timeout | number (seconds) | `{"config": {"inactivityTime": <value>}}`
+Screensaver Dim Level | number (0-99) | `{"config": {"screenSaverDim": <value>}}`
+Screensaver URL | text | `{"config": {"screenSaverUrl": "<value>"}}`
+Prevent Sleep | switch | `{"config": {"preventSleep": true / false}}`
+Dark Theme | switch | `{"config": {"darkTheme": true / false}}`
 Shell Command | text | `{"shell": "<value>"}`
 
 The switches read their state back from the application state topic, so they follow the
@@ -246,6 +259,12 @@ back `cameraResolution` and `cameraFps` from the application state. A frame rate
 hand to a value the select does not list, such as 12, still applies; Home Assistant just
 logs that the select holds an option it does not know.
 
+**Notification** is a `notify` entity, so it takes `notify.send_message` like a phone
+does. See [Notifications](./commands.md#notifications).
+
+**Volume Keys** is an `event` entity that only appears with **Settings &rarr; Sensors
+&rarr; Report Volume Keys** on. See [Volume keys](#volume-keys).
+
 **Shell Command** and its **Shell Result** sensor only appear once shell commands are
 enabled in **Settings &rarr; HTTP** -- see [Shell Command](./commands.md#shell-command)
 for what that exposes.
@@ -271,7 +290,7 @@ switched off the pickers are greyed out and every sensor is published. This is t
 don't want on a shared dashboard -- **Restart App** and **Shell Command**, say -- or to cut
 down sensor noise across a fleet.
 
-**Publish Controls** is still there as a single switch for all fifteen controls at once,
+**Publish Controls** is still there as a single switch for all the controls at once,
 which is quicker than unticking them one by one if you only want the sensors. Turning it
 off also greys out **Controls to publish** -- there's nothing to pick from a list of
 controls that aren't being published at all.
@@ -279,6 +298,42 @@ controls that aren't being published at all.
 Being listed in the picker isn't a promise the entity appears. A control still needs its
 underlying feature switched on, and a sensor still needs hardware that reports it -- so
 ticking `cpuUsage` on a device whose SELinux policy denies it changes nothing.
+
+### Volume keys
+
+With **Settings &rarr; Sensors &rarr; Report Volume Keys** on, the volume keys stop changing
+the volume and are published to `[baseTopic]sensor/button` instead, one message per push:
+
+```json
+{"event_type": "volume_up_press", "key": "volume_up", "action": "press"}
+{"event_type": "volume_down_long_press", "key": "volume_down", "action": "long_press"}
+```
+
+A push shorter than half a second is a `press`; holding the key longer is one
+`long_press`, and nothing more for as long as it is held. In Home Assistant this is the
+**Volume Keys** event entity, whose event types are `volume_up_press`,
+`volume_up_long_press`, `volume_down_press` and `volume_down_long_press`:
+
+```yaml
+automation:
+  - alias: "Panel volume up turns on the kitchen light"
+    triggers:
+      - trigger: state
+        entity_id: event.mywallpanel_volume_keys
+    conditions:
+      - condition: state
+        entity_id: event.mywallpanel_volume_keys
+        attribute: event_type
+        state: volume_up_press
+    actions:
+      - action: light.turn_on
+        target:
+          entity_id: light.kitchen
+```
+
+The keys only reach WallPanel while it is on the screen and the screen is on. With the
+screen off, or another app in front, they change the volume as usual. The messages are
+not retained.
 
 ### What isn't there
 

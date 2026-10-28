@@ -91,6 +91,17 @@ constructor(context: Context, private val configuration: Configuration): Context
         }
     }
 
+    /**
+     * Works the dimmed level out again from the brightness setpoint, after the dim level was
+     * changed by command. The level on screen is not used: with the screensaver up it is
+     * already the dimmed one.
+     */
+    fun updateScreenSaverBrightness() {
+        val brightness = configuration.screenBrightness
+        val dim = configuration.screenSaverDimValue
+        configuration.screenScreenSaverBrightness = if (dim > 0) brightness - (brightness * dim / 100) else brightness
+    }
+
     fun setScreenBrightnessLevels() {
         try {
             val brightness = getCurrentScreenBrightness()

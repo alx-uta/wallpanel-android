@@ -88,6 +88,13 @@
             android:singleLine="true"
             android:title="@string/title_setting_browser_reload_interval"/>
 
+        <xyz.wallpanel.pro.ui.views.NumberEditTextPreference
+            android:defaultValue="@string/default_setting_app_return_minutes"
+            android:key="@string/key_setting_app_return_minutes"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_app_return_minutes"/>
+
         <EditTextPreference
             android:defaultValue="@string/default_browser_user_agent"
             android:summary="@string/pref_user_agent_summary"
@@ -254,6 +261,43 @@
             android:title="@string/preference_title_screensaver_dim"
             android:entries="@array/dim_title"
             android:entryValues="@array/dim_values"/>
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/pref_speech_category">
+
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_speech_ha_enabled"
+            android:key="@string/key_setting_speech_ha_enabled"
+            android:title="@string/title_setting_speech_ha_enabled"
+            android:summary="@string/summary_setting_speech_ha_enabled"/>
+
+        <EditTextPreference
+            android:key="@string/key_setting_speech_ha_url"
+            android:dependency="@string/key_setting_speech_ha_enabled"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_speech_ha_url"/>
+
+        <EditTextPreference
+            android:key="@string/key_setting_speech_ha_token"
+            android:dependency="@string/key_setting_speech_ha_enabled"
+            android:singleLine="true"
+            android:title="@string/title_setting_speech_ha_token"/>
+
+        <EditTextPreference
+            android:key="@string/key_setting_speech_ha_engine"
+            android:dependency="@string/key_setting_speech_ha_enabled"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_speech_ha_engine"/>
+
+        <EditTextPreference
+            android:key="@string/key_setting_speech_ha_language"
+            android:dependency="@string/key_setting_speech_ha_enabled"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_speech_ha_language"/>
 
     </PreferenceCategory>
 

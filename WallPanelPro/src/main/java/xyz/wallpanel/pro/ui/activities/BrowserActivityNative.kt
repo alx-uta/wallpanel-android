@@ -468,6 +468,22 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         requestReload()
     }
 
+    /**
+     * GeckoView takes the colour scheme from its runtime, so a reload is enough. The WebView
+     * takes it from the theme it was created under and never looks again, so the activity is
+     * created anew, which loads the dashboard.
+     */
+    override fun applyDarkTheme() {
+        val dark = configuration.useDarkTheme
+        AppCompatDelegate.setDefaultNightMode(if (dark) AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO)
+        if (usingGeckoView) {
+            GeckoViewWrapper.setDarkTheme(dark)
+            reload()
+        } else {
+            recreate()
+        }
+    }
+
     override fun onUserInteraction() {
         super.onUserInteraction()
         lastUserInteraction = SystemClock.elapsedRealtime()

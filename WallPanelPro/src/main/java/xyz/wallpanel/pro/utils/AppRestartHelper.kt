@@ -55,6 +55,7 @@ object AppRestartHelper {
     const val RESTART_NOTIFICATION_ID = 1139
 
     private const val RELAUNCH_REQUEST_CODE = 1139
+    private const val FOREGROUND_REQUEST_CODE = 1140
     private const val ALARM_DELAY_MS = 1000L
 
     /**
@@ -90,6 +91,37 @@ object AppRestartHelper {
         val pendingIntent = createRelaunchPendingIntent(appContext)
         postRestartNotification(appContext, pendingIntent)
         scheduleRelaunchAlarm(appContext, pendingIntent)
+    }
+
+    /**
+     * Brings the browser in front of whatever app is showing, keeping the page it has. With
+     * the right to start activities from the background it opens straight away; without
+     * it, the same full screen notification a restart uses is posted, which Android opens
+     * on a sleeping screen and otherwise shows for a tap.
+     */
+    @JvmStatic
+    fun bringBrowserToFront(context: Context) {
+        val appContext = context.applicationContext
+        val intent = Intent(appContext, BrowserActivityNative::class.java)
+        intent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK
+                or Intent.FLAG_ACTIVITY_REORDER_TO_FRONT
+                or Intent.FLAG_ACTIVITY_SINGLE_TOP)
+        if (OverlayPermission.isGranted(appContext)) {
+            try {
+                appContext.startActivity(intent)
+                return
+            } catch (e: Exception) {
+                Timber.w(e, "Could not bring the browser to the front directly")
+            }
+        }
+        val flags = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.M) {
+            PendingIntent.FLAG_CANCEL_CURRENT or PendingIntent.FLAG_IMMUTABLE
+        } else {
+            PendingIntent.FLAG_CANCEL_CURRENT
+        }
+        val pendingIntent = PendingIntent.getActivity(appContext, FOREGROUND_REQUEST_CODE, intent, flags, creatorOptions())
+        postRestartNotification(appContext, pendingIntent,
+                R.string.text_foreground_notification_title, R.string.text_foreground_notification_message)
     }
 
     /**
@@ -141,7 +173,12 @@ object AppRestartHelper {
             .toBundle()
     }
 
-    private fun postRestartNotification(context: Context, pendingIntent: PendingIntent) {
+    private fun postRestartNotification(
+            context: Context,
+            pendingIntent: PendingIntent,
+            titleRes: Int = R.string.text_restart_notification_title,
+            messageRes: Int = R.string.text_restart_notification_message,
+    ) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
             val granted = ContextCompat.checkSelfPermission(context, Manifest.permission.POST_NOTIFICATIONS)
             if (granted != PackageManager.PERMISSION_GRANTED) {
@@ -155,8 +192,8 @@ object AppRestartHelper {
             val notification = NotificationCompat.Builder(context, RESTART_CHANNEL_ID)
                     .setSmallIcon(R.drawable.ic_stat_name)
                     .setLargeIcon(BitmapFactory.decodeResource(context.resources, R.mipmap.ic_launcher))
-                    .setContentTitle(context.getString(R.string.text_restart_notification_title))
-                    .setContentText(context.getString(R.string.text_restart_notification_message))
+                    .setContentTitle(context.getString(titleRes))
+                    .setContentText(context.getString(messageRes))
                     .setColor(ContextCompat.getColor(context, R.color.colorPrimary))
                     .setPriority(NotificationCompat.PRIORITY_HIGH)
                     .setCategory(NotificationCompat.CATEGORY_ALARM)

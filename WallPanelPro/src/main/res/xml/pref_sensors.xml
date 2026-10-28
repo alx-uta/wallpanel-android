@@ -31,6 +31,12 @@
             android:singleLine="true"
             android:title="@string/title_setting_mqtt_sensorfrequency" />
 
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_sensors_volume_keys"
+            android:key="@string/key_setting_sensors_volume_keys"
+            android:title="@string/title_setting_sensors_volume_keys"
+            android:summary="@string/summary_setting_sensors_volume_keys"/>
+
     </PreferenceCategory>
 
     <PreferenceCategory android:title="Sensor List">

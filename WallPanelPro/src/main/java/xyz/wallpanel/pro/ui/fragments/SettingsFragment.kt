@@ -25,6 +25,7 @@ import android.net.Uri
 import android.os.Build
 import android.os.Bundle
 import android.provider.Settings
+import android.text.InputType
 import android.view.Menu
 import android.view.MenuInflater
 import android.view.MenuItem
@@ -41,6 +42,7 @@ import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.SwitchPreference
 import xyz.wallpanel.pro.R
+import xyz.wallpanel.pro.network.HomeAssistantSpeech
 import xyz.wallpanel.pro.persistence.Configuration.Companion.PREF_SCREENSAVER_DIM_VALUE
 import xyz.wallpanel.pro.persistence.Configuration.Companion.PREF_SCREEN_BRIGHTNESS
 import xyz.wallpanel.pro.ui.activities.SettingsActivity.Companion.PERMISSIONS_REQUEST_WRITE_SETTINGS
@@ -91,6 +93,7 @@ class SettingsFragment : BaseSettingsFragment() {
     private var geckoSuspendPreference: EditTextPreference? = null
     private var idleReturnPreference: EditTextPreference? = null
     private var reloadIntervalPreference: EditTextPreference? = null
+    private var returnMinutesPreference: EditTextPreference? = null
 
     private val fullScreenPreference: SwitchPreference by lazy {
         findPreference<SwitchPreference>(PREF_SETTINGS_FULL_SCREEN) as SwitchPreference
@@ -293,6 +296,13 @@ class SettingsFragment : BaseSettingsFragment() {
         reloadIntervalPreference = findPreference(getString(R.string.key_setting_browser_reload_interval))
         reloadIntervalPreference?.text = configuration.browserReloadIntervalMinutes.toString()
         reloadIntervalPreference?.summary = getString(R.string.summary_setting_browser_reload_interval, configuration.browserReloadIntervalMinutes.toString())
+        returnMinutesPreference = findPreference(getString(R.string.key_setting_app_return_minutes))
+        returnMinutesPreference?.text = configuration.appReturnMinutes.toString()
+        returnMinutesPreference?.summary = getString(R.string.summary_setting_app_return_minutes, configuration.appReturnMinutes.toString())
+        findPreference<EditTextPreference>(getString(R.string.key_setting_speech_ha_token))?.setOnBindEditTextListener { editText ->
+            editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        }
+        updateSpeechSummaries()
 
         // Setup additional screensaver options
         webScreenSaver.isChecked = configuration.webScreenSaver
@@ -503,6 +513,18 @@ class SettingsFragment : BaseSettingsFragment() {
                     Toast.makeText(requireContext(), getString(R.string.toast_error_bad_decimal), Toast.LENGTH_SHORT).show()
                 }
             }
+            getString(R.string.key_setting_app_return_minutes) -> {
+                val minutes = returnMinutesPreference?.text?.trim()?.toIntOrNull()
+                if (minutes != null && minutes >= 0) {
+                    returnMinutesPreference?.summary = getString(R.string.summary_setting_app_return_minutes, minutes.toString())
+                } else {
+                    Toast.makeText(requireContext(), getString(R.string.toast_error_bad_decimal), Toast.LENGTH_SHORT).show()
+                }
+            }
+            getString(R.string.key_setting_speech_ha_url),
+            getString(R.string.key_setting_speech_ha_token),
+            getString(R.string.key_setting_speech_ha_engine),
+            getString(R.string.key_setting_speech_ha_language) -> updateSpeechSummaries()
             getString(R.string.key_setting_browser_reload_interval) -> {
                 val minutes = reloadIntervalPreference?.text?.trim()?.toIntOrNull()
                 if (minutes != null && minutes >= 0) {
@@ -522,6 +544,23 @@ class SettingsFragment : BaseSettingsFragment() {
                 }
             }
         }
+    }
+
+    /** Shows what each speech field holds, or what an empty one falls back to. The token stays hidden. */
+    private fun updateSpeechSummaries() {
+        findPreference<Preference>(getString(R.string.key_setting_speech_ha_url))?.summary =
+            configuration.speechHaUrl.ifEmpty {
+                getString(R.string.summary_setting_speech_ha_url_default,
+                    HomeAssistantSpeech.baseUrl("", configuration.appLaunchUrl).orEmpty())
+            }
+        findPreference<Preference>(getString(R.string.key_setting_speech_ha_token))?.setSummary(
+            if (configuration.speechHaToken.isEmpty()) R.string.summary_setting_speech_ha_token_off
+            else R.string.summary_setting_speech_ha_token_on
+        )
+        findPreference<Preference>(getString(R.string.key_setting_speech_ha_engine))?.summary =
+            configuration.speechHaEngine.ifEmpty { getString(R.string.summary_setting_speech_ha_engine_default) }
+        findPreference<Preference>(getString(R.string.key_setting_speech_ha_language))?.summary =
+            configuration.speechHaLanguage.ifEmpty { getString(R.string.summary_setting_speech_ha_language_default) }
     }
 
     private fun setWebScreensaver(value: Boolean) {

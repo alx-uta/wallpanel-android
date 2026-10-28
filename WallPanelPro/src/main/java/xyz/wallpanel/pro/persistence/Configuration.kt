@@ -33,9 +33,19 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         get() = this.sharedPreferences.getBoolean(PREF_FIRST_TIME, true)
         set(value) = this.sharedPreferences.edit().putBoolean(PREF_FIRST_TIME, value).apply()
 
-    val appPreventSleep: Boolean
+    var appPreventSleep: Boolean
         get() = getBoolPref(R.string.key_setting_app_preventsleep,
                 R.string.default_setting_app_preventsleep)
+        set(value) {
+            sharedPreferences.edit().putBoolean(context.getString(R.string.key_setting_app_preventsleep), value).apply()
+        }
+
+    /**
+     * Minutes another app may stay in front before WallPanel brings itself back. 0 is off.
+     */
+    val appReturnMinutes: Int
+        get() = getIntPref(R.string.key_setting_app_return_minutes, R.string.default_setting_app_return_minutes)
+            .coerceAtLeast(0)
 
     // TODO we have to migrate this due to an error when entering codes with leading 0 value
     var settingsCode: String
@@ -366,6 +376,30 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     val sensorsEnabled: Boolean
         get() = getBoolPref(R.string.key_setting_sensors_enabled,
                 R.string.default_setting_sensors_value)
+
+    /** Volume keys are published as button events rather than changing the volume. */
+    val sensorsVolumeKeys: Boolean
+        get() = getBoolPref(R.string.key_setting_sensors_volume_keys, R.string.default_setting_sensors_volume_keys)
+
+    /** The speak command goes through Home Assistant's text to speech. */
+    val speechHaEnabled: Boolean
+        get() = getBoolPref(R.string.key_setting_speech_ha_enabled, R.string.default_setting_speech_ha_enabled)
+
+    /** Where Home Assistant is, as typed. Empty means the dashboard's own address. */
+    val speechHaUrl: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_speech_ha_url), null)?.trim().orEmpty()
+
+    /** A long-lived access token. Surrounding spaces are dropped, see [httpToken]. */
+    val speechHaToken: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_speech_ha_token), null)?.trim().orEmpty()
+
+    /** The `tts.` entity to speak with. Empty picks the first one Home Assistant has. */
+    val speechHaEngine: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_speech_ha_engine), null)?.trim().orEmpty()
+
+    /** The language to ask the engine for. Empty leaves it to the engine. */
+    val speechHaLanguage: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_speech_ha_language), null)?.trim().orEmpty()
 
     val hardwareAccelerated: Boolean
         get() = getBoolPref(R.string.key_hadware_accelerated_enabled,
