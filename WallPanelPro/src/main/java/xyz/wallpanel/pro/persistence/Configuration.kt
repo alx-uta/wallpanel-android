@@ -103,6 +103,10 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         get() = this.sharedPreferences.getString(PREF_CAMERA_ROTATE, "0f")?.trim()?.toFloatOrNull() ?: 0f
         set(value) = this.sharedPreferences.edit().putString(PREF_CAMERA_ROTATE, value.toString()).apply()
 
+    /** Flips the streamed picture left to right, after it has been rotated. */
+    val cameraMirror: Boolean
+        get() = getBoolPref(R.string.key_setting_camera_mirror, R.string.default_setting_camera_mirror)
+
     var appLaunchUrl: String
         get() = getStringPref(R.string.key_setting_app_launchurl,
                 R.string.default_setting_app_launchurl)
@@ -199,6 +203,17 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     val httpMJPEGEnabled: Boolean
         get() = getBoolPref(R.string.key_setting_http_mjpegenabled,
                 R.string.default_setting_http_mjpegenabled)
+
+    /**
+     * The access token every HTTP request has to carry, the stream as well as the REST API.
+     * Empty leaves the server open, which is how it has always behaved. Surrounding spaces
+     * are dropped: they are easy to paste in and impossible to see in the settings.
+     */
+    var httpToken: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_http_token), null)?.trim().orEmpty()
+        set(value) {
+            sharedPreferences.edit().putString(context.getString(R.string.key_setting_http_token), value).apply()
+        }
 
     fun setHttpMJPEGEnabled(value: Boolean?) {
         sharedPreferences.edit().putBoolean(context.getString(R.string.key_setting_http_mjpegenabled), value!!).apply()
@@ -376,6 +391,23 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
             sharedPreferences.edit().putBoolean(context.getString(R.string.key_pref_browser_refresh), value).apply()
         }
 
+    /** Reload the page when a screensaver is dismissed, so it does not show stale values. */
+    val browserReloadOnWake: Boolean
+        get() = getBoolPref(R.string.key_setting_browser_reload_on_wake, R.string.default_setting_browser_reload_on_wake)
+
+    /**
+     * Minutes without a touch after which the dashboard is loaded again if another page is
+     * showing. 0 is off.
+     */
+    val browserIdleReturnMinutes: Int
+        get() = getIntPref(R.string.key_setting_browser_idle_return, R.string.default_setting_browser_idle_return)
+            .coerceAtLeast(0)
+
+    /** Minutes between reloads of the page on view. 0 is off. */
+    val browserReloadIntervalMinutes: Int
+        get() = getIntPref(R.string.key_setting_browser_reload_interval, R.string.default_setting_browser_reload_interval)
+            .coerceAtLeast(0)
+
     var useGeckoView: Boolean
         get() = getBoolPref(R.string.key_use_geckoview, R.string.default_use_geckoview)
         set(value) {
@@ -516,6 +548,15 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         get() = getBoolPref(R.string.key_screensaver, R.string.default_screensaver)
         set(value) =
             sharedPreferences.edit().putBoolean(context.getString(R.string.key_screensaver), value).apply()
+
+    /** How many times its normal size the screensaver clock is drawn, as far as it fits. */
+    val clockScreenSaverScale: Float
+        get() = getStringPref(R.string.key_screensaver_clock_size, R.string.default_screensaver_clock_size)
+            .trim().toFloatOrNull()?.takeIf { it > 0f } ?: 1f
+
+    /** Whether the screensaver clock moves around every minute, against burn-in. */
+    val clockScreenSaverMoves: Boolean
+        get() = getBoolPref(R.string.key_screensaver_clock_move, R.string.default_screensaver_clock_move)
 
     var hasScreenSaverWallpaper: Boolean
         get() = getBoolPref(R.string.key_screensaver_wallpaper, R.string.default_screensaver_wallpaper)

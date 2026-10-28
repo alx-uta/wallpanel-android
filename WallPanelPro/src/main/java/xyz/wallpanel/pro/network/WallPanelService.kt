@@ -25,7 +25,10 @@ import android.content.IntentFilter
 import android.Manifest
 import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
+import android.media.AudioAttributes
 import android.media.MediaPlayer
+import android.media.Ringtone
+import android.media.RingtoneManager
 import android.net.wifi.WifiManager
 import android.os.*
 import android.view.Display
@@ -39,6 +42,7 @@ import com.koushikdutta.async.ByteBufferList
 import com.koushikdutta.async.http.body.JSONObjectBody
 import com.koushikdutta.async.http.body.StringBody
 import com.koushikdutta.async.http.server.AsyncHttpServer
+import com.koushikdutta.async.http.server.AsyncHttpServerRequest
 import com.koushikdutta.async.http.server.AsyncHttpServerResponse
 import com.koushikdutta.async.util.Charsets
 import dagger.android.AndroidInjection
@@ -56,6 +60,7 @@ import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_A
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_RELOAD_PAGE
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_HIDE_SCREENSAVER
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_SHOW_SCREENSAVER
+import xyz.wallpanel.pro.utils.AppExit
 import xyz.wallpanel.pro.utils.AppRestartHelper
 import xyz.wallpanel.pro.utils.MqttUtils
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_AUDIO
@@ -65,6 +70,8 @@ import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA_FPS
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA_RESOLUTION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CLEAR_CACHE
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_EVAL
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_EXIT
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_PLAY_NOTIFICATION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELAUNCH
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELOAD
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RESTART_APP
@@ -151,6 +158,10 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     private var keyguardLock: KeyguardManager.KeyguardLock? = null
     private var audioPlayer: MediaPlayer? = null
     private var audioPlayerBusy: Boolean = false
+    // The notification sound playing, held so a second one stops it rather than overlapping.
+    // Only touched on the main looper.
+    private var notificationSound: Ringtone? = null
+    private val notificationSoundHandler = Handler(Looper.getMainLooper())
     private var httpServer: AsyncHttpServer? = null
     private var httpServerPort = 0
     private var mjpegEndpointRegistered = false
@@ -470,6 +481,9 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         qrCodeClearHandler.removeCallbacksAndMessages(null)
         faceClearHandler.removeCallbacksAndMessages(null)
         wakeScreenHandler.removeCallbacksAndMessages(null)
+        notificationSoundHandler.removeCallbacksAndMessages(null)
+        notificationSound?.stop()
+        notificationSound = null
         discoveryExecutor.shutdown()
     }
 
@@ -902,6 +916,9 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         // life of the process, ignoring the setting being switched off afterward -- the
         // same live-check approach the shell command already uses for its own toggle.
         server.addAction("POST", "/api/command") { request, response ->
+            if (!authorize(request, response)) {
+                return@addAction
+            }
             if (!configuration.httpRestEnabled) {
                 response.code(403)
                 response.send("REST API is disabled")
@@ -926,6 +943,9 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         }
 
         server.addAction("GET", "/api/state") { request, response ->
+            if (!authorize(request, response)) {
+                return@addAction
+            }
             if (!configuration.httpRestEnabled) {
                 response.code(403)
                 response.send("REST API is disabled")
@@ -942,6 +962,23 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     }
 
     /**
+     * Turns the request away with a 401 unless it carries the access token, see [HttpAuth].
+     * The token is read per request, so a change in the settings applies to the running
+     * server. The challenge is what makes a browser ask for it.
+     */
+    private fun authorize(request: AsyncHttpServerRequest, response: AsyncHttpServerResponse): Boolean {
+        val token = configuration.httpToken
+        if (HttpAuth.isAuthorized(token, request.headers.get("Authorization"), request.query?.getString(HttpAuth.QUERY_PARAMETER))) {
+            return true
+        }
+        Timber.w("Refused ${request.method} ${request.path} without a valid access token")
+        response.headers.set("WWW-Authenticate", "Basic realm=\"${HttpAuth.REALM}\", charset=\"UTF-8\"")
+        response.code(401)
+        response.send("Unauthorized")
+        return false
+    }
+
+    /**
      * Registers the stream endpoint, once per server. Streaming can be switched on after
      * the server is up -- the launcher shortcut opens settings without stopping the
      * service -- so this is reached from the camera commands as well as from startup. The
@@ -952,9 +989,11 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         if (server == null || mjpegEndpointRegistered) {
             return
         }
-        server.addAction("GET", "/camera/stream") { _, response ->
+        server.addAction("GET", "/camera/stream") { request, response ->
             Timber.i("GET Arrived (/camera/stream)")
-            startMJPEG(response)
+            if (authorize(request, response)) {
+                startMJPEG(response)
+            }
         }
         mjpegEndpointRegistered = true
         Timber.i("Enabled MJPEG Endpoint")
@@ -1163,6 +1202,11 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             if (commandJson.has(COMMAND_AUDIO)) {
                 playAudio(commandJson.getString(COMMAND_AUDIO))
             }
+            if (commandJson.has(COMMAND_PLAY_NOTIFICATION)) {
+                if (commandJson.getBoolean(COMMAND_PLAY_NOTIFICATION)) {
+                    playNotificationSound()
+                }
+            }
             if (commandJson.has(COMMAND_SPEAK)) {
                 speakMessage(commandJson.getString(COMMAND_SPEAK))
             }
@@ -1181,7 +1225,13 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             if (commandJson.has(COMMAND_SHELL) && configuration.httpShellEnabled) {
                 executeShellCommand(commandJson.getString(COMMAND_SHELL))
             }
-            // Kept last, it does not return.
+            // Kept last, they end the process.
+            if (commandJson.has(COMMAND_EXIT)) {
+                if (commandJson.getBoolean(COMMAND_EXIT)) {
+                    Handler(Looper.getMainLooper()).post { AppExit.exit(applicationContext) }
+                    return true
+                }
+            }
             if (commandJson.has(COMMAND_RESTART_APP)) {
                 if (commandJson.getBoolean(COMMAND_RESTART_APP)) {
                     restartApplication()
@@ -1292,6 +1342,40 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
      * instead, which the player resets after every clip, so the level never survived
      * more than one playback and never applied to speech at all.
      */
+    /**
+     * Plays the device's notification sound, at the notification volume. A device with the
+     * sound set to none plays nothing.
+     */
+    private fun playNotificationSound() {
+        notificationSoundHandler.post {
+            try {
+                val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                val sound = RingtoneManager.getRingtone(applicationContext, uri)
+                if (sound == null) {
+                    Timber.w("This device has no notification sound to play")
+                    return@post
+                }
+                sound.audioAttributes = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+                notificationSound?.stop()
+                notificationSound = sound
+                sound.play()
+                // Stopping is what gives back its player, which would otherwise be held
+                // until the next sound
+                notificationSoundHandler.postDelayed({
+                    if (notificationSound === sound) {
+                        sound.stop()
+                        notificationSound = null
+                    }
+                }, NOTIFICATION_SOUND_MAX_MS)
+            } catch (e: Exception) {
+                Timber.e(e, "Unable to play the notification sound")
+            }
+        }
+    }
+
     private fun setVolume(volumePercent: Int) {
         if (volumeUtils.setVolumePercent(volumePercent)) {
             publishApplicationState()
@@ -1929,6 +2013,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         const val ACTION_SETTINGS_OPENED = "xyz.wallpanel.pro.action.SETTINGS_OPENED"
         const val ACTION_SETTINGS_CLOSED = "xyz.wallpanel.pro.action.SETTINGS_CLOSED"
         const val EXTRA_COMMAND_JSON = "EXTRA_COMMAND_JSON"
+        // Longer than any notification sound, which are a second or two
+        private const val NOTIFICATION_SOUND_MAX_MS = 30_000L
 
         /**
          * The process exit is delayed rather than immediate: when a restart is reached from

@@ -25,6 +25,12 @@
             android:singleLine="true"
             android:title="@string/title_setting_http_port"/>
 
+        <EditTextPreference
+            android:key="@string/key_setting_http_token"
+            android:singleLine="true"
+            android:title="@string/title_setting_http_token"
+            android:summary="@string/pref_http_token_summary_off"/>
+
     </PreferenceCategory>
 
     <PreferenceCategory android:title="@string/pref_rest_api_title">

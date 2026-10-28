@@ -194,6 +194,7 @@ Reload Page | button | `{"reload": true}`
 Clear Cache | button | `{"clearCache": true}`
 Relaunch Dashboard | button | `{"relaunch": true}`
 Wake Screen | button | `{"wake": true}`
+Play Notification Sound | button | `{"playNotification": true}`
 Restart App | button | `{"restartApp": true}`
 Open Settings | button | `{"settings": true}`
 Keep Screen Awake | switch | `{"wake": true / false}`

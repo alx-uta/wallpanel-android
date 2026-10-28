@@ -8,9 +8,23 @@ If video streaming is enabled, then the stream can be accessed with this URL:
 http://yourip:2971/camera/stream
 ```
 
+With an [access token](./remote-control/commands.md#access-token) set, the stream needs it
+too, as basic authentication or on the URL:
+
+```plain
+http://yourip:2971/camera/stream?token=<token>
+```
+
 The endpoint answers `503` while the camera is switched off, and while it is switched on
 but not running -- when the camera permission has not been granted, or the camera could
 not be opened.
+
+## Rotation and mirror
+
+**Settings &rarr; Camera &rarr; Rotate Camera** turns the picture a quarter turn either way
+or upside down, and **Mirror Camera** flips it left to right after that. Together they
+cover a camera mounted at any angle. Both apply to the stream, not to motion, face or QR
+detection, which do not care which way up the picture is.
 
 ## Viewers
 

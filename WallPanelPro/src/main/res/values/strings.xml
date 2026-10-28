@@ -156,7 +156,11 @@
     <string name="pref_camera_bright_summary">Increases the screen brightness when motion or face detected.</string>
     <string name="pref_motion_leniency_description">The maximum tolerance of the difference between images. A lower tolerance means motion is more sensitive (1 – 20).</string>
     <string name="pref_motion_luma_description">Minimum brightness level to detect motion. No motion will be detected if brightness falls below this value (1 – 1000).</string>
-    <string name="pref_mjpeg_streaming_description">Use the device camera as a live MJPEG stream. Connect to the stream using the device IP address, HTTP Port, and end point: http://%s:2971/camera/stream</string>
+    <string name="pref_mjpeg_streaming_description">Use the device camera as a live MJPEG stream. Connect to the stream using the device IP address, HTTP Port, and end point: http://%1$s:%2$s/camera/stream</string>
+    <string name="pref_mjpeg_streaming_description_token">Use the device camera as a live MJPEG stream. Connect to the stream using the device IP address, HTTP Port, and end point: http://%1$s:%2$s/camera/stream?token=YOUR_TOKEN</string>
+    <string name="title_setting_http_token">Access Token</string>
+    <string name="pref_http_token_summary_off">Not set. Anyone on the network can use the REST API and watch the camera stream.</string>
+    <string name="pref_http_token_summary_on">Set. Every request needs the token, as a Bearer token, as the password in basic authentication, or as ?token= on the URL.</string>
     <string name="pref_mjpeg_streaming_title">MJPEG Streaming</string>
     <string name="pref_http_description">Control the application over HTTP using REST API calls. To find out which commands work with, review the help documentation.</string>
     <string name="pref_launchurl_summary">Enter the fully qualified URL for your home automation dashboard or path to file on the local device (requires storage access permission).</string>
@@ -337,6 +341,7 @@
     <string name="mqtt_control_relaunch">Relaunch Dashboard</string>
     <string name="mqtt_control_restart_app">Restart App</string>
     <string name="mqtt_control_wake">Wake Screen</string>
+    <string name="mqtt_control_play_notification">Play Notification Sound</string>
     <string name="mqtt_control_settings">Open Settings</string>
     <string name="mqtt_control_screen">Keep Screen Awake</string>
     <string name="mqtt_control_camera">Camera</string>
@@ -469,7 +474,14 @@
         <item>None</item>
         <item>Rotate Left</item>
         <item>Rotate Right</item>
-        <item>Flip Vertical</item>
+        <item>Rotate 180°</item>
+    </string-array>
+
+    <string-array name="clock_size_names">
+        <item>Normal</item>
+        <item>Large</item>
+        <item>Extra Large</item>
+        <item>Huge</item>
     </string-array>
 
     <string-array name="inactivity_times">
@@ -509,4 +521,25 @@
     </string-array>
 
 
+
+    <string name="title_setting_browser_reload_on_wake">Reload After Screensaver</string>
+    <string name="summary_setting_browser_reload_on_wake">Reloads the page when the screensaver is dismissed, so it does not show stale values.</string>
+    <string name="title_setting_browser_idle_return">Return to Dashboard</string>
+    <string name="summary_setting_browser_idle_return">Minutes without a touch after which the dashboard loads again if another page is showing. Currently %1$s. 0 turns this off.</string>
+    <string name="title_setting_browser_reload_interval">Reload Interval</string>
+    <string name="summary_setting_browser_reload_interval">Minutes between reloads of the page. Currently %1$s. 0 turns this off.</string>
+
+    <string name="title_setting_camera_mirror">Mirror Camera</string>
+    <string name="summary_setting_camera_mirror">Flips the camera stream left to right, after the rotation above.</string>
+
+    <string name="title_screensaver_clock_size">Clock Size</string>
+    <string name="title_screensaver_clock_move">Move Clock</string>
+    <string name="summary_screensaver_clock_move">Moves the clock every minute so it does not burn into the screen.</string>
+
+    <string name="title_setting_exit">Exit WallPanel</string>
+    <string name="summary_setting_exit">Closes WallPanel. MQTT, the HTTP server and the camera stop until it is opened again.</string>
+    <string name="dialog_exit_title">Exit WallPanel?</string>
+    <string name="dialog_exit_message">MQTT, the HTTP server and the camera stop until WallPanel is opened again, so it can\'t be controlled remotely in the meantime.</string>
+    <string name="dialog_exit_message_home">MQTT, the HTTP server and the camera stop until WallPanel is opened again, so it can\'t be controlled remotely in the meantime.\n\nWallPanel is the home app, so Android would open it again straight away. The home app setting opens next for another one to be picked.</string>
+    <string name="button_exit">Exit</string>
 </resources>

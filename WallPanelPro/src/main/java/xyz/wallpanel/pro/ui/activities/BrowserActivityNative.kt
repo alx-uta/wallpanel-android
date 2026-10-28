@@ -48,6 +48,7 @@ import xyz.wallpanel.pro.databinding.ActivityBrowserBinding
 import xyz.wallpanel.pro.network.ConnectionLiveData
 import xyz.wallpanel.pro.utils.AppRestartHelper
 import xyz.wallpanel.pro.utils.BootReadinessGate
+import xyz.wallpanel.pro.utils.DashboardTracker
 import xyz.wallpanel.pro.utils.InternalWebChromeClient
 import xyz.wallpanel.pro.ui.views.WebClientCallback
 import xyz.wallpanel.pro.utils.InternalWebClient
@@ -113,6 +114,38 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
 
     private val reloadPageRunnable = Runnable {
         initWebPageLoad()
+    }
+
+    // The return to the dashboard after the device is left alone, and the reload interval
+    private val browserTimerHandler = Handler(Looper.getMainLooper())
+    private val dashboardTracker = DashboardTracker()
+    private val idleReturnRunnable = Runnable { returnToDashboardIfAway() }
+    // The interval the reload timer runs at, 0 while it is off
+    private var reloadIntervalMinutes = 0
+    // An interval reload fell due while the screen was off, so it is done when it comes back
+    private var intervalReloadDue = false
+    private var lastUserInteraction = 0L
+    // When the page was last asked to load or reload, so a second request right behind it
+    // does not start the load over
+    private var lastLoadRequested = 0L
+    private val intervalReloadRunnable = object : Runnable {
+        override fun run() {
+            val interval = TimeUnit.MINUTES.toMillis(reloadIntervalMinutes.toLong())
+            if (interval <= 0) {
+                return
+            }
+            val sinceTouch = SystemClock.elapsedRealtime() - lastUserInteraction
+            when {
+                // Not under somebody's fingers: a form being filled in would be lost
+                sinceTouch < RELOAD_TOUCH_GRACE_MS -> {
+                    browserTimerHandler.postDelayed(this, RELOAD_TOUCH_GRACE_MS - sinceTouch)
+                    return
+                }
+                browserEnginePaused -> intervalReloadDue = true
+                else -> requestReload()
+            }
+            browserTimerHandler.postDelayed(this, interval)
+        }
     }
 
     // Set while the first load after a reboot waits for the clock and the network
@@ -391,8 +424,86 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
 
         setupSettingsButton()
+        scheduleIntervalReload()
 
         if (configuration.hasSettingsUpdates()) {
+            initWebPageLoad()
+        }
+    }
+
+    /**
+     * Starts the reload timer, or moves it to a new interval. An interval that has not
+     * changed keeps its countdown: the activity starts again each time the screen comes on.
+     */
+    private fun scheduleIntervalReload() {
+        val minutes = configuration.browserReloadIntervalMinutes
+        if (minutes == reloadIntervalMinutes) {
+            return
+        }
+        reloadIntervalMinutes = minutes
+        intervalReloadDue = false
+        browserTimerHandler.removeCallbacks(intervalReloadRunnable)
+        if (minutes > 0) {
+            browserTimerHandler.postDelayed(intervalReloadRunnable, TimeUnit.MINUTES.toMillis(minutes.toLong()))
+        }
+    }
+
+    /**
+     * Reloads the page on view for the reload interval or the screensaver going. Nothing
+     * happens while a load is already on its way: the first one after a reboot, a retry
+     * after an error, a GeckoView session waiting for the screen, or a load just asked for.
+     */
+    private fun requestReload() {
+        if (bootGate != null || awaitingReconnect || pendingGeckoReloadOnResume) {
+            return
+        }
+        if (SystemClock.elapsedRealtime() - lastLoadRequested < RECENT_LOAD_MS) {
+            return
+        }
+        Timber.d("Reloading the page")
+        reload()
+    }
+
+    override fun reloadAfterScreenSaver() {
+        requestReload()
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        lastUserInteraction = SystemClock.elapsedRealtime()
+        dashboardTracker.onNavigationRequested()
+        restartIdleReturn()
+    }
+
+    override fun onUrlCommand() {
+        dashboardTracker.onNavigationRequested()
+        restartIdleReturn()
+    }
+
+    override fun onPageLocation(url: String) {
+        dashboardTracker.onLocation(url)
+    }
+
+    /**
+     * Counts down to going back to the dashboard from the last touch, or from the last page a
+     * command loaded. It keeps running with the screen off, so a device that went dark on
+     * another page is back on the dashboard when it wakes.
+     */
+    private fun restartIdleReturn() {
+        browserTimerHandler.removeCallbacks(idleReturnRunnable)
+        val minutes = configuration.browserIdleReturnMinutes
+        if (minutes > 0) {
+            browserTimerHandler.postDelayed(idleReturnRunnable, TimeUnit.MINUTES.toMillis(minutes.toLong()))
+        }
+    }
+
+    // A playlist moves between pages by itself, so it has no one page to come back to
+    private fun returnToDashboardIfAway() {
+        if (isFinishing || bootGate != null || awaitingReconnect || playlistUrls().size > 1) {
+            return
+        }
+        if (dashboardTracker.isAway()) {
+            Timber.i("Left on ${dashboardTracker.currentUrl}, going back to the dashboard")
             initWebPageLoad()
         }
     }
@@ -408,6 +519,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         super.onDestroy()
         reconnectionHandler.removeCallbacks(bootGateRunnable)
         playlistHandler.removeCallbacksAndMessages(null)
+        browserTimerHandler.removeCallbacksAndMessages(null)
         // Closing the session lets Gecko drop its references to this activity's view, which
         // otherwise outlive it.
         geckoViewWrapper?.destroy()
@@ -453,6 +565,10 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         } else {
             webView?.onResume()
             webView?.resumeTimers()
+        }
+        if (intervalReloadDue) {
+            intervalReloadDue = false
+            requestReload()
         }
     }
 
@@ -527,6 +643,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
             Timber.i("Holding $url until the screen wakes")
             urlDeferredBySuspend = url
         } else {
+            lastLoadRequested = SystemClock.elapsedRealtime()
             if (usingGeckoView) {
                 geckoViewWrapper?.loadUrl(url)
             } else {
@@ -566,6 +683,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     }
 
     override fun reload() {
+        lastLoadRequested = SystemClock.elapsedRealtime()
         if (usingGeckoView) {
             geckoViewWrapper?.reload()
         } else {
@@ -1008,7 +1126,9 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
             startPlaylist()
         } else {
             playlistHandler.removeCallbacksAndMessages(null)
-            loadWebViewUrl(playlistUrls().firstOrNull() ?: configuration.appLaunchUrl)
+            val url = playlistUrls().firstOrNull() ?: configuration.appLaunchUrl
+            dashboardTracker.onDashboardLoad(url)
+            loadWebViewUrl(url)
         }
     }
 
@@ -1122,5 +1242,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         private const val BOOT_GATE_POLL_MS = 1000L
         private const val RENDERER_DEATH_WINDOW_MS = 60_000L
         private const val PLAYLIST_MIN_PAGE_TIME = 10_000L
+        private const val RECENT_LOAD_MS = 5_000L
+        private const val RELOAD_TOUCH_GRACE_MS = 60_000L
     }
 }

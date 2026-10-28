@@ -23,6 +23,7 @@ import android.net.http.SslError
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.text.TextPaint
 import android.text.TextUtils
 import android.text.format.DateUtils
 import android.util.AttributeSet
@@ -32,6 +33,7 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.*
 import android.widget.RelativeLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
@@ -55,6 +57,11 @@ class ScreenSaverView : RelativeLayout {
     private var showWebPage: Boolean = false
     private var showWallpaper: Boolean = false
     private var showClock: Boolean = false
+    private var clockScale = 1f
+    private var clockMoves = true
+    // The text sizes the clock asks for, before they are made to fit the screen
+    private var clockTextSize = 0f
+    private var dayTextSize = 0f
     private var rotationInterval = 900L
     private var webUrl = WEB_SCREEN_SAVER
     private var certPermissionsShown = false
@@ -69,6 +76,7 @@ class ScreenSaverView : RelativeLayout {
             val currentDayString = DateUtils.formatDateTime(context, date.time, DateUtils.FORMAT_SHOW_WEEKDAY or DateUtils.FORMAT_SHOW_DATE)
             binding.screenSaverClock.text = currentTimeString
             binding.screenSaverDay.text = currentDayString
+            fitClock()
 
             val width = binding.screenSaverClockLayout.width
             val height = binding.screenSaverClockLayout.height
@@ -76,9 +84,10 @@ class ScreenSaverView : RelativeLayout {
             parentWidth = binding.screenSaverView.width
             parentHeight = binding.screenSaverView.height
 
+            // Left still, the clock stays in the middle where the layout puts it
             try {
-                if (width > 0 && height > 0 && parentWidth > 0 && parentHeight > 0) {
-                    if (parentHeight - width > 0) {
+                if (clockMoves && width > 0 && height > 0 && parentWidth > 0 && parentHeight > 0) {
+                    if (parentWidth - width > 0) {
                         val newX = Random().nextInt(parentWidth - width)
                         binding.screenSaverClockLayout.x = newX.toFloat()
                     }
@@ -147,12 +156,22 @@ class ScreenSaverView : RelativeLayout {
         return true
     }
 
-    fun init(hasWeb: Boolean, urlWeb: String, hasWallpaper: Boolean, hasClock: Boolean, rotationDelay: Long) {
+    fun init(
+        hasWeb: Boolean,
+        urlWeb: String,
+        hasWallpaper: Boolean,
+        hasClock: Boolean,
+        rotationDelay: Long,
+        clockScale: Float = 1f,
+        clockMoves: Boolean = true
+    ) {
         rotationInterval = rotationDelay
         showWebPage = hasWeb
         webUrl = urlWeb
         showWallpaper = hasWallpaper
         showClock = hasClock
+        this.clockScale = clockScale
+        this.clockMoves = clockMoves
 
         // always allow the clock screensaver to be displayed
         if(showClock) {
@@ -181,8 +200,44 @@ class ScreenSaverView : RelativeLayout {
 
     // setup clock size based on screen and weather settings
     private fun setClockViews() {
-        val initialRegular = binding.screenSaverClock.textSize
-        binding.screenSaverClock.setTextSize(TypedValue.COMPLEX_UNIT_PX, initialRegular + 100)
+        clockTextSize = (binding.screenSaverClock.textSize + CLOCK_EXTRA_SIZE_PX) * clockScale
+        dayTextSize = binding.screenSaverDay.textSize * clockScale
+        binding.screenSaverClock.setTextSize(TypedValue.COMPLEX_UNIT_PX, clockTextSize)
+        binding.screenSaverDay.setTextSize(TypedValue.COMPLEX_UNIT_PX, dayTextSize)
+        // The screen size is known once the dialog is laid out, which is after this
+        binding.screenSaverView.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            // After this layout pass: resizing the text inside it would be put off anyway
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
+                post { fitClock() }
+            }
+        }
+    }
+
+    /**
+     * Shrinks the clock and the date from the size asked for until they fit the screen, so a
+     * large clock on a small or portrait screen is not cut off. Done each minute, since the
+     * width of the time and the date changes with them.
+     */
+    private fun fitClock() {
+        val width = binding.screenSaverView.width
+        val height = binding.screenSaverView.height
+        if (!showClock || width <= 0 || height <= 0) {
+            return
+        }
+        val maxWidth = width * CLOCK_MAX_WIDTH_FRACTION
+        fitText(binding.screenSaverClock, clockTextSize, maxWidth, height * CLOCK_MAX_HEIGHT_FRACTION)
+        fitText(binding.screenSaverDay, dayTextSize, maxWidth, height * DAY_MAX_HEIGHT_FRACTION)
+    }
+
+    private fun fitText(view: TextView, size: Float, maxWidth: Float, maxSize: Float) {
+        val paint = TextPaint(view.paint)
+        paint.textSize = size
+        val textWidth = paint.measureText(view.text.toString())
+        var fitted = if (textWidth > maxWidth) size * maxWidth / textWidth else size
+        fitted = fitted.coerceAtMost(maxSize)
+        if (fitted != view.textSize) {
+            view.setTextSize(TypedValue.COMPLEX_UNIT_PX, fitted)
+        }
     }
 
     private fun setScreenSaverView() {
@@ -295,5 +350,10 @@ class ScreenSaverView : RelativeLayout {
 
     companion object {
         const val UNSPLASH_IT_URL = "http://unsplash.it/%s/%s?random"
+        // Added to the clock's size from the layout, which is its normal size
+        private const val CLOCK_EXTRA_SIZE_PX = 100
+        private const val CLOCK_MAX_WIDTH_FRACTION = 0.9f
+        private const val CLOCK_MAX_HEIGHT_FRACTION = 0.5f
+        private const val DAY_MAX_HEIGHT_FRACTION = 0.12f
     }
 }

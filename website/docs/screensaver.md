@@ -18,3 +18,20 @@ Using the screen brightness option requires some extra permissions.  This is bec
 
 - If you have brightness enabled, you can at any time manually set a new brightness level using the MQTT commands (see commands section above).  The device will then use the new setting as the default brightness level of the device.
 
+## Clock
+
+**Clock Size** makes the clock screensaver larger, up to three times its normal size. The
+clock and the date shrink back as far as they need to fit the screen, so a large clock on
+a small or portrait screen is not cut off.
+
+The clock moves to a new place every minute so it does not burn into the screen. That
+matters on AMOLED screens and less on LCD ones, which is where **Move Clock** can be
+switched off to keep it in the middle.
+
+## Reloading after the screensaver
+
+**Settings &rarr; Reload After Screensaver** reloads the page whenever a screensaver goes
+away: on a touch, a `wake` command, motion or a face, or the screen coming back on. A
+dashboard that has been in the background for hours, or whose connection dropped while
+the screen was off, then shows current values. See
+[Reloading the dashboard](./dashboard-refresh.md) for the other ways to keep a page fresh.

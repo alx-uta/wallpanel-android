@@ -81,6 +81,7 @@
     <string name="key_setting_http_restenabled">setting_http_enabled</string>
     <string name="key_setting_http_shellenabled">setting_http_shell_enabled</string>
     <string name="default_setting_http_shellenabled">false</string>
+    <string name="key_setting_http_token">setting_http_token</string>
     <string name="default_setting_camera_facewake">false</string>
     <string name="key_setting_camera_qrcodeenabled">setting_camera_qrcodeenabled</string>
     <string name="default_setting_camera_faceenabled">false</string>
@@ -168,6 +169,27 @@
 
     <string name="key_pref_browser_refresh">browser_refresh</string>
     <string name="default_browser_refresh">true</string>
+
+    <string name="key_setting_browser_reload_on_wake">setting_browser_reload_on_wake</string>
+    <string name="default_setting_browser_reload_on_wake">false</string>
+    <string name="key_setting_browser_idle_return">setting_browser_idle_return</string>
+    <string name="default_setting_browser_idle_return">0</string>
+    <string name="key_setting_browser_reload_interval">setting_browser_reload_interval</string>
+    <string name="default_setting_browser_reload_interval">0</string>
+
+    <string name="key_setting_camera_mirror">setting_camera_mirror</string>
+    <string name="default_setting_camera_mirror">false</string>
+
+    <string name="key_screensaver_clock_size">settings_screensaver_clock_size</string>
+    <string name="default_screensaver_clock_size">1</string>
+    <string name="key_screensaver_clock_move">settings_screensaver_clock_move</string>
+    <string name="default_screensaver_clock_move">true</string>
+    <string-array name="clock_size_values">
+        <item>1</item>
+        <item>1.5</item>
+        <item>2</item>
+        <item>3</item>
+    </string-array>
 
     <string name="key_screensaver_inactivity_time">screensaver_inactivity_time</string>
 

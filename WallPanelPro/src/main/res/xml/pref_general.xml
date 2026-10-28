@@ -68,6 +68,26 @@
             android:summary="Refreshes the dashboard on network disconnect."
             android:title="Network Disconnect" />
 
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_browser_reload_on_wake"
+            android:key="@string/key_setting_browser_reload_on_wake"
+            android:title="@string/title_setting_browser_reload_on_wake"
+            android:summary="@string/summary_setting_browser_reload_on_wake"/>
+
+        <xyz.wallpanel.pro.ui.views.NumberEditTextPreference
+            android:defaultValue="@string/default_setting_browser_idle_return"
+            android:key="@string/key_setting_browser_idle_return"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_browser_idle_return"/>
+
+        <xyz.wallpanel.pro.ui.views.NumberEditTextPreference
+            android:defaultValue="@string/default_setting_browser_reload_interval"
+            android:key="@string/key_setting_browser_reload_interval"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_browser_reload_interval"/>
+
         <EditTextPreference
             android:defaultValue="@string/default_browser_user_agent"
             android:summary="@string/pref_user_agent_summary"
@@ -178,6 +198,22 @@
             android:summary="@string/preference_summary_screen_saver_settings"
             android:key="@string/key_screensaver"/>
 
+        <ListPreference
+            android:defaultValue="@string/default_screensaver_clock_size"
+            android:key="@string/key_screensaver_clock_size"
+            android:title="@string/title_screensaver_clock_size"
+            android:entries="@array/clock_size_names"
+            android:entryValues="@array/clock_size_values"
+            android:summary="%s"
+            android:dependency="@string/key_screensaver"/>
+
+        <SwitchPreference
+            android:defaultValue="@string/default_screensaver_clock_move"
+            android:key="@string/key_screensaver_clock_move"
+            android:title="@string/title_screensaver_clock_move"
+            android:summary="@string/summary_screensaver_clock_move"
+            android:dependency="@string/key_screensaver"/>
+
         <SwitchPreference
             android:defaultValue="false"
             android:title="@string/preference_title_screen_saver_dim"
@@ -249,5 +285,10 @@
     <Preference
         android:key="button_key_about"
         android:title="@string/pref_about_title"/>
+
+    <Preference
+        android:key="button_exit"
+        android:title="@string/title_setting_exit"
+        android:summary="@string/summary_setting_exit"/>
 
 </PreferenceScreen>

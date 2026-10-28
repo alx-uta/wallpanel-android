@@ -33,6 +33,7 @@ import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA_FPS
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA_RESOLUTION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CLEAR_CACHE
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_PLAY_NOTIFICATION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELAUNCH
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELOAD
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RESTART_APP
@@ -268,6 +269,7 @@ constructor(
         entities += button(COMMAND_CLEAR_CACHE, R.string.mqtt_control_clear_cache, """{"$COMMAND_CLEAR_CACHE": true}""", controlOn(COMMAND_CLEAR_CACHE, enabledControls))
         entities += button(COMMAND_RELAUNCH, R.string.mqtt_control_relaunch, """{"$COMMAND_RELAUNCH": true}""", controlOn(COMMAND_RELAUNCH, enabledControls))
         entities += button(COMMAND_WAKE, R.string.mqtt_control_wake, """{"$COMMAND_WAKE": true}""", controlOn(COMMAND_WAKE, enabledControls))
+        entities += button(COMMAND_PLAY_NOTIFICATION, R.string.mqtt_control_play_notification, """{"$COMMAND_PLAY_NOTIFICATION": true}""", controlOn(COMMAND_PLAY_NOTIFICATION, enabledControls))
         entities += button(COMMAND_RESTART_APP, R.string.mqtt_control_restart_app, """{"$COMMAND_RESTART_APP": true}""", controlOn(COMMAND_RESTART_APP, enabledControls), configCategory = true)
         entities += button(COMMAND_SETTINGS, R.string.mqtt_control_settings, """{"$COMMAND_SETTINGS": true}""", controlOn(COMMAND_SETTINGS, enabledControls), configCategory = true)
 

@@ -96,6 +96,54 @@ class ConfigurationTest {
     }
 
     @Test
+    fun `httpToken is empty until set and drops surrounding spaces`() {
+        assertEquals("", configuration.httpToken)
+        val key = context.getString(xyz.wallpanel.pro.R.string.key_setting_http_token)
+        preferences.edit().putString(key, "  s3cret \n").commit()
+
+        assertEquals("s3cret", configuration.httpToken)
+    }
+
+    @Test
+    fun `idle return and reload interval are off by default`() {
+        assertEquals(0, configuration.browserIdleReturnMinutes)
+        assertEquals(0, configuration.browserReloadIntervalMinutes)
+        assertFalse(configuration.browserReloadOnWake)
+    }
+
+    @Test
+    fun `idle return and reload interval read minutes and turn bad values off`() {
+        val idle = context.getString(xyz.wallpanel.pro.R.string.key_setting_browser_idle_return)
+        val interval = context.getString(xyz.wallpanel.pro.R.string.key_setting_browser_reload_interval)
+        preferences.edit().putString(idle, "5").putString(interval, " 60 ").commit()
+        assertEquals(5, configuration.browserIdleReturnMinutes)
+        assertEquals(60, configuration.browserReloadIntervalMinutes)
+
+        preferences.edit().putString(idle, "-3").putString(interval, "soon").commit()
+        assertEquals(0, configuration.browserIdleReturnMinutes)
+        assertEquals(0, configuration.browserReloadIntervalMinutes)
+    }
+
+    @Test
+    fun `clock is normal size and moves by default`() {
+        assertEquals(1f, configuration.clockScreenSaverScale)
+        assertTrue(configuration.clockScreenSaverMoves)
+        assertFalse(configuration.cameraMirror)
+    }
+
+    @Test
+    fun `clock size reads the picked scale and ignores one that cannot be drawn`() {
+        val key = context.getString(xyz.wallpanel.pro.R.string.key_screensaver_clock_size)
+        preferences.edit().putString(key, "2").commit()
+        assertEquals(2f, configuration.clockScreenSaverScale)
+
+        preferences.edit().putString(key, "0").commit()
+        assertEquals(1f, configuration.clockScreenSaverScale)
+        preferences.edit().putString(key, "big").commit()
+        assertEquals(1f, configuration.clockScreenSaverScale)
+    }
+
+    @Test
     fun `geckoViewSuspendSeconds defaults to 30`() {
         assertEquals(30, configuration.geckoViewSuspendSeconds)
     }

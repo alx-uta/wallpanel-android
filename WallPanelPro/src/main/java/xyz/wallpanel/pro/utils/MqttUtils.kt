@@ -67,6 +67,8 @@ class MqttUtils {
         const val COMMAND_VOLUME = "volume"
         const val COMMAND_SHELL = "shell"
         const val COMMAND_RESTART_APP = "restartApp"
+        const val COMMAND_PLAY_NOTIFICATION = "playNotification"
+        const val COMMAND_EXIT = "exit"
 
         private val topicsList = ArrayList<String>()
 

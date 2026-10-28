@@ -50,6 +50,7 @@ import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_SCREEN_WAK
 import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_SERVICE_STARTED
 import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_TOAST_MESSAGE
 import xyz.wallpanel.pro.persistence.Configuration
+import xyz.wallpanel.pro.utils.AppExit
 import xyz.wallpanel.pro.utils.DialogUtils
 import xyz.wallpanel.pro.utils.ScreenUtils
 import javax.inject.Inject
@@ -95,9 +96,12 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
             if (BROADCAST_ACTION_LOAD_URL == intent.action) {
                 val url = intent.getStringExtra(BROADCAST_ACTION_LOAD_URL)
                 url?.let {
+                    onUrlCommand()
                     loadWebViewUrl(url)
                     stopDisconnectTimer()
                 }
+            } else if (AppExit.BROADCAST_EXIT == intent.action) {
+                finishAffinity()
             } else if (BROADCAST_ACTION_JS_EXEC == intent.action) {
                 val js = intent.getStringExtra(BROADCAST_ACTION_JS_EXEC)
                 js?.let {
@@ -223,6 +227,7 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         filter.addAction(BROADCAST_BROWSER_ENGINE_PAUSE)
         filter.addAction(BROADCAST_BROWSER_ENGINE_RESUME)
         filter.addAction(BROADCAST_SERVICE_STARTED)
+        filter.addAction(AppExit.BROADCAST_EXIT)
         LocalBroadcastManager.getInstance(this).registerReceiver(mBroadcastReceiver, filter)
     }
 
@@ -245,10 +250,14 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
             decorView?.keepScreenOn = false
         }
         wallPanelService = Intent(this, WallPanelService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(wallPanelService)
-        } else {
-            startService(wallPanelService)
+        // Started again while the application exits, the service would come back after the
+        // process has gone
+        if (!AppExit.exiting) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(wallPanelService)
+            } else {
+                startService(wallPanelService)
+            }
         }
         resetScreenBrightness(false)
     }
@@ -339,6 +348,7 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     }
 
     fun pageLoadComplete(url: String) {
+        onPageLocation(url)
         val intent = Intent(WallPanelService.BROADCAST_EVENT_URL_CHANGE)
         intent.putExtra(WallPanelService.BROADCAST_EVENT_URL_CHANGE, url)
         val bm = LocalBroadcastManager.getInstance(applicationContext)
@@ -372,6 +382,7 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     }
 
     open fun hideScreenSaver() {
+        val wasActive = screenSaverActive
         val dialogDismissed = dialogUtils.hideScreenSaverDialog()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // The dim screensaver has no dialog to dismiss, so the tracked flag rather than
@@ -381,7 +392,24 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         }
         setScreenSaverActive(false)
         onScreenSaverCovering(false)
+        if ((wasActive || dialogDismissed) && configuration.browserReloadOnWake) {
+            reloadAfterScreenSaver()
+        }
     }
+
+    /**
+     * The screensaver was dismissed with reloading after it switched on. Every way it goes
+     * counts: a touch, a wake command, motion or a face, the screen coming back on.
+     */
+    protected open fun reloadAfterScreenSaver() {
+        reload()
+    }
+
+    /** A url command is about to load its page. */
+    protected open fun onUrlCommand() {}
+
+    /** The address on view changed, by a load or by in-page navigation. */
+    protected open fun onPageLocation(url: String) {}
 
     /**
      * Show the screen saver only if the alarm isn't triggered. This shouldn't be an issue
@@ -411,7 +439,9 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
                 configuration.hasScreenSaverWallpaper,
                 configuration.hasClockScreenSaver,
                 configuration.imageRotation.toLong(),
-                configuration.appPreventSleep
+                configuration.appPreventSleep,
+                configuration.clockScreenSaverScale,
+                configuration.clockScreenSaverMoves
             )
             resetScreenBrightness(true)
             setScreenSaverActive(true)

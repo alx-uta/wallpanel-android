@@ -14,6 +14,8 @@ audio | URL | ```{"audio": "http://<url>"}``` | Play the audio specified by the 
 relaunch | true | ```{"relaunch": true}``` | Relaunches the dashboard from configured launchUrl
 reload | true | ```{"reload": true}``` | Reloads the current page immediately
 restartApp | true | ```{"restartApp": true}``` | Restarts the WallPanel app (kills and relaunches the process) -- this is not a device reboot
+exit | true | ```{"exit": true}``` | Closes WallPanel. MQTT and HTTP go with it, so it can't be brought back remotely. See [Exit](#exit).
+playNotification | true | ```{"playNotification": true}``` | Plays the device's notification sound, at the notification volume. Send it ahead of `speak` to get attention first.
 url | URL | ```{"url": "http://<url>"}``` | Browse to a new URL immediately
 wake | true | ```{"wake": true, "wakeTime": 180}``` | Wakes the screen if it is asleep. Optional wakeTime (in seconds). If no wake time provided, screen will wake but return to screensaver mode on user inactivity.  Sending false value will return app to normal screensaver mode and display screensaver on user inactivity.
 wake | false | ```{"wake": false}``` | Release screen wake (Note: screen will not turn off before Androids Display Timeout finished)
@@ -33,10 +35,46 @@ shell | command | ```{"shell": "log -t WallPanel hello-from-wallpanel"}``` | Run
   * eg, ```{"clearCache":true, "relaunch":true}```
 * For REST
   * POST the JSON to URL ```http://<the.device.ip.address>:2971/api/command```
+  * With an [access token](#access-token) set, send it along with every request
 * For MQTT
   * WallPanel subscribes to topic ```wallpanel/[baseTopic]/command```
     * Default Topic: ```wallpanel/mywallpanel/command```
   * Publish a JSON payload to this topic (be mindful of quotes in JSON should be single quotes not double)
+
+## Access token
+
+Out of the box anyone on the network can use the REST API and watch the camera stream.
+Set **Settings &rarr; HTTP &rarr; Access Token** and every request needs it: `/api/command`,
+`/api/state` and `/camera/stream` all answer `401 Unauthorized` without it. It is accepted
+three ways, so every kind of client has one it can use:
+
+- an `Authorization: Bearer <token>` header:
+
+  ```sh
+  curl --request POST 'http://192.168.1.1:2971/api/command' \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data-raw '{"reload": true}'
+  ```
+
+- HTTP basic authentication with the token as the password and any user name, which is
+  what a browser asks for, and what Home Assistant's MJPEG camera and go2rtc support;
+- a `token` parameter on the URL, for clients that can only be given an address:
+  `http://192.168.1.1:2971/camera/stream?token=<token>`.
+
+A token in a URL ends up in logs and browser history, so prefer the header or basic
+authentication where the client allows it. The token does not protect MQTT, which has the
+broker's own authentication. Leave the field empty to switch the check off.
+
+## Exit
+
+`{"exit": true}`, and **Settings &rarr; Exit WallPanel** on the device, close the browser
+and stop the service, so MQTT, the HTTP server and the camera stop with it. Nothing brings
+WallPanel back remotely: it opens again when it is launched, when the device restarts with
+**Open On Device Boot** set, or when a [scheduled task](../scheduled-tasks.md) fires.
+
+When WallPanel is the device's home app, Android would open it again straight away, so
+the system's home app setting opens instead, for another one to be picked.
 
 ## Wake and the screen switch
 

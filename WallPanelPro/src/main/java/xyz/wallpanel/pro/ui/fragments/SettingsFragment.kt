@@ -46,6 +46,7 @@ import xyz.wallpanel.pro.persistence.Configuration.Companion.PREF_SCREEN_BRIGHTN
 import xyz.wallpanel.pro.ui.activities.SettingsActivity.Companion.PERMISSIONS_REQUEST_WRITE_SETTINGS
 import xyz.wallpanel.pro.ui.views.GeckoViewWrapper
 import xyz.wallpanel.pro.ui.views.SettingsCodeView
+import xyz.wallpanel.pro.utils.AppExit
 import xyz.wallpanel.pro.utils.DateUtils
 import xyz.wallpanel.pro.utils.DateUtils.SECONDS_VALUE
 import xyz.wallpanel.pro.utils.OverlayPermission
@@ -88,6 +89,8 @@ class SettingsFragment : BaseSettingsFragment() {
     private var dimPreference: ListPreference? = null
     private var rotationPreference: EditTextPreference? = null
     private var geckoSuspendPreference: EditTextPreference? = null
+    private var idleReturnPreference: EditTextPreference? = null
+    private var reloadIntervalPreference: EditTextPreference? = null
 
     private val fullScreenPreference: SwitchPreference by lazy {
         findPreference<SwitchPreference>(PREF_SETTINGS_FULL_SCREEN) as SwitchPreference
@@ -284,6 +287,13 @@ class SettingsFragment : BaseSettingsFragment() {
         geckoSuspendPreference?.summary = getString(R.string.summary_use_geckoview_suspend_seconds, configuration.geckoViewSuspendSeconds.toString())
         geckoSuspendPreference?.setDefaultValue(configuration.geckoViewSuspendSeconds.toString())
 
+        idleReturnPreference = findPreference(getString(R.string.key_setting_browser_idle_return))
+        idleReturnPreference?.text = configuration.browserIdleReturnMinutes.toString()
+        idleReturnPreference?.summary = getString(R.string.summary_setting_browser_idle_return, configuration.browserIdleReturnMinutes.toString())
+        reloadIntervalPreference = findPreference(getString(R.string.key_setting_browser_reload_interval))
+        reloadIntervalPreference?.text = configuration.browserReloadIntervalMinutes.toString()
+        reloadIntervalPreference?.summary = getString(R.string.summary_setting_browser_reload_interval, configuration.browserReloadIntervalMinutes.toString())
+
         // Setup additional screensaver options
         webScreenSaver.isChecked = configuration.webScreenSaver
         dimScreensaver.isChecked = configuration.hasDimScreenSaver
@@ -347,6 +357,11 @@ class SettingsFragment : BaseSettingsFragment() {
 
             overlayPermissionPreference?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
                 OverlayPermission.openSettings(requireContext())
+                true
+            }
+
+            findPreference<Preference>("button_exit")?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                confirmExit()
                 true
             }
         }  catch (e: IllegalArgumentException) {
@@ -478,6 +493,22 @@ class SettingsFragment : BaseSettingsFragment() {
                     } else {
                         Toast.makeText(requireContext(), getString(R.string.toast_error_bad_decimal), Toast.LENGTH_SHORT).show()
                     }
+                }
+            }
+            getString(R.string.key_setting_browser_idle_return) -> {
+                val minutes = idleReturnPreference?.text?.trim()?.toIntOrNull()
+                if (minutes != null && minutes >= 0) {
+                    idleReturnPreference?.summary = getString(R.string.summary_setting_browser_idle_return, minutes.toString())
+                } else {
+                    Toast.makeText(requireContext(), getString(R.string.toast_error_bad_decimal), Toast.LENGTH_SHORT).show()
+                }
+            }
+            getString(R.string.key_setting_browser_reload_interval) -> {
+                val minutes = reloadIntervalPreference?.text?.trim()?.toIntOrNull()
+                if (minutes != null && minutes >= 0) {
+                    reloadIntervalPreference?.summary = getString(R.string.summary_setting_browser_reload_interval, minutes.toString())
+                } else {
+                    Toast.makeText(requireContext(), getString(R.string.toast_error_bad_decimal), Toast.LENGTH_SHORT).show()
                 }
             }
             getString(R.string.key_use_geckoview_suspend_seconds) -> {
@@ -655,6 +686,26 @@ class SettingsFragment : BaseSettingsFragment() {
                     Timber.e(e, "Error clearing cache")
                     Toast.makeText(requireContext(), "Error clearing cache: ${e.message}", Toast.LENGTH_LONG).show()
                 }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /**
+     * Leaving stops everything that lets the device be reached remotely, so it is confirmed
+     * first. The settings code was already asked for on the way in.
+     */
+    private fun confirmExit() {
+        val message = if (AppExit.isDefaultHome(requireContext())) {
+            R.string.dialog_exit_message_home
+        } else {
+            R.string.dialog_exit_message
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.dialog_exit_title)
+            .setMessage(message)
+            .setPositiveButton(R.string.button_exit) { _, _ ->
+                activity?.let { AppExit.exit(it, it) }
             }
             .setNegativeButton(android.R.string.cancel, null)
             .show()
