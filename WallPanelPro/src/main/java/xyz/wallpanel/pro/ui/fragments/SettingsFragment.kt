@@ -16,6 +16,7 @@
 
 package xyz.wallpanel.pro.ui.fragments
 
+import android.app.admin.DevicePolicyManager
 import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.DialogInterface
@@ -55,6 +56,7 @@ import xyz.wallpanel.pro.ui.activities.SettingsActivity.Companion.PERMISSIONS_RE
 import xyz.wallpanel.pro.ui.views.GeckoViewWrapper
 import xyz.wallpanel.pro.ui.views.SettingsCodeView
 import xyz.wallpanel.pro.utils.AppExit
+import xyz.wallpanel.pro.utils.Lockdown
 import xyz.wallpanel.pro.utils.AppRestartHelper
 import xyz.wallpanel.pro.utils.DashboardLogin
 import xyz.wallpanel.pro.utils.DateUtils
@@ -393,6 +395,11 @@ class SettingsFragment : BaseSettingsFragment() {
                 true
             }
 
+            findPreference<Preference>(PREF_DEVICE_ADMIN)?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                onDeviceAdminClicked()
+                true
+            }
+
             findPreference<Preference>("button_exit")?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
                 confirmExit()
                 true
@@ -415,6 +422,8 @@ class SettingsFragment : BaseSettingsFragment() {
 
     override fun onResume() {
         super.onResume()
+        // Device admin is granted on a system screen, and device owner over adb
+        updateLockdownSummaries()
         // The permission is granted on a system screen, so it is read again on the way back.
         overlayPermissionPreference?.summary = getString(
             if (OverlayPermission.isGranted(requireContext())) {
@@ -562,6 +571,7 @@ class SettingsFragment : BaseSettingsFragment() {
             getString(R.string.key_setting_voice_pipeline) -> updateSpeechSummaries()
             getString(R.string.key_setting_browser_login_username),
             getString(R.string.key_setting_browser_login_password) -> updateLoginSummaries()
+            getString(R.string.key_setting_app_lockdown_apps) -> updateLockdownSummaries()
             getString(R.string.key_setting_browser_reload_interval) -> {
                 val minutes = reloadIntervalPreference?.text?.trim()?.toIntOrNull()
                 if (minutes != null && minutes >= 0) {
@@ -600,6 +610,63 @@ class SettingsFragment : BaseSettingsFragment() {
             configuration.speechHaLanguage.ifEmpty { getString(R.string.summary_setting_speech_ha_language_default) }
         findPreference<Preference>(getString(R.string.key_setting_voice_pipeline))?.summary =
             configuration.voicePipeline.ifEmpty { getString(R.string.summary_setting_voice_pipeline_default) }
+    }
+
+    /** What lockdown does on this device, which depends on whether WallPanel is its owner. */
+    private fun updateLockdownSummaries() {
+        val context = context ?: return
+        val owner = Lockdown.isDeviceOwner(context)
+        findPreference<Preference>(getString(R.string.key_setting_app_lockdown))?.setSummary(
+            if (owner) R.string.summary_setting_app_lockdown_owner else R.string.summary_setting_app_lockdown
+        )
+        val apps = Lockdown.parseApps(configuration.appLockdownApps)
+        findPreference<Preference>(getString(R.string.key_setting_app_lockdown_apps))?.summary =
+            if (apps.isEmpty()) getString(R.string.summary_setting_app_lockdown_apps_off)
+            else getString(R.string.summary_setting_app_lockdown_apps_on, apps.joinToString(", "))
+        val component = Lockdown.admin(context).flattenToShortString()
+        findPreference<Preference>(PREF_DEVICE_ADMIN)?.summary = when {
+            owner -> getString(R.string.summary_device_admin_owner)
+            Lockdown.isAdminActive(context) -> getString(R.string.summary_device_admin_on, component)
+            else -> getString(R.string.summary_device_admin_off, component)
+        }
+    }
+
+    /**
+     * Asks Android to make WallPanel a device admin, or gives that up, or the device owner
+     * along with it. Device owner can only be given over adb, so it is not offered here.
+     */
+    private fun onDeviceAdminClicked() {
+        val context = requireContext()
+        if (!Lockdown.isAdminActive(context)) {
+            val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
+                .putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, Lockdown.admin(context))
+                .putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, getString(R.string.device_admin_explanation))
+            try {
+                startActivity(intent)
+            } catch (e: Exception) {
+                Timber.w(e, "No screen to add a device admin")
+                Toast.makeText(context, R.string.toast_device_admin_failed, Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+        val owner = Lockdown.isDeviceOwner(context)
+        AlertDialog.Builder(context)
+            .setTitle(if (owner) R.string.dialog_device_owner_remove_title else R.string.dialog_device_admin_remove_title)
+            .setMessage(if (owner) R.string.dialog_device_owner_remove_message else R.string.dialog_device_admin_remove_message)
+            .setPositiveButton(R.string.button_remove) { _, _ ->
+                // The full lock would otherwise outlive the owner that allowed it. A screen
+                // pin is no business of the device admin's and stays.
+                if (owner) {
+                    activity?.let { Lockdown.release(it) }
+                }
+                if (!Lockdown.removeAdmin(context)) {
+                    Toast.makeText(context, R.string.toast_device_admin_failed, Toast.LENGTH_SHORT).show()
+                }
+                // Android lets go of a device admin a moment after it is asked to
+                view?.postDelayed({ updateLockdownSummaries() }, ADMIN_REMOVAL_MS)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
     }
 
     /** The username, with the servers it is given to. The password stays hidden. */
@@ -934,6 +1001,8 @@ class SettingsFragment : BaseSettingsFragment() {
         const val PREF_SETTINGS_SCREENSAVER_DIM = "settings_screensaver_dim"
         const val PREF_SETTINGS_WEB_SCREENSAVER = "settings_screensaver_web"
         const val PREF_SETTINGS_WEB_SCREENSAVER_URL = "settings_screensaver_web_url"
+        private const val PREF_DEVICE_ADMIN = "button_device_admin"
+        private const val ADMIN_REMOVAL_MS = 1_000L
         private const val SETTINGS_FILE_TYPE = "application/json"
         private const val SETTINGS_FILE_NAME = "wallpanel-settings.json"
         private const val MAX_SETTINGS_FILE_CHARS = 1_000_000

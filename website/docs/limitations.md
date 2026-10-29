@@ -10,6 +10,8 @@ An old WebView also ages against the pages you point it at. Home Assistant's own
 
 Setting WallPanel as the default Home application will always load this application as your home. Removing this feature is difficult without uninstalling the application. So please do this is you wish to use the application as a "kiosk" type application.
 
+The home app alone still leaves the notification shade, Recents and other apps a swipe away. [Lockdown](./lockdown.md) closes those too.
+
 On Android 10 and later, WallPanel can only bring the dashboard back by itself after a crash, the `restartApp` command or a scheduled restart, or open it on boot, if it may display over other apps. Without that permission, Android blocks the start while the screen is on and leaves the device on the home screen; with the screen off or locked it still works, which is the usual state just after a boot. WallPanel asks for it once, on first start, and Settings → Reopen After a Restart shows whether it is granted and opens the system screen to grant it. Newer Android versions open a list of apps there, where you pick WallPanel Pro.
 
 The back key moves back through the dashboard's history, and out of a fullscreen video. On the first page it does nothing, so a kiosk is not left by a single press. For tablets without a back key, see [Navigating and logging in](./navigation.md).

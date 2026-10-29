@@ -18,6 +18,7 @@ package xyz.wallpanel.pro.ui.activities
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.ActivityManager
 import android.app.KeyguardManager
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -49,6 +50,7 @@ import xyz.wallpanel.pro.network.ConnectionLiveData
 import xyz.wallpanel.pro.utils.AppRestartHelper
 import xyz.wallpanel.pro.utils.BootReadinessGate
 import xyz.wallpanel.pro.utils.DashboardLogin
+import xyz.wallpanel.pro.utils.Lockdown
 import xyz.wallpanel.pro.utils.DashboardTracker
 import xyz.wallpanel.pro.utils.EdgeSwipe
 import xyz.wallpanel.pro.utils.InternalWebChromeClient
@@ -66,6 +68,7 @@ import timber.log.Timber
 import java.net.URISyntaxException
 import java.util.*
 import java.util.concurrent.TimeUnit
+import java.lang.ref.WeakReference
 
 
 class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClientCallback {
@@ -90,6 +93,8 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     private var screenSaverCovering = false
     // How far the GeckoView page is scrolled down, for the pull-to-refresh gesture
     private var geckoScrollY = 0
+    // Set when another browser was already up, see handOverToRunningBrowser()
+    private var handedOver = false
     // A page element, a video for instance, is showing fullscreen
     private var pageFullScreen = false
     // The WebView's fullscreen element, and how to tell the WebView it was left
@@ -257,6 +262,11 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     override fun onCreate(savedInstanceState: Bundle?) {
 
         super.onCreate(savedInstanceState)
+
+        if (handedOver) {
+            return
+        }
+        runningBrowser = WeakReference(this)
 
         if (BuildConfig.DEBUG && configuration.isFirstTime) {
             // Only set debug defaults on first run, don't overwrite user settings
@@ -665,8 +675,39 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
     }
 
+    /**
+     * WallPanel as the home app has its browser in the home task, and one started another way,
+     * on boot or from adb, in a task of its own, so either way round a second dashboard can
+     * come up beside the first. That happens most with lockdown as the device owner, where
+     * WallPanel is the fixed home app and Home leaves an allowed app. The browser already
+     * running is brought forward instead. A start that clears its task is a deliberate new
+     * browser, such as a restart, and goes ahead.
+     */
+    override fun handOverToRunningBrowser(): Boolean {
+        val running = runningBrowser?.get()
+        if (running == null || running === this || running.isFinishing || running.isDestroyed
+            || running.taskId == taskId
+            || (intent?.flags ?: 0) and Intent.FLAG_ACTIVITY_CLEAR_TASK != 0) {
+            return false
+        }
+        Timber.i("A second browser was opened, bringing the running one forward")
+        try {
+            val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            activityManager.moveTaskToFront(running.taskId, 0)
+        } catch (e: Exception) {
+            Timber.w(e, "Could not bring the running browser forward")
+            return false
+        }
+        handedOver = true
+        finish()
+        return true
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        if (runningBrowser?.get() === this) {
+            runningBrowser = null
+        }
         reconnectionHandler.removeCallbacks(bootGateRunnable)
         playlistHandler.removeCallbacksAndMessages(null)
         browserTimerHandler.removeCallbacksAndMessages(null)
@@ -1055,6 +1096,11 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
             Intent(Intent.ACTION_VIEW, Uri.parse(url))
         }
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (!Lockdown.mayOpen(this, launchIntent, configuration.appLockdownApps)) {
+            Timber.w("Not opening $url: lockdown does not allow the app")
+            Toast.makeText(this, R.string.toast_lockdown_app_blocked, Toast.LENGTH_SHORT).show()
+            return false
+        }
         return try {
             startActivity(launchIntent)
             true
@@ -1462,6 +1508,8 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     }
 
     companion object {
+        // The browser that is up, see handOverToRunningBrowser()
+        private var runningBrowser: WeakReference<BrowserActivityNative>? = null
         const val PERMISSIONS_REQUEST_NOTIFICATIONS = 220
         // Request codes for permissions a page asks for, taken in turn
         private const val PERMISSIONS_REQUEST_PAGE_FIRST = 300

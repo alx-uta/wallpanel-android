@@ -66,11 +66,17 @@ object AppExit {
         Timber.i("Exiting the application")
         val appContext = context.applicationContext
         AppRestartHelper.cancelRestartNotification(appContext)
+        // A locked task keeps the screens on view and stops another app opening, so the lock
+        // goes first. The browser lets go of it itself, before the home settings open.
+        activity?.let { Lockdown.release(it) }
+        // As the device owner WallPanel is the fixed home app, and the home settings could
+        // not pick another one
+        Lockdown.liftOwnerPolicy(appContext)
+        // The browser closes itself and every screen above it
+        LocalBroadcastManager.getInstance(appContext).sendBroadcastSync(Intent(BROADCAST_EXIT))
         if (isDefaultHome(appContext)) {
             openHomeSettings(activity ?: appContext)
         }
-        // The browser closes itself and every screen above it
-        LocalBroadcastManager.getInstance(appContext).sendBroadcast(Intent(BROADCAST_EXIT))
         activity?.finishAffinity()
         appContext.stopService(Intent(appContext, WallPanelService::class.java))
         Handler(Looper.getMainLooper()).postDelayed({ exitProcess(0) }, EXIT_DELAY_MS)

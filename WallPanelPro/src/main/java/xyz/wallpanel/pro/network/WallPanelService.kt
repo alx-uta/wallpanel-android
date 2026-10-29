@@ -65,6 +65,7 @@ import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_A
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_SHOW_SCREENSAVER
 import xyz.wallpanel.pro.utils.AppExit
 import xyz.wallpanel.pro.utils.AppRestartHelper
+import xyz.wallpanel.pro.utils.Lockdown
 import xyz.wallpanel.pro.utils.MqttUtils
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_AUDIO
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_BRIGHTNESS
@@ -83,7 +84,9 @@ import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_EXIT
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_PLAY_NOTIFICATION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELAUNCH
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELOAD
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_REBOOT
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RESTART_APP
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SCREEN_OFF
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SCREENSAVER
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR_FACE
@@ -1212,6 +1215,11 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                     wakeScreenOff()
                 }
             }
+            if (commandJson.has(COMMAND_SCREEN_OFF)) {
+                if (commandJson.getBoolean(COMMAND_SCREEN_OFF)) {
+                    screenOff()
+                }
+            }
             if (commandJson.has(COMMAND_BRIGHTNESS)) {
                 // This will permanently change the screen brightness level
                 val brightness = commandJson.getInt(COMMAND_BRIGHTNESS)
@@ -1279,6 +1287,11 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             if (commandJson.has(COMMAND_RESTART_APP)) {
                 if (commandJson.getBoolean(COMMAND_RESTART_APP)) {
                     restartApplication()
+                }
+            }
+            if (commandJson.has(COMMAND_REBOOT)) {
+                if (commandJson.getBoolean(COMMAND_REBOOT)) {
+                    Lockdown.reboot(applicationContext)
                 }
             }
         } catch (ex: JSONException) {
@@ -1507,6 +1520,11 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             return
         }
         Timber.i("Changed by command: $applied")
+        if (MqttUtils.STATE_LOCKDOWN in applied && !configuration.appLockdown) {
+            // As the device owner the lock is let go of at once, rather than when the
+            // dashboard is next in front, since an allowed app or the dark screen may be
+            Lockdown.liftOwnerPolicy(applicationContext)
+        }
         val intent = Intent(BROADCAST_ACTION_CONFIG_CHANGED)
         intent.putExtra(BROADCAST_ACTION_CONFIG_CHANGED, applied.toTypedArray())
         LocalBroadcastManager.getInstance(applicationContext).sendBroadcast(intent)
@@ -1651,6 +1669,16 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         // goes out either way so Home Assistant shows what the screen is actually doing
         // rather than what was asked for.
         publishApplicationState()
+    }
+
+    /**
+     * Turns the display off, as a device admin. The wake lock goes first, since a held one
+     * would light the screen again, and the state reports that the screen is no longer kept
+     * awake. Without device admin this is what `{"wake": false}` does and no more.
+     */
+    private fun screenOff() {
+        wakeScreenOff()
+        Lockdown.screenOff(applicationContext)
     }
 
     private fun changeScreenBrightness(brightness: Int) {

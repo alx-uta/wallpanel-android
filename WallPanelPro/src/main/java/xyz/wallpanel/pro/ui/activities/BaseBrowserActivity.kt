@@ -48,6 +48,7 @@ import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import dagger.android.support.DaggerAppCompatActivity
 import timber.log.Timber
 import xyz.wallpanel.pro.AppExceptionHandler
+import xyz.wallpanel.pro.R
 import xyz.wallpanel.pro.network.MQTTOptions
 import xyz.wallpanel.pro.network.WallPanelService
 import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_ALERT_MESSAGE
@@ -66,6 +67,7 @@ import xyz.wallpanel.pro.persistence.RemoteConfig
 import xyz.wallpanel.pro.utils.AppExit
 import xyz.wallpanel.pro.utils.DashboardLogin
 import xyz.wallpanel.pro.utils.DialogUtils
+import xyz.wallpanel.pro.utils.Lockdown
 import xyz.wallpanel.pro.utils.MqttUtils
 import xyz.wallpanel.pro.utils.ScreenUtils
 import xyz.wallpanel.pro.utils.VolumeKeys
@@ -96,6 +98,8 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     // Shades the page for the dim screensaver when the brightness on screen is not known
     private var dimShade: View? = null
     private var inForeground = false
+    // Set while lockdown waits for the window to have focus, see applyLockdown()
+    private var lockdownPending = false
     // Set while a config command puts the screensaver up again, which is not a dismissal
     private var reshowingScreenSaver = false
     // Messages from the notification command, newest at the bottom
@@ -130,6 +134,8 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
                     stopDisconnectTimer()
                 }
             } else if (AppExit.BROADCAST_EXIT == intent.action) {
+                // A locked task stays on screen with its activities gone
+                Lockdown.release(this@BaseBrowserActivity)
                 finishAffinity()
             } else if (BROADCAST_ACTION_JS_EXEC == intent.action) {
                 val js = intent.getStringExtra(BROADCAST_ACTION_JS_EXEC)
@@ -209,6 +215,11 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Before anything here touches the screen, the brightness or the commands, which
+        // belong to the browser that is already up
+        if (handOverToRunningBrowser()) {
+            return
+        }
 
         displayProgress = configuration.appShowActivity
         zoomLevel = configuration.testZoomLevel
@@ -235,11 +246,34 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         // engine is running again before anything else touches the page.
         resumeBrowserEngine()
         resetInactivityTimer()
+        applyLockdown()
+    }
+
+    /**
+     * Locks the task down, or lets it go, to match the setting. Only the activity in front
+     * can lock its task, so a change made while it is not waits for the next onResume().
+     * Locking waits for the window to have focus as well: asked while the lock screen or the
+     * notification shade still has it, Android drops the screen pinning prompt without a word.
+     */
+    private fun applyLockdown() {
+        if (AppExit.exiting || isFinishing) {
+            return
+        }
+        if (configuration.appLockdown && !hasWindowFocus()) {
+            lockdownPending = true
+            return
+        }
+        lockdownPending = false
+        val error = Lockdown.apply(this, configuration.appLockdown, configuration.appLockdownApps)
+        if (error != null && configuration.appLockdown) {
+            Toast.makeText(this, getString(R.string.toast_lockdown_failed, error), Toast.LENGTH_LONG).show()
+        }
     }
 
     override fun onPause() {
         super.onPause()
         inForeground = false
+        lockdownPending = false
         // The screensaver belongs to the page: counting down while the settings screen or
         // another app is in front would bring it up, and dim the screen, over them.
         inactivityHandler.removeCallbacks(inactivityCallback)
@@ -354,6 +388,9 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         if (MqttUtils.STATE_DARK_THEME in keys) {
             applyDarkTheme()
         }
+        if (MqttUtils.STATE_LOCKDOWN in keys && isInForeground()) {
+            applyLockdown()
+        }
         if (screenSaverActive && keys.any { it in RemoteConfig.SCREENSAVER_KEYS }) {
             reshowingScreenSaver = true
             try {
@@ -379,6 +416,12 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
             inactivityHandler.postDelayed(inactivityCallback, configuration.inactivityTime)
         }
     }
+
+    /**
+     * Returns true when another browser is already up and this one has handed over to it
+     * and is finishing.
+     */
+    protected open fun handOverToRunningBrowser(): Boolean = false
 
     /** The dark theme setting changed while the page is up. */
     protected open fun applyDarkTheme() {}
@@ -506,6 +549,10 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
+        // Also called from onUserInteraction(), so the window is asked rather than trusted
+        if (hasFocus && lockdownPending && isInForeground() && hasWindowFocus()) {
+            applyLockdown()
+        }
         val visibility: Int
         if (hasFocus && configuration.fullScreen) {
             visibility = (View.SYSTEM_UI_FLAG_LAYOUT_STABLE

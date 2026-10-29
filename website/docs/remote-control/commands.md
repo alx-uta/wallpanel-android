@@ -19,6 +19,8 @@ playNotification | true | ```{"playNotification": true}``` | Plays the device's 
 url | URL | ```{"url": "http://<url>"}``` | Browse to a new URL immediately
 wake | true | ```{"wake": true, "wakeTime": 180}``` | Wakes the screen if it is asleep. Optional wakeTime (in seconds). If no wake time provided, screen will wake but return to screensaver mode on user inactivity.  Sending false value will return app to normal screensaver mode and display screensaver on user inactivity.
 wake | false | ```{"wake": false}``` | Release screen wake (Note: screen will not turn off before Androids Display Timeout finished)
+screenOff | true | ```{"screenOff": true}``` | Turns the screen off straight away, the way the power button does. Needs WallPanel to be a device admin, see [Lockdown](../lockdown.md#turning-the-screen-off).
+reboot | true | ```{"reboot": true}``` | Reboots the device. Needs WallPanel to be the device owner and Android 7.0 or later, see [Lockdown](../lockdown.md#device-owner).
 speak | data | ```{"speak": "Hello!"}``` | Uses the devices TTS to speak the message, or [Home Assistant's](#speaking-through-home-assistant) when that is set up
 notification | text or object | ```{"notification": "The washing is done"}``` | Puts a message on the dashboard that stays until it is touched. See [Notifications](#notifications).
 config | object | ```{"config": {"screenSaverMode": "dim", "preventSleep": false}}``` | Changes screensaver and display settings. See [Changing settings](#changing-settings).
@@ -99,6 +101,7 @@ screenSaverDim | 0 to 99 | How far the dim screensaver dims, in %
 screenSaverUrl | URL | The page the `web` screensaver shows
 preventSleep | true/false | **Prevent Sleep**: keep the screen on while WallPanel is in front
 darkTheme | true/false | The dark theme. The page reloads to pick it up; with the WebView engine the dashboard loads again from the start.
+lockdown | true/false | [Lockdown](../lockdown.md). Takes effect when the dashboard is next in front with nothing over it; with screen pinning, someone has to confirm on the device.
 
 - A key that isn't listed, or a value that doesn't fit, is ignored and logged to
   `adb logcat`, and the rest of the command still applies.
@@ -106,7 +109,7 @@ darkTheme | true/false | The dark theme. The page reloads to pick it up; with th
 - Everything but `screenSaverUrl` comes back in the [application state](./sensors.md#application-state-data).
 - With [MQTT Discovery](./sensors.md#home-assistant-discovery) each one is an entity of
   its own: **Screensaver Type**, **Screensaver Timeout**, **Screensaver Dim Level**,
-  **Screensaver URL**, **Prevent Sleep** and **Dark Theme**.
+  **Screensaver URL**, **Prevent Sleep**, **Dark Theme** and **Lockdown**.
 
 The dark theme reaches the page as `prefers-color-scheme`, so a Home Assistant dashboard
 follows it when its theme is set to follow the system. The WebView engine on Android 9 and
@@ -204,9 +207,9 @@ lost. A refused token shows in `adb logcat` as a 401.
 ## Wake and the screen switch
 
 `{"wake": false}` releases the screen wake lock, but that's not the same as turning the
-screen off. An ordinary Android app -- WallPanel has no device-admin or root privileges --
-has no way to blank the display directly; only the OS's own inactivity timeout can do
-that. Releasing the lock just stops WallPanel from holding the screen on; the screen
+screen off. An ordinary Android app has no way to blank the display directly; only the OS's
+own inactivity timeout can do that. [`{"screenOff": true}`](../lockdown.md#turning-the-screen-off)
+does turn it off, once WallPanel is allowed to as a device admin. Releasing the lock just stops WallPanel from holding the screen on; the screen
 itself goes dark whenever the device's own timeout next expires.
 
 If you're using [MQTT Discovery](./mqtt-setup.md), this shows up as the **Keep Screen

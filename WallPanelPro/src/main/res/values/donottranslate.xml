@@ -201,6 +201,11 @@
     <string name="key_setting_browser_login_username">setting_browser_login_username</string>
     <string name="key_setting_browser_login_password">setting_browser_login_password</string>
 
+    <string name="key_setting_app_lockdown">setting_app_lockdown</string>
+    <string name="default_setting_app_lockdown">false</string>
+    <string name="key_setting_app_lockdown_apps">setting_app_lockdown_apps</string>
+    <string name="default_setting_app_lockdown_apps"></string>
+
     <string name="key_setting_camera_mirror">setting_camera_mirror</string>
     <string name="default_setting_camera_mirror">false</string>
 

@@ -195,6 +195,25 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="@string/pref_lockdown_category">
+
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_app_lockdown"
+            android:key="@string/key_setting_app_lockdown"
+            android:title="@string/title_setting_app_lockdown"
+            android:summary="@string/summary_setting_app_lockdown"/>
+
+        <EditTextPreference
+            android:defaultValue="@string/default_setting_app_lockdown_apps"
+            android:key="@string/key_setting_app_lockdown_apps"
+            android:title="@string/title_setting_app_lockdown_apps"/>
+
+        <Preference
+            android:key="button_device_admin"
+            android:title="@string/title_setting_device_admin"/>
+
+    </PreferenceCategory>
+
     <PreferenceCategory android:title="@string/pref_login_category">
 
         <EditTextPreference

@@ -30,6 +30,8 @@
     -->
     <uses-permission android:name="android.permission.SYSTEM_ALERT_WINDOW" />
     <uses-permission android:name="android.permission.POST_NOTIFICATIONS" />
+    <!-- Brings the running browser forward when Home would open a second one -->
+    <uses-permission android:name="android.permission.REORDER_TASKS" />
     <!--
       Only requested when the optional shell command feature is enabled, and only useful on
       API 23-28. From API 29 scoped storage applies (targetSdkVersion 33), so these grant no
@@ -139,6 +141,24 @@
                 <action android:name="android.intent.action.LOCKED_BOOT_COMPLETED" />
                 <action android:name="android.intent.action.QUICKBOOT_POWERON" />
                 <action android:name="com.htc.intent.action.QUICKBOOT_POWERON" />
+            </intent-filter>
+        </receiver>
+
+        <!--
+          Turns the screen off as a device admin, and locks the device down as its owner, set
+          with `adb shell dpm set-device-owner xyz.wallpanel.pro/.DeviceAdmin`.
+        -->
+        <receiver
+            android:name="xyz.wallpanel.pro.DeviceAdmin"
+            android:description="@string/device_admin_explanation"
+            android:exported="true"
+            android:label="@string/app_name"
+            android:permission="android.permission.BIND_DEVICE_ADMIN">
+            <meta-data
+                android:name="android.app.device_admin"
+                android:resource="@xml/device_admin" />
+            <intent-filter>
+                <action android:name="android.app.action.DEVICE_ADMIN_ENABLED" />
             </intent-filter>
         </receiver>
 

@@ -54,6 +54,7 @@ class MqttUtils {
         const val STATE_PREVENT_SLEEP = "preventSleep"
         const val STATE_DARK_THEME = "darkTheme"
         const val STATE_SCREENSAVER_URL = "screenSaverUrl"
+        const val STATE_LOCKDOWN = "lockdown"
         const val COMMAND_SENSOR = "sensor/"
         const val COMMAND_URL = "url"
         const val COMMAND_CAMERA = "camera"
@@ -80,6 +81,8 @@ class MqttUtils {
         const val COMMAND_FOREGROUND = "foreground"
         const val COMMAND_NOTIFICATION = "notification"
         const val COMMAND_ASSIST = "assist"
+        const val COMMAND_SCREEN_OFF = "screenOff"
+        const val COMMAND_REBOOT = "reboot"
 
         private val topicsList = ArrayList<String>()
 

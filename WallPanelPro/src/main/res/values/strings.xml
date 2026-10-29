@@ -608,6 +608,30 @@
     <string name="summary_setting_browser_login_username_on">%1$s, given to the dashboard\'s own server only: %2$s</string>
     <string name="dialog_title_login">Log in to %1$s</string>
 
+    <string name="pref_lockdown_category">Lockdown</string>
+    <string name="title_setting_app_lockdown">Lockdown</string>
+    <string name="summary_setting_app_lockdown">Keeps WallPanel on screen: Home, Recents and the notification shade stop working. Android pins the screen and shows how to unpin it. As the device owner, WallPanel locks without asking and cannot be unpinned.</string>
+    <string name="summary_setting_app_lockdown_owner">Keeps WallPanel on screen: Home, Recents and the notification shade stop working, and there is no way out other than these settings or a command.</string>
+    <string name="title_setting_app_lockdown_apps">Apps Allowed in Lockdown</string>
+    <string name="summary_setting_app_lockdown_apps_off">None. Package names, separated by commas, of apps the dashboard may open while locked down. Device owner only.</string>
+    <string name="summary_setting_app_lockdown_apps_on">%1$s. Device owner only.</string>
+    <string name="title_setting_device_admin">Device Admin</string>
+    <string name="summary_device_admin_off">Off. Tap to let WallPanel turn the screen off. Device owner, set once over adb, adds full lockdown and reboot: adb shell dpm set-device-owner %1$s</string>
+    <string name="summary_device_admin_on">WallPanel may turn the screen off. Tap to take that back. Device owner, set once over adb, adds full lockdown and reboot: adb shell dpm set-device-owner %1$s</string>
+    <string name="summary_device_admin_owner">WallPanel is the device owner: full lockdown, screen off and reboot. Tap to give it up.</string>
+    <string name="device_admin_explanation">Lets WallPanel turn the screen off when Home Assistant or a command asks.</string>
+    <string name="dialog_device_admin_remove_title">Stop being device admin?</string>
+    <string name="dialog_device_admin_remove_message">WallPanel will no longer be able to turn the screen off.</string>
+    <string name="dialog_device_owner_remove_title">Give up device owner?</string>
+    <string name="dialog_device_owner_remove_message">Lockdown falls back to screen pinning, and the screen off and reboot commands stop working. Making WallPanel the device owner again needs adb, and Android only allows it on a device with no accounts added.</string>
+    <string name="button_remove">Remove</string>
+    <string name="toast_device_admin_failed">Could not change device admin</string>
+    <string name="toast_lockdown_app_blocked">Lockdown does not allow that app</string>
+    <string name="toast_lockdown_failed">Could not lock down: %1$s</string>
+    <string name="mqtt_control_lockdown">Lockdown</string>
+    <string name="mqtt_control_screen_off">Screen Off</string>
+    <string name="mqtt_control_reboot">Reboot</string>
+
     <string name="pref_backup_category">Backup</string>
     <string name="title_settings_export">Export Settings</string>
     <string name="summary_settings_export">Saves these settings to a file, to set up another device or this one again.</string>

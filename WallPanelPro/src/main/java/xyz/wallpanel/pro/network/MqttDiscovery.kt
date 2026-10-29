@@ -43,7 +43,11 @@ import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_NOTIFICATION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_PLAY_NOTIFICATION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELAUNCH
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELOAD
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_REBOOT
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RESTART_APP
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SCREEN_OFF
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_LOCKDOWN
+import xyz.wallpanel.pro.utils.Lockdown
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SCREENSAVER
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR_BUTTON
@@ -305,6 +309,16 @@ constructor(
         )
         entities += button(COMMAND_RESTART_APP, R.string.mqtt_control_restart_app, """{"$COMMAND_RESTART_APP": true}""", controlOn(COMMAND_RESTART_APP, enabledControls), configCategory = true)
         entities += button(COMMAND_SETTINGS, R.string.mqtt_control_settings, """{"$COMMAND_SETTINGS": true}""", controlOn(COMMAND_SETTINGS, enabledControls), configCategory = true)
+        // Only where they work: screen off needs WallPanel to be a device admin, reboot the
+        // device owner. The device admin receiver has the service republish when that changes.
+        entities += button(
+            COMMAND_SCREEN_OFF, R.string.mqtt_control_screen_off, """{"$COMMAND_SCREEN_OFF": true}""",
+            controlOn(COMMAND_SCREEN_OFF, enabledControls) && Lockdown.canTurnScreenOff(context)
+        )
+        entities += button(
+            COMMAND_REBOOT, R.string.mqtt_control_reboot, """{"$COMMAND_REBOOT": true}""",
+            controlOn(COMMAND_REBOOT, enabledControls) && Lockdown.canReboot(context), configCategory = true
+        )
 
         entities += switch(
             objectId = OBJECT_SCREEN,
@@ -438,6 +452,15 @@ constructor(
             offPayload = """{"$COMMAND_CONFIG": {"$STATE_DARK_THEME": false}}""",
             stateField = STATE_DARK_THEME,
             enabled = controlOn(STATE_DARK_THEME, enabledControls),
+            configCategory = true,
+        )
+        entities += switch(
+            objectId = STATE_LOCKDOWN,
+            displayNameRes = R.string.mqtt_control_lockdown,
+            onPayload = """{"$COMMAND_CONFIG": {"$STATE_LOCKDOWN": true}}""",
+            offPayload = """{"$COMMAND_CONFIG": {"$STATE_LOCKDOWN": false}}""",
+            stateField = STATE_LOCKDOWN,
+            enabled = controlOn(STATE_LOCKDOWN, enabledControls),
             configCategory = true,
         )
         entities += text(

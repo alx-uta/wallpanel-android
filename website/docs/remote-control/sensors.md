@@ -172,6 +172,7 @@ inactivityTime | seconds | ```{"inactivityTime":30}``` | How long without a touc
 screenSaverDim | 0-99 | ```{"screenSaverDim":25}``` | How far the dim screensaver dims, in %.
 preventSleep | true/false | ```{"preventSleep":true}``` | Whether **Prevent Sleep** is on.
 darkTheme | true/false | ```{"darkTheme":false}``` | Whether the dark theme is on.
+lockdown | true/false | ```{"lockdown":false}``` | Whether [Lockdown](../lockdown.md) is switched on in the settings. A pin someone declined or undid on the device still reads true.
 
 * State values are presented together as a JSON block
   * eg, ```{"currentUrl":"http://hasbian:8123/states","screenOn":true}```
@@ -204,6 +205,8 @@ Bring to Front | button | `{"foreground": true}`
 Voice Assistant | button | `{"assist": true}`, only with the [voice assistant](../voice-assistant.md) switched on
 Restart App | button | `{"restartApp": true}`
 Open Settings | button | `{"settings": true}`
+Screen Off | button | `{"screenOff": true}`, only while WallPanel is a [device admin](../lockdown.md#turning-the-screen-off)
+Reboot | button | `{"reboot": true}`, only while WallPanel is the [device owner](../lockdown.md#device-owner)
 Keep Screen Awake | switch | `{"wake": true / false}`
 Camera | switch | `{"camera": true / false}`
 Camera Resolution | select (auto, 320x240, 640x480, 1280x720) | `{"cameraResolution": "<value>"}`
@@ -221,6 +224,7 @@ Screensaver Dim Level | number (0-99) | `{"config": {"screenSaverDim": <value>}}
 Screensaver URL | text | `{"config": {"screenSaverUrl": "<value>"}}`
 Prevent Sleep | switch | `{"config": {"preventSleep": true / false}}`
 Dark Theme | switch | `{"config": {"darkTheme": true / false}}`
+Lockdown | switch | `{"config": {"lockdown": true / false}}`
 Shell Command | text | `{"shell": "<value>"}`
 
 The switches read their state back from the application state topic, so they follow the
@@ -233,8 +237,8 @@ inactivity timeout (30 seconds by default) and then releases it -- so the switch
 to off by itself. Turning it **off** releases that lock, which does not blank the screen;
 Android's own display timeout does that whenever it gets there.
 
-An app without root or device-owner rights cannot force a display off, so this is as far
-as it goes. The switch shows whether that wake lock is held (`screenAwake`), not whether
+Without device admin rights WallPanel cannot force a display off, so this is as far as it
+goes. With them, the **Screen Off** button does, see [Lockdown](../lockdown.md#turning-the-screen-off). The switch shows whether that wake lock is held (`screenAwake`), not whether
 the display is lit; `screenOn` in the application state reports the display.
 :::
 

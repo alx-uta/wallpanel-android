@@ -16,6 +16,9 @@
 
 package xyz.wallpanel.pro.network
 
+import xyz.wallpanel.pro.utils.Lockdown
+import org.robolectric.Shadows
+import android.app.admin.DevicePolicyManager
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.preference.PreferenceManager
@@ -547,6 +550,31 @@ class MqttDiscoveryTest {
 
         val url = config("text/screenSaverUrl")
         assertEquals("""{"config": {"screenSaverUrl": {{ value | to_json }}}}""", url.getString("command_template"))
+    }
+
+    @Test
+    fun `lockdown is a config switch`() {
+        val lockdown = config("switch/lockdown")
+        assertEquals("""{"config": {"lockdown": true}}""", lockdown.getString("payload_on"))
+        assertEquals("""{"config": {"lockdown": false}}""", lockdown.getString("payload_off"))
+        assertEquals("{% if value_json.lockdown %}ON{% else %}OFF{% endif %}", lockdown.getString("value_template"))
+        assertEquals("config", lockdown.getString("entity_category"))
+    }
+
+    @Test
+    fun `screen off needs device admin and reboot the device owner`() {
+        assertNull(entities()["button/screenOff"]!!.config)
+        assertNull(entities()["button/reboot"]!!.config)
+
+        val policy = Shadows.shadowOf(context.getSystemService(DevicePolicyManager::class.java))
+        policy.setActiveAdmin(Lockdown.admin(context))
+        assertEquals("""{"screenOff": true}""", config("button/screenOff").getString("payload_press"))
+        assertNull(entities()["button/reboot"]!!.config)
+
+        policy.setDeviceOwner(Lockdown.admin(context))
+        val reboot = config("button/reboot")
+        assertEquals("""{"reboot": true}""", reboot.getString("payload_press"))
+        assertEquals("config", reboot.getString("entity_category"))
     }
 
     @Test

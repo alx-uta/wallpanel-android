@@ -114,6 +114,18 @@ class RemoteConfigTest {
     }
 
     @Test
+    fun `lockdown is switched on and off`() {
+        assertEquals(setOf("lockdown"), apply("""{"lockdown": true}"""))
+        assertTrue(configuration.appLockdown)
+        apply("""{"lockdown": "off"}""")
+        assertFalse(configuration.appLockdown)
+        assertTrue(apply("""{"lockdown": 1}""").isEmpty())
+        val state = JSONObject()
+        remoteConfig.putState(state)
+        assertFalse(state.getBoolean("lockdown"))
+    }
+
+    @Test
     fun `state reports what the entities read back`() {
         apply("""{"screenSaverMode": "dim", "inactivityTime": 60, "screenSaverDim": 40, "preventSleep": true, "darkTheme": true}""")
         val state = JSONObject()

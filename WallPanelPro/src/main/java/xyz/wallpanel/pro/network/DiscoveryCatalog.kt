@@ -47,6 +47,8 @@ object DiscoveryCatalog {
         DiscoveryChoice("foreground", R.string.mqtt_control_foreground),
         DiscoveryChoice("assist", R.string.mqtt_control_assist),
         DiscoveryChoice("restartApp", R.string.mqtt_control_restart_app),
+        DiscoveryChoice("screenOff", R.string.mqtt_control_screen_off),
+        DiscoveryChoice("reboot", R.string.mqtt_control_reboot),
         DiscoveryChoice("settings", R.string.mqtt_control_settings),
         DiscoveryChoice("screen", R.string.mqtt_control_screen),
         DiscoveryChoice("camera", R.string.mqtt_control_camera),
@@ -65,6 +67,7 @@ object DiscoveryCatalog {
         DiscoveryChoice("preventSleep", R.string.mqtt_control_prevent_sleep),
         DiscoveryChoice("darkTheme", R.string.mqtt_control_dark_theme),
         DiscoveryChoice("screenSaverUrl", R.string.mqtt_control_screensaver_url),
+        DiscoveryChoice("lockdown", R.string.mqtt_control_lockdown),
         DiscoveryChoice("shell", R.string.mqtt_control_shell),
     )
 

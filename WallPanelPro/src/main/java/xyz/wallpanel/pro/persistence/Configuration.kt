@@ -413,6 +413,20 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     val browserSwipeNavigation: Boolean
         get() = getBoolPref(R.string.key_setting_browser_swipe_navigation, R.string.default_setting_browser_swipe_navigation)
 
+    /**
+     * WallPanel holds the screen as a locked task: screen pinning, or the full lock task mode
+     * when it is the device owner. See [xyz.wallpanel.pro.utils.Lockdown].
+     */
+    var appLockdown: Boolean
+        get() = getBoolPref(R.string.key_setting_app_lockdown, R.string.default_setting_app_lockdown)
+        set(value) {
+            sharedPreferences.edit().putBoolean(context.getString(R.string.key_setting_app_lockdown), value).apply()
+        }
+
+    /** Package names of apps that may be opened while locked down, as the setting holds them. */
+    val appLockdownApps: String
+        get() = getStringPref(R.string.key_setting_app_lockdown_apps, R.string.default_setting_app_lockdown_apps).trim()
+
     /** On-screen back and dashboard buttons. */
     val browserNavButtons: Boolean
         get() = getBoolPref(R.string.key_setting_browser_nav_buttons, R.string.default_setting_browser_nav_buttons)

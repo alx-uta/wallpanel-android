@@ -20,6 +20,7 @@ import org.json.JSONObject
 import timber.log.Timber
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_DARK_THEME
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_INACTIVITY_TIME
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_LOCKDOWN
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_PREVENT_SLEEP
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_SCREENSAVER_DIM
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_SCREENSAVER_MODE
@@ -54,7 +55,8 @@ enum class ScreenSaverMode(val id: String) {
  * The settings the `config` command may change, which are the ones a day and night routine
  * wants to move: the screensaver, its timeout and dim level, keeping the screen on, and the
  * theme. Anything else in the command is ignored and logged, and so is a value that does
- * not fit, without stopping the rest of the command.
+ * not fit, without stopping the rest of the command. Lockdown is here too, so Home Assistant
+ * can lock a panel down, or let it go for someone to use the tablet.
  */
 class RemoteConfig(private val configuration: Configuration) {
 
@@ -73,6 +75,7 @@ class RemoteConfig(private val configuration: Configuration) {
                     ?.let { configuration.screenSaverDimValue = it.toInt(); true }
                 STATE_PREVENT_SLEEP -> bool(value)?.let { configuration.appPreventSleep = it; true }
                 STATE_DARK_THEME -> bool(value)?.let { configuration.useDarkTheme = it; true }
+                STATE_LOCKDOWN -> bool(value)?.let { configuration.appLockdown = it; true }
                 STATE_SCREENSAVER_URL -> (value as? String)?.trim()?.takeIf { it.isNotEmpty() }
                     ?.let { configuration.webScreenSaverUrl = it; true }
                 else -> {
@@ -96,6 +99,7 @@ class RemoteConfig(private val configuration: Configuration) {
         state.put(STATE_SCREENSAVER_DIM, configuration.screenSaverDimValue)
         state.put(STATE_PREVENT_SLEEP, configuration.appPreventSleep)
         state.put(STATE_DARK_THEME, configuration.useDarkTheme)
+        state.put(STATE_LOCKDOWN, configuration.appLockdown)
     }
 
     /**
