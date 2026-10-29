@@ -36,6 +36,7 @@ import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA_FPS
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA_RESOLUTION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CLEAR_CACHE
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_ASSIST
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CONFIG
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_FOREGROUND
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_NOTIFICATION
@@ -298,6 +299,10 @@ constructor(
         entities += button(COMMAND_WAKE, R.string.mqtt_control_wake, """{"$COMMAND_WAKE": true}""", controlOn(COMMAND_WAKE, enabledControls))
         entities += button(COMMAND_PLAY_NOTIFICATION, R.string.mqtt_control_play_notification, """{"$COMMAND_PLAY_NOTIFICATION": true}""", controlOn(COMMAND_PLAY_NOTIFICATION, enabledControls))
         entities += button(COMMAND_FOREGROUND, R.string.mqtt_control_foreground, """{"$COMMAND_FOREGROUND": true}""", controlOn(COMMAND_FOREGROUND, enabledControls))
+        entities += button(
+            COMMAND_ASSIST, R.string.mqtt_control_assist, """{"$COMMAND_ASSIST": true}""",
+            configuration.voiceEnabled && controlOn(COMMAND_ASSIST, enabledControls)
+        )
         entities += button(COMMAND_RESTART_APP, R.string.mqtt_control_restart_app, """{"$COMMAND_RESTART_APP": true}""", controlOn(COMMAND_RESTART_APP, enabledControls), configCategory = true)
         entities += button(COMMAND_SETTINGS, R.string.mqtt_control_settings, """{"$COMMAND_SETTINGS": true}""", controlOn(COMMAND_SETTINGS, enabledControls), configCategory = true)
 

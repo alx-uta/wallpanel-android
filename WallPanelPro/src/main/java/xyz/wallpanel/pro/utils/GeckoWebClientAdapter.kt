@@ -38,6 +38,9 @@ class GeckoWebClientAdapter(
     var canGoBack = false
         private set
 
+    var canGoForward = false
+        private set
+
     /**
      * The page's address as it changes, including the in-page navigation Home Assistant does
      * between views. Load requests are not used for this: they include redirects, loads that
@@ -65,10 +68,12 @@ class GeckoWebClientAdapter(
     @UiThread
     fun onSessionReplaced() {
         canGoBack = false
+        canGoForward = false
     }
 
     @UiThread
     override fun onCanGoForward(session: GeckoSession, canGoForward: Boolean) {
+        this.canGoForward = canGoForward
     }
 
     /**

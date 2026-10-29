@@ -79,6 +79,7 @@ class MqttUtils {
         const val COMMAND_CONFIG = "config"
         const val COMMAND_FOREGROUND = "foreground"
         const val COMMAND_NOTIFICATION = "notification"
+        const val COMMAND_ASSIST = "assist"
 
         private val topicsList = ArrayList<String>()
 

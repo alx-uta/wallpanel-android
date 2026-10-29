@@ -560,7 +560,7 @@
     <string name="title_setting_sensors_volume_keys">Report Volume Keys</string>
     <string name="summary_setting_sensors_volume_keys">Publishes volume key presses to Home Assistant instead of changing the volume. Only while WallPanel is on the screen.</string>
 
-    <string name="pref_speech_category">Speech</string>
+    <string name="pref_speech_category">Home Assistant</string>
     <string name="title_setting_speech_ha_enabled">Speak Through Home Assistant</string>
     <string name="summary_setting_speech_ha_enabled">The speak command asks Home Assistant to turn the message into audio and plays it, instead of using this device\'s text to speech. Falls back to the device if Home Assistant can\'t be reached.</string>
     <string name="title_setting_speech_ha_url">Home Assistant Address</string>
@@ -572,4 +572,56 @@
     <string name="summary_setting_speech_ha_engine_default">Not set, the first one Home Assistant has is used. Example: tts.google_translate_en_com</string>
     <string name="title_setting_speech_ha_language">Language</string>
     <string name="summary_setting_speech_ha_language_default">Not set, the engine\'s own language is used. Example: en</string>
+
+    <string name="title_setting_voice_enabled">Voice Assistant</string>
+    <string name="summary_setting_voice_enabled">Shows a microphone button on the dashboard. Tap it and speak, and Home Assistant\'s Assist answers. Needs the address and access token above.</string>
+    <string name="title_setting_voice_pipeline">Assist Pipeline</string>
+    <string name="summary_setting_voice_pipeline_default">Not set, Home Assistant\'s preferred assistant is used. Takes a pipeline id or name.</string>
+    <string name="voice_connecting">Connecting to Home Assistant…</string>
+    <string name="voice_listening">Listening…</string>
+    <string name="voice_thinking">Working on it…</string>
+    <string name="voice_not_configured">The voice assistant needs Home Assistant\'s address and an access token, see Settings.</string>
+    <string name="voice_no_microphone">The voice assistant needs the microphone permission.</string>
+    <string name="voice_microphone_failed">The microphone could not be opened.</string>
+    <string name="voice_no_speech_to_text">No speech-to-text: Home Assistant\'s assistant has none, and this device has no speech recogniser.</string>
+    <string name="voice_not_heard">Sorry, I didn\'t catch that.</string>
+    <string name="voice_connection_failed">Could not reach Home Assistant.</string>
+    <string name="voice_auth_failed">Home Assistant refused the access token.</string>
+    <string name="voice_failed">The assistant failed: %1$s</string>
+    <string name="content_description_voice">Voice assistant</string>
+    <string name="mqtt_control_assist">Voice Assistant</string>
+
+    <string name="pref_navigation_category">Navigation</string>
+    <string name="title_setting_browser_swipe_navigation">Swipe From the Edges</string>
+    <string name="summary_setting_browser_swipe_navigation">Swipe in from the left edge to go back a page, from the right edge to go forward. Leave this off with a dashboard that uses swipes of its own near the edges.</string>
+    <string name="title_setting_browser_nav_buttons">Back and Home Buttons</string>
+    <string name="summary_setting_browser_nav_buttons">Shows a back button and a button that goes back to the dashboard.</string>
+    <string name="content_description_back">Back</string>
+    <string name="content_description_home">Dashboard</string>
+
+    <string name="pref_login_category">Dashboard Login</string>
+    <string name="title_setting_browser_login_username">Username</string>
+    <string name="summary_setting_browser_login_username_off">Not set. For a dashboard behind a username and password (HTTP basic authentication). The browser asks instead.</string>
+    <string name="title_setting_browser_login_password">Password</string>
+    <string name="summary_setting_browser_login_password_off">Not set.</string>
+    <string name="summary_setting_browser_login_password_on">Set.</string>
+    <string name="summary_setting_browser_login_username_on">%1$s, given to the dashboard\'s own server only: %2$s</string>
+    <string name="dialog_title_login">Log in to %1$s</string>
+
+    <string name="pref_backup_category">Backup</string>
+    <string name="title_settings_export">Export Settings</string>
+    <string name="summary_settings_export">Saves these settings to a file, to set up another device or this one again.</string>
+    <string name="title_settings_import">Import Settings</string>
+    <string name="summary_settings_import">Loads settings from an exported file and restarts WallPanel.</string>
+    <string name="settings_export_secrets">Include passwords, access tokens and the settings code</string>
+    <string name="settings_import_keep_identity">Keep this device\'s MQTT client ID, base topic and device name</string>
+    <string name="settings_import_message">Settings in the file replace this device\'s. Settings the file does not have are left as they are. WallPanel restarts afterwards.</string>
+    <string name="button_export">Export</string>
+    <string name="button_import">Import</string>
+    <string name="toast_settings_exported">Settings exported</string>
+    <string name="toast_settings_export_failed">Could not save the settings file</string>
+    <string name="toast_settings_import_failed">Not a WallPanel settings file</string>
+    <string name="toast_settings_import_write_failed">Could not save the imported settings</string>
+    <string name="toast_settings_imported">Settings imported, restarting</string>
+    <string name="toast_no_file_picker">This device has no file picker</string>
 </resources>

@@ -190,6 +190,17 @@
     <string name="key_setting_speech_ha_engine">setting_speech_ha_engine</string>
     <string name="key_setting_speech_ha_language">setting_speech_ha_language</string>
 
+    <string name="key_setting_voice_enabled">setting_voice_enabled</string>
+    <string name="default_setting_voice_enabled">false</string>
+    <string name="key_setting_voice_pipeline">setting_voice_pipeline</string>
+
+    <string name="key_setting_browser_swipe_navigation">setting_browser_swipe_navigation</string>
+    <string name="default_setting_browser_swipe_navigation">false</string>
+    <string name="key_setting_browser_nav_buttons">setting_browser_nav_buttons</string>
+    <string name="default_setting_browser_nav_buttons">false</string>
+    <string name="key_setting_browser_login_username">setting_browser_login_username</string>
+    <string name="key_setting_browser_login_password">setting_browser_login_password</string>
+
     <string name="key_setting_camera_mirror">setting_camera_mirror</string>
     <string name="default_setting_camera_mirror">false</string>
 

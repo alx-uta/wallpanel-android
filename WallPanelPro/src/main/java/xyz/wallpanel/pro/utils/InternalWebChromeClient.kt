@@ -2,6 +2,7 @@ package xyz.wallpanel.pro.utils
 
 import android.Manifest
 import android.content.res.Resources
+import android.view.View
 import android.webkit.JsResult
 import android.webkit.PermissionRequest
 import android.webkit.WebChromeClient
@@ -92,6 +93,22 @@ class InternalWebChromeClient(val resources: Resources, val callback: WebClientC
             .setOnDismissListener { result.confirm() }
             .show()
         return true
+    }
+
+    /**
+     * A page element asking to go fullscreen, a video player's button for instance. Without
+     * this the WebView reports fullscreen as unsupported and players grey the button out.
+     */
+    override fun onShowCustomView(view: View, callback: CustomViewCallback) {
+        if (this.callback.isFinishing()) {
+            callback.onCustomViewHidden()
+            return
+        }
+        this.callback.showCustomView(view, callback)
+    }
+
+    override fun onHideCustomView() {
+        callback.hideCustomView()
     }
 
     companion object {

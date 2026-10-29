@@ -64,6 +64,7 @@ import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_TOAST_MESS
 import xyz.wallpanel.pro.persistence.Configuration
 import xyz.wallpanel.pro.persistence.RemoteConfig
 import xyz.wallpanel.pro.utils.AppExit
+import xyz.wallpanel.pro.utils.DashboardLogin
 import xyz.wallpanel.pro.utils.DialogUtils
 import xyz.wallpanel.pro.utils.MqttUtils
 import xyz.wallpanel.pro.utils.ScreenUtils
@@ -189,6 +190,8 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
             } else if (BROADCAST_ACTION_CONFIG_CHANGED == intent.action && !isFinishing) {
                 val keys = intent.getStringArrayExtra(BROADCAST_ACTION_CONFIG_CHANGED)
                 keys?.let { onConfigChanged(it.toSet()) }
+            } else if (BROADCAST_ACTION_ASSIST == intent.action && !isFinishing) {
+                onAssistCommand(intent.getBooleanExtra(BROADCAST_ACTION_ASSIST, true))
             } else if (BROADCAST_ACTION_NOTIFICATION == intent.action && !isFinishing) {
                 val message = intent.getStringExtra(WallPanelService.NOTIFICATION_MESSAGE)
                 message?.let {
@@ -271,6 +274,7 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         filter.addAction(AppExit.BROADCAST_EXIT)
         filter.addAction(BROADCAST_ACTION_CONFIG_CHANGED)
         filter.addAction(BROADCAST_ACTION_NOTIFICATION)
+        filter.addAction(BROADCAST_ACTION_ASSIST)
         LocalBroadcastManager.getInstance(this).registerReceiver(mBroadcastReceiver, filter)
     }
 
@@ -378,6 +382,16 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
 
     /** The dark theme setting changed while the page is up. */
     protected open fun applyDarkTheme() {}
+
+    /** The assist command: start listening, or stop. */
+    protected open fun onAssistCommand(start: Boolean) {}
+
+    /** Says [text] the way the speak command would. */
+    protected fun speakThroughService(text: String) {
+        val intent = Intent(WallPanelService.BROADCAST_ACTION_SPEAK)
+        intent.putExtra(WallPanelService.BROADCAST_ACTION_SPEAK, text)
+        LocalBroadcastManager.getInstance(applicationContext).sendBroadcast(intent)
+    }
 
     /**
      * Puts a message over the page until it is touched, or for [timeoutSeconds] when that
@@ -517,7 +531,8 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     fun pageLoadComplete(url: String) {
         onPageLocation(url)
         val intent = Intent(WallPanelService.BROADCAST_EVENT_URL_CHANGE)
-        intent.putExtra(WallPanelService.BROADCAST_EVENT_URL_CHANGE, url)
+        // Published as the Current URL, where a password in it would be on show
+        intent.putExtra(WallPanelService.BROADCAST_EVENT_URL_CHANGE, DashboardLogin.withoutCredentials(url))
         val bm = LocalBroadcastManager.getInstance(applicationContext)
         bm.sendBroadcast(intent)
         complete()
@@ -715,6 +730,7 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         const val BROADCAST_ACTION_HIDE_SCREENSAVER = "BROADCAST_ACTION_HIDE_SCREENSAVER"
         const val BROADCAST_ACTION_CONFIG_CHANGED = "BROADCAST_ACTION_CONFIG_CHANGED"
         const val BROADCAST_ACTION_NOTIFICATION = "BROADCAST_ACTION_NOTIFICATION"
+        const val BROADCAST_ACTION_ASSIST = "BROADCAST_ACTION_ASSIST"
         private const val MAX_NOTIFICATIONS = 5
         private const val NOTIFICATION_BACKGROUND = 0xE6303030.toInt()
         const val REQUEST_CODE_PERMISSION_AUDIO = 12

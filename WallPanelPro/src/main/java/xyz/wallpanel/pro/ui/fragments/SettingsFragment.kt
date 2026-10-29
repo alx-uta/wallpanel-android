@@ -16,6 +16,7 @@
 
 package xyz.wallpanel.pro.ui.fragments
 
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.DialogInterface
 import android.content.Intent
@@ -30,7 +31,9 @@ import android.view.Menu
 import android.view.MenuInflater
 import android.view.MenuItem
 import android.view.View
+import android.widget.CheckBox
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatDelegate
@@ -41,14 +44,19 @@ import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.SwitchPreference
+import org.json.JSONObject
+import xyz.wallpanel.pro.BuildConfig
 import xyz.wallpanel.pro.R
 import xyz.wallpanel.pro.network.HomeAssistantSpeech
+import xyz.wallpanel.pro.persistence.SettingsBackup
 import xyz.wallpanel.pro.persistence.Configuration.Companion.PREF_SCREENSAVER_DIM_VALUE
 import xyz.wallpanel.pro.persistence.Configuration.Companion.PREF_SCREEN_BRIGHTNESS
 import xyz.wallpanel.pro.ui.activities.SettingsActivity.Companion.PERMISSIONS_REQUEST_WRITE_SETTINGS
 import xyz.wallpanel.pro.ui.views.GeckoViewWrapper
 import xyz.wallpanel.pro.ui.views.SettingsCodeView
 import xyz.wallpanel.pro.utils.AppExit
+import xyz.wallpanel.pro.utils.AppRestartHelper
+import xyz.wallpanel.pro.utils.DashboardLogin
 import xyz.wallpanel.pro.utils.DateUtils
 import xyz.wallpanel.pro.utils.DateUtils.SECONDS_VALUE
 import xyz.wallpanel.pro.utils.OverlayPermission
@@ -145,6 +153,18 @@ class SettingsFragment : BaseSettingsFragment() {
 
     private val webScreenSaverUrl: EditTextPreference by lazy {
         findPreference<EditTextPreference>(PREF_SETTINGS_WEB_SCREENSAVER_URL) as EditTextPreference
+    }
+
+    // Whether the export being saved carries the passwords, chosen before the file is
+    private var exportSecrets = false
+    private var importKeepIdentity = true
+
+    private val exportFile = registerForActivityResult(ActivityResultContracts.CreateDocument(SETTINGS_FILE_TYPE)) { uri ->
+        uri?.let { writeSettingsFile(it) }
+    }
+
+    private val importFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { readSettingsFile(it) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -299,10 +319,13 @@ class SettingsFragment : BaseSettingsFragment() {
         returnMinutesPreference = findPreference(getString(R.string.key_setting_app_return_minutes))
         returnMinutesPreference?.text = configuration.appReturnMinutes.toString()
         returnMinutesPreference?.summary = getString(R.string.summary_setting_app_return_minutes, configuration.appReturnMinutes.toString())
-        findPreference<EditTextPreference>(getString(R.string.key_setting_speech_ha_token))?.setOnBindEditTextListener { editText ->
-            editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+        listOf(R.string.key_setting_speech_ha_token, R.string.key_setting_browser_login_password).forEach { key ->
+            findPreference<EditTextPreference>(getString(key))?.setOnBindEditTextListener { editText ->
+                editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            }
         }
         updateSpeechSummaries()
+        updateLoginSummaries()
 
         // Setup additional screensaver options
         webScreenSaver.isChecked = configuration.webScreenSaver
@@ -372,6 +395,16 @@ class SettingsFragment : BaseSettingsFragment() {
 
             findPreference<Preference>("button_exit")?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
                 confirmExit()
+                true
+            }
+
+            findPreference<Preference>("button_settings_export")?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                confirmExport()
+                true
+            }
+
+            findPreference<Preference>("button_settings_import")?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                confirmImport()
                 true
             }
         }  catch (e: IllegalArgumentException) {
@@ -463,6 +496,7 @@ class SettingsFragment : BaseSettingsFragment() {
                     configuration.appLaunchUrl = value
                     dashboardPreference?.summary = value
                 }
+                updateLoginSummaries()
             }
             PREF_SETTINGS_WEB_SCREENSAVER_URL -> {
                 val value = webScreenSaverUrl.text.orEmpty()
@@ -524,7 +558,10 @@ class SettingsFragment : BaseSettingsFragment() {
             getString(R.string.key_setting_speech_ha_url),
             getString(R.string.key_setting_speech_ha_token),
             getString(R.string.key_setting_speech_ha_engine),
-            getString(R.string.key_setting_speech_ha_language) -> updateSpeechSummaries()
+            getString(R.string.key_setting_speech_ha_language),
+            getString(R.string.key_setting_voice_pipeline) -> updateSpeechSummaries()
+            getString(R.string.key_setting_browser_login_username),
+            getString(R.string.key_setting_browser_login_password) -> updateLoginSummaries()
             getString(R.string.key_setting_browser_reload_interval) -> {
                 val minutes = reloadIntervalPreference?.text?.trim()?.toIntOrNull()
                 if (minutes != null && minutes >= 0) {
@@ -561,6 +598,121 @@ class SettingsFragment : BaseSettingsFragment() {
             configuration.speechHaEngine.ifEmpty { getString(R.string.summary_setting_speech_ha_engine_default) }
         findPreference<Preference>(getString(R.string.key_setting_speech_ha_language))?.summary =
             configuration.speechHaLanguage.ifEmpty { getString(R.string.summary_setting_speech_ha_language_default) }
+        findPreference<Preference>(getString(R.string.key_setting_voice_pipeline))?.summary =
+            configuration.voicePipeline.ifEmpty { getString(R.string.summary_setting_voice_pipeline_default) }
+    }
+
+    /** The username, with the servers it is given to. The password stays hidden. */
+    private fun updateLoginSummaries() {
+        val username = configuration.browserLoginUsername
+        findPreference<Preference>(getString(R.string.key_setting_browser_login_username))?.summary =
+            if (username.isEmpty()) {
+                getString(R.string.summary_setting_browser_login_username_off)
+            } else {
+                getString(
+                    R.string.summary_setting_browser_login_username_on, username,
+                    DashboardLogin.hostsOf(configuration.appLaunchUrl).sorted().joinToString(", ")
+                )
+            }
+        findPreference<Preference>(getString(R.string.key_setting_browser_login_password))?.setSummary(
+            if (configuration.browserLoginPassword.isEmpty()) R.string.summary_setting_browser_login_password_off
+            else R.string.summary_setting_browser_login_password_on
+        )
+    }
+
+    private fun confirmExport() {
+        val secrets = CheckBox(requireContext()).apply {
+            setText(R.string.settings_export_secrets)
+            isChecked = false
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.title_settings_export)
+            .setView(dialogContent(secrets))
+            .setPositiveButton(R.string.button_export) { _, _ ->
+                exportSecrets = secrets.isChecked
+                try {
+                    exportFile.launch(SETTINGS_FILE_NAME)
+                } catch (e: ActivityNotFoundException) {
+                    Toast.makeText(requireContext(), R.string.toast_no_file_picker, Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun writeSettingsFile(uri: Uri) {
+        val context = requireContext()
+        try {
+            val json = SettingsBackup.forApp(context).export(configuration.allSettings(), exportSecrets, BuildConfig.VERSION_NAME)
+            val stream = context.contentResolver.openOutputStream(uri, "wt") ?: throw java.io.IOException("No stream for $uri")
+            stream.use { it.write(json.toString(2).toByteArray(Charsets.UTF_8)) }
+            Toast.makeText(context, R.string.toast_settings_exported, Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Timber.e(e, "Could not export the settings")
+            Toast.makeText(context, R.string.toast_settings_export_failed, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun confirmImport() {
+        val keepIdentity = CheckBox(requireContext()).apply {
+            setText(R.string.settings_import_keep_identity)
+            isChecked = true
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.title_settings_import)
+            .setMessage(R.string.settings_import_message)
+            .setView(dialogContent(keepIdentity))
+            .setPositiveButton(R.string.button_import) { _, _ ->
+                importKeepIdentity = keepIdentity.isChecked
+                try {
+                    // Some document providers label JSON as plain text or as nothing in particular
+                    importFile.launch(arrayOf(SETTINGS_FILE_TYPE, "text/plain", "application/octet-stream"))
+                } catch (e: ActivityNotFoundException) {
+                    Toast.makeText(requireContext(), R.string.toast_no_file_picker, Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /**
+     * Writes the file's settings and restarts, which is what makes every part of the
+     * application, the service and the browser included, read them again.
+     */
+    private fun readSettingsFile(uri: Uri) {
+        val context = requireContext()
+        val values = try {
+            val text = context.contentResolver.openInputStream(uri)?.use { stream ->
+                // A settings file is a few kilobytes; anything far bigger is not one
+                String(stream.readBytes(), Charsets.UTF_8).also {
+                    require(it.length <= MAX_SETTINGS_FILE_CHARS) { "Too big for a settings file" }
+                }
+            } ?: throw java.io.IOException("No stream for $uri")
+            SettingsBackup.forApp(context).read(JSONObject(text), importKeepIdentity)
+        } catch (e: Exception) {
+            Timber.w(e, "Could not import the settings from $uri")
+            Toast.makeText(context, R.string.toast_settings_import_failed, Toast.LENGTH_LONG).show()
+            return
+        }
+        // The changes are not this screen's to react to one by one: everything starts again
+        val preferences = preferenceScreen.sharedPreferences
+        preferences?.unregisterOnSharedPreferenceChangeListener(this)
+        if (!configuration.importSettings(values)) {
+            preferences?.registerOnSharedPreferenceChangeListener(this)
+            Toast.makeText(context, R.string.toast_settings_import_write_failed, Toast.LENGTH_LONG).show()
+            return
+        }
+        Timber.i("Imported ${values.size} settings, restarting")
+        Toast.makeText(context, R.string.toast_settings_imported, Toast.LENGTH_LONG).show()
+        AppRestartHelper.restartApplication(context.applicationContext, RESTART_AFTER_IMPORT_MS)
+    }
+
+    private fun dialogContent(view: View): View {
+        val padding = (20 * resources.displayMetrics.density).toInt()
+        return android.widget.FrameLayout(requireContext()).apply {
+            setPadding(padding, padding / 2, padding, 0)
+            addView(view)
+        }
     }
 
     private fun setWebScreensaver(value: Boolean) {
@@ -782,5 +934,9 @@ class SettingsFragment : BaseSettingsFragment() {
         const val PREF_SETTINGS_SCREENSAVER_DIM = "settings_screensaver_dim"
         const val PREF_SETTINGS_WEB_SCREENSAVER = "settings_screensaver_web"
         const val PREF_SETTINGS_WEB_SCREENSAVER_URL = "settings_screensaver_web_url"
+        private const val SETTINGS_FILE_TYPE = "application/json"
+        private const val SETTINGS_FILE_NAME = "wallpanel-settings.json"
+        private const val MAX_SETTINGS_FILE_CHARS = 1_000_000
+        private const val RESTART_AFTER_IMPORT_MS = 1_500L
     }
 }

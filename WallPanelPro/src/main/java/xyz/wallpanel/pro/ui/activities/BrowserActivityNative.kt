@@ -48,7 +48,9 @@ import xyz.wallpanel.pro.databinding.ActivityBrowserBinding
 import xyz.wallpanel.pro.network.ConnectionLiveData
 import xyz.wallpanel.pro.utils.AppRestartHelper
 import xyz.wallpanel.pro.utils.BootReadinessGate
+import xyz.wallpanel.pro.utils.DashboardLogin
 import xyz.wallpanel.pro.utils.DashboardTracker
+import xyz.wallpanel.pro.utils.EdgeSwipe
 import xyz.wallpanel.pro.utils.InternalWebChromeClient
 import xyz.wallpanel.pro.ui.views.WebClientCallback
 import xyz.wallpanel.pro.utils.InternalWebClient
@@ -58,6 +60,7 @@ import xyz.wallpanel.pro.utils.GeckoWebChromeClientAdapter
 import xyz.wallpanel.pro.ui.views.GeckoViewWrapper
 import xyz.wallpanel.pro.BuildConfig
 import xyz.wallpanel.pro.R
+import xyz.wallpanel.pro.modules.VoiceAssistant
 import org.mozilla.geckoview.GeckoSession
 import timber.log.Timber
 import java.net.URISyntaxException
@@ -89,6 +92,14 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     private var geckoScrollY = 0
     // A page element, a video for instance, is showing fullscreen
     private var pageFullScreen = false
+    // The WebView's fullscreen element, and how to tell the WebView it was left
+    private var customView: View? = null
+    private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+    // Swiping in from the edges goes back and forward, when that is switched on
+    private var edgeSwipe: EdgeSwipe? = null
+    private var voiceAssistant: VoiceAssistant? = null
+    // When an assist command came in while the dashboard was not on screen
+    private var assistRequestedAt = 0L
     // The page's upload field waiting on the file picker
     private var pendingFilePick: ((Array<Uri>?) -> Unit)? = null
 
@@ -279,6 +290,9 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         binding.launchSettingsFab.setOnClickListener {
             openSettings()
         }
+        binding.navBackFab.setOnClickListener { goBack() }
+        binding.navHomeFab.setOnClickListener { goHome() }
+        binding.voiceFab.setOnClickListener { voice().toggle() }
 
         configureConnection()
         configureWebView(binding.root)
@@ -305,9 +319,117 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
                 pageFullScreen -> session?.exitFullScreen()
                 geckoClientAdapter?.canGoBack == true -> session?.goBack()
             }
+        } else if (customView != null) {
+            customViewCallback?.onCustomViewHidden()
+            hideCustomView()
         } else if (webView?.canGoBack() == true) {
             webView?.goBack()
         }
+    }
+
+    private fun goForward() {
+        if (pageFullScreen) {
+            return
+        }
+        if (usingGeckoView) {
+            if (geckoClientAdapter?.canGoForward == true) {
+                geckoViewWrapper?.geckoSession?.goForward()
+            }
+        } else if (webView?.canGoForward() == true) {
+            webView?.goForward()
+        }
+    }
+
+    /** The home button: the dashboard as it loads at start, the playlist included. */
+    private fun goHome() {
+        initWebPageLoad()
+    }
+
+    /**
+     * Takes a swipe in from the edge of the screen before the page sees it, see [EdgeSwipe].
+     * Off while a page element is fullscreen, where a swipe belongs to the video.
+     */
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        val swipe = edgeSwipe
+        if (swipe == null || (pageFullScreen && ev.actionMasked == MotionEvent.ACTION_DOWN)) {
+            return super.dispatchTouchEvent(ev)
+        }
+        val outcome = when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> swipe.onDown(ev.x, ev.y, window.decorView.width)
+            MotionEvent.ACTION_MOVE -> swipe.onMove(ev.x, ev.y)
+            MotionEvent.ACTION_POINTER_DOWN -> swipe.onPointerDown()
+            MotionEvent.ACTION_UP -> swipe.onUp(ev.x)
+            MotionEvent.ACTION_CANCEL -> swipe.onCancel()
+            else -> EdgeSwipe.Outcome.PASS
+        }
+        when (outcome) {
+            EdgeSwipe.Outcome.PASS -> return super.dispatchTouchEvent(ev)
+            EdgeSwipe.Outcome.CLAIMED -> {
+                val cancel = MotionEvent.obtain(ev)
+                cancel.action = MotionEvent.ACTION_CANCEL
+                super.dispatchTouchEvent(cancel)
+                cancel.recycle()
+            }
+            EdgeSwipe.Outcome.BACK -> goBack()
+            EdgeSwipe.Outcome.FORWARD -> goForward()
+            EdgeSwipe.Outcome.CONSUMED -> {}
+        }
+        return true
+    }
+
+    private fun voice(): VoiceAssistant {
+        return voiceAssistant ?: VoiceAssistant(this, configuration, voiceHost).also { voiceAssistant = it }
+    }
+
+    private val voiceHost = object : VoiceAssistant.Host {
+        override fun onVoiceState(state: VoiceAssistant.State, text: String?) {
+            val active = state != VoiceAssistant.State.IDLE
+            binding.voiceFab.backgroundTintList = ContextCompat.getColorStateList(
+                this@BrowserActivityNative,
+                if (state == VoiceAssistant.State.LISTENING) R.color.red_light_up else R.color.colorAccent
+            )
+            binding.voicePanel.text = text
+            binding.voicePanel.visibility = if (text.isNullOrEmpty()) View.GONE else View.VISIBLE
+            if (active) {
+                // Somebody is talking to the device: no screensaver over the answer
+                stopDisconnectTimer()
+            }
+        }
+
+        override fun requestMicrophone(onResult: (Boolean) -> Unit) {
+            requestAndroidPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), onResult)
+        }
+
+        override fun speak(text: String) {
+            speakThroughService(text)
+        }
+    }
+
+    /**
+     * The assist command. It only listens while the dashboard is what is on screen and the
+     * voice assistant is switched on: a microphone opened remotely behind another app, or on
+     * a device where nobody asked for one, is not something to do. Sent with a wake command,
+     * it arrives before the dashboard is back on screen, so it waits a few seconds for that.
+     */
+    override fun onAssistCommand(start: Boolean) {
+        assistRequestedAt = 0L
+        if (!start) {
+            voiceAssistant?.cancel()
+            return
+        }
+        if (!configuration.voiceEnabled) {
+            Timber.w("Ignoring the assist command, the voice assistant is switched off")
+            return
+        }
+        if (isFinishing) {
+            return
+        }
+        if (!isInForeground()) {
+            Timber.i("Holding the assist command until the dashboard is on screen")
+            assistRequestedAt = SystemClock.elapsedRealtime()
+            return
+        }
+        voice().start()
     }
 
     /**
@@ -332,6 +454,11 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         super.onResume()
         // The browser is back, so the notification offering to reopen it has served its purpose
         AppRestartHelper.cancelRestartNotification(this)
+        val assistRequested = assistRequestedAt
+        assistRequestedAt = 0L
+        if (assistRequested != 0L && SystemClock.elapsedRealtime() - assistRequested < ASSIST_WAIT_MS) {
+            onAssistCommand(true)
+        }
     }
 
     /**
@@ -424,6 +551,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
 
         setupSettingsButton()
+        setupNavigation()
         scheduleIntervalReload()
 
         if (configuration.hasSettingsUpdates()) {
@@ -524,6 +652,12 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
     }
 
+    override fun onPause() {
+        super.onPause()
+        // The microphone stays closed while the dashboard is not on view
+        voiceAssistant?.onHidden()
+    }
+
     override fun onStop() {
         super.onStop()
         if (mOnScrollChangedListener != null && configuration.browserRefresh) {
@@ -540,6 +674,8 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         // otherwise outlive it.
         geckoViewWrapper?.destroy()
         geckoViewWrapper = null
+        voiceAssistant?.cancel()
+        voiceAssistant = null
         // Answered as refused, so the page is not left waiting on a request that is gone
         val unanswered = pagePermissionRequests.values.toList()
         pagePermissionRequests.clear()
@@ -800,6 +936,8 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     }
 
     override fun replaceDeadWebView(deadView: WebView) {
+        // A fullscreen element belonged to the renderer that died
+        hideCustomView()
         val parent = deadView.parent as? ViewGroup
         val index = parent?.indexOfChild(deadView) ?: -1
         val layoutParams = deadView.layoutParams
@@ -960,12 +1098,57 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         pageFullScreen = fullScreen
         if (fullScreen) {
             binding.launchSettingsFab.visibility = View.GONE
+            binding.navButtons.visibility = View.GONE
+            binding.voiceFab.visibility = View.GONE
             binding.swipeContainer.isEnabled = false
         } else {
             setupSettingsButton()
+            setupNavigation()
             binding.swipeContainer.isEnabled = configuration.browserRefresh
         }
         onWindowFocusChanged(hasWindowFocus())
+    }
+
+    /**
+     * The WebView hands over the fullscreen element as a view of its own, which goes over
+     * the page and its buttons. The page itself stays where it is underneath.
+     */
+    override fun showCustomView(view: View, onHidden: WebChromeClient.CustomViewCallback) {
+        if (customView != null) {
+            onHidden.onCustomViewHidden()
+            return
+        }
+        customView = view
+        customViewCallback = onHidden
+        binding.fullscreenContainer.addView(
+            view,
+            ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        )
+        binding.fullscreenContainer.visibility = View.VISIBLE
+        onPageFullScreen(true)
+    }
+
+    override fun hideCustomView() {
+        if (customView == null) {
+            return
+        }
+        customView = null
+        customViewCallback = null
+        binding.fullscreenContainer.removeAllViews()
+        binding.fullscreenContainer.visibility = View.GONE
+        onPageFullScreen(false)
+    }
+
+    override fun storedLogin(host: String?): Pair<String, String>? {
+        return dashboardLogin().credentialsFor(host)
+    }
+
+    override fun storedLoginForUrl(url: String?): Pair<String, String>? {
+        return dashboardLogin().credentialsForUrl(url)
+    }
+
+    private fun dashboardLogin(): DashboardLogin {
+        return DashboardLogin(configuration.appLaunchUrl, configuration.browserLoginUsername, configuration.browserLoginPassword)
     }
 
     override fun geckoPageStarted() {
@@ -1250,6 +1433,34 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
     }
 
+    /**
+     * The back and dashboard buttons sit in the bottom corner the settings button leaves
+     * free, and the voice button in the middle.
+     */
+    private fun setupNavigation() {
+        val density = resources.displayMetrics.density
+        edgeSwipe = if (configuration.browserSwipeNavigation) {
+            EdgeSwipe(EDGE_SWIPE_EDGE_DP * density, EDGE_SWIPE_DISTANCE_DP * density, ViewConfiguration.get(this).scaledTouchSlop.toFloat())
+        } else {
+            null
+        }
+        if (pageFullScreen) {
+            return
+        }
+        val buttons = binding.navButtons
+        buttons.visibility = if (configuration.browserNavButtons) View.VISIBLE else View.GONE
+        val params = buttons.layoutParams as CoordinatorLayout.LayoutParams
+        val settingsBottomStart = !configuration.settingsDisabled && configuration.settingsLocation == 1
+        params.gravity = Gravity.BOTTOM or if (settingsBottomStart) Gravity.END else Gravity.START
+        buttons.layoutParams = params
+        if (configuration.voiceEnabled) {
+            binding.voiceFab.visibility = View.VISIBLE
+        } else {
+            voiceAssistant?.cancel()
+            binding.voiceFab.visibility = View.GONE
+        }
+    }
+
     companion object {
         const val PERMISSIONS_REQUEST_NOTIFICATIONS = 220
         // Request codes for permissions a page asks for, taken in turn
@@ -1260,5 +1471,8 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         private const val PLAYLIST_MIN_PAGE_TIME = 10_000L
         private const val RECENT_LOAD_MS = 5_000L
         private const val RELOAD_TOUCH_GRACE_MS = 60_000L
+        private const val EDGE_SWIPE_EDGE_DP = 24
+        private const val ASSIST_WAIT_MS = 5_000L
+        private const val EDGE_SWIPE_DISTANCE_DP = 72
     }
 }

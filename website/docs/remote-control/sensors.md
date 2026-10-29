@@ -201,6 +201,7 @@ Relaunch Dashboard | button | `{"relaunch": true}`
 Wake Screen | button | `{"wake": true}`
 Play Notification Sound | button | `{"playNotification": true}`
 Bring to Front | button | `{"foreground": true}`
+Voice Assistant | button | `{"assist": true}`, only with the [voice assistant](../voice-assistant.md) switched on
 Restart App | button | `{"restartApp": true}`
 Open Settings | button | `{"settings": true}`
 Keep Screen Awake | switch | `{"wake": true / false}`

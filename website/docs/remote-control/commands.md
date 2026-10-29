@@ -23,6 +23,7 @@ speak | data | ```{"speak": "Hello!"}``` | Uses the devices TTS to speak the mes
 notification | text or object | ```{"notification": "The washing is done"}``` | Puts a message on the dashboard that stays until it is touched. See [Notifications](#notifications).
 config | object | ```{"config": {"screenSaverMode": "dim", "preventSleep": false}}``` | Changes screensaver and display settings. See [Changing settings](#changing-settings).
 foreground | true | ```{"foreground": true}``` | Brings WallPanel back in front of another app, keeping the page it had. See [Bringing WallPanel to the front](#bringing-wallpanel-to-the-front).
+assist | true/false | ```{"assist": true}``` | Starts the [voice assistant](../voice-assistant.md) listening, as a tap on its button does; `false` stops it. Only with the voice assistant switched on in the settings.
 settings | data | ```{"settings": true}``` | Opens the settings screen remotely. With **Require Security Code** on, the settings still ask for the code on the device before they show.
 brightness | data | ```{"brightness": 1}``` | Changes the screens brightness, value 0-255 (0 turns the backlight off).
 camera | data | ```{"camera": true}``` | Turns on/off camera, this will also disable streaming, motion, QRCode, and face detection. The REST API stays up; the stream endpoint answers 503 while the camera is off. Turning it on without the camera permission granted shows a "Camera permission not granted" message and the camera does not start.
@@ -184,7 +185,7 @@ opens it by itself on a locked or sleeping screen.
 ## Speaking through Home Assistant
 
 The device's own text-to-speech is missing or poor on many older tablets. With **Settings
-&rarr; Speech &rarr; Speak Through Home Assistant** on, `speak` asks Home Assistant to turn
+&rarr; Home Assistant &rarr; Speak Through Home Assistant** on, `speak` asks Home Assistant to turn
 the message into audio and plays the result, so any engine Home Assistant has works: Google
 Translate, Piper, Home Assistant Cloud and the rest.
 

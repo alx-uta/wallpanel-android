@@ -401,6 +401,30 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     val speechHaLanguage: String
         get() = sharedPreferences.getString(context.getString(R.string.key_setting_speech_ha_language), null)?.trim().orEmpty()
 
+    /** A microphone button on the dashboard talks to Home Assistant's Assist. */
+    val voiceEnabled: Boolean
+        get() = getBoolPref(R.string.key_setting_voice_enabled, R.string.default_setting_voice_enabled)
+
+    /** The Assist pipeline, by id or name. Empty means Home Assistant's preferred one. */
+    val voicePipeline: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_voice_pipeline), null)?.trim().orEmpty()
+
+    /** Swiping in from the left edge goes back a page, from the right edge forward. */
+    val browserSwipeNavigation: Boolean
+        get() = getBoolPref(R.string.key_setting_browser_swipe_navigation, R.string.default_setting_browser_swipe_navigation)
+
+    /** On-screen back and dashboard buttons. */
+    val browserNavButtons: Boolean
+        get() = getBoolPref(R.string.key_setting_browser_nav_buttons, R.string.default_setting_browser_nav_buttons)
+
+    /** The username given to the dashboard's server when it asks for one. Empty is none. */
+    val browserLoginUsername: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_browser_login_username), null)?.trim().orEmpty()
+
+    /** Kept as typed: spaces can be part of a password. */
+    val browserLoginPassword: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_browser_login_password), null).orEmpty()
+
     val hardwareAccelerated: Boolean
         get() = getBoolPref(R.string.key_hadware_accelerated_enabled,
                 R.string.default_hardware_accelerated_value)
@@ -680,6 +704,30 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         sharedPreferences.edit().putStringSet(context.getString(keyRes), excluded.toSet()).apply()
     }
 
+    /** Every stored setting, by key, for an export. See [SettingsBackup]. */
+    fun allSettings(): Map<String, *> = sharedPreferences.all.filterKeys { it !in BACKUP_INTERNAL_KEYS }
+
+    /**
+     * Writes settings read from an export over the stored ones, all at once, before
+     * returning. An entry whose type differs from the one stored under its key is left
+     * out: every read of that setting would throw. False when they could not be written.
+     */
+    fun importSettings(values: Map<String, Any>): Boolean {
+        val editor = sharedPreferences.edit()
+        SettingsBackup.compatible(values.filterKeys { it !in BACKUP_INTERNAL_KEYS }, sharedPreferences.all).forEach { (key, value) ->
+            @Suppress("UNCHECKED_CAST")
+            when (value) {
+                is String -> editor.putString(key, value)
+                is Boolean -> editor.putBoolean(key, value)
+                is Int -> editor.putInt(key, value)
+                is Long -> editor.putLong(key, value)
+                is Float -> editor.putFloat(key, value)
+                is Set<*> -> editor.putStringSet(key, value as Set<String>)
+            }
+        }
+        return editor.commit()
+    }
+
     fun hasSettingsUpdates(): Boolean {
         val updates = sharedPreferences.getBoolean(PREF_BROWSER_SETTINGS_UPDATED, false)
         sharedPreferences.edit().putBoolean(PREF_BROWSER_SETTINGS_UPDATED, false).apply()
@@ -696,6 +744,26 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     }
 
     companion object {
+        /**
+         * The application's own bookkeeping, which never goes into an export or comes out of
+         * an import. The legacy dim flag "c" is migrated into the current setting when it is
+         * read, so one brought back by an import would overwrite the setting it came with.
+         */
+        private val BACKUP_INTERNAL_KEYS: Set<String> by lazy {
+            setOf(
+                PREF_FIRST_TIME,
+                PREF_CAMERA_PERMISSIONS,
+                PREF_SHELL_PERMISSIONS,
+                PREF_NOTIFICATION_PERMISSIONS,
+                PREF_OVERLAY_PERMISSION,
+                PREF_MQTT_DISCOVERY_ADVERTISED_TOPICS,
+                PREF_BROWSER_SETTINGS_UPDATED,
+                PREF_DEVICE_BRIGHTNESS_WAS_AUTOMATIC,
+                PREF_SETTINGS_CODE,
+                PREF_SCREENSAVER_DIM_LEGACY,
+            )
+        }
+
         /** See [mqttBaseTopic]. Surrounding spaces are dropped, an empty topic stays empty. */
         fun normalizeBaseTopic(topic: String): String {
             val trimmed = topic.trim()
@@ -707,7 +775,7 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         private const val PREF_DARK_THEME = "pref_dark_theme"
         private const val PREF_FULL_SCREEN = "pref_full_screen"
         private const val PREF_SETTINGS_CODE = "pref_settings_code"
-        private const val PREF_SETTINGS_CODE_STRING = "pref_settings_code_string"
+        const val PREF_SETTINGS_CODE_STRING = "pref_settings_code_string"
         private const val PREF_SETTINGS_TRANSPARENT = "pref_settings_transparent"
         private const val PREF_SETTINGS_DISABLE = "pref_settings_disable"
         private const val PREF_SETTINGS_LOCATION = "pref_settings_location"

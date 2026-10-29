@@ -45,6 +45,7 @@ object DiscoveryCatalog {
         DiscoveryChoice("wake", R.string.mqtt_control_wake),
         DiscoveryChoice("playNotification", R.string.mqtt_control_play_notification),
         DiscoveryChoice("foreground", R.string.mqtt_control_foreground),
+        DiscoveryChoice("assist", R.string.mqtt_control_assist),
         DiscoveryChoice("restartApp", R.string.mqtt_control_restart_app),
         DiscoveryChoice("settings", R.string.mqtt_control_settings),
         DiscoveryChoice("screen", R.string.mqtt_control_screen),

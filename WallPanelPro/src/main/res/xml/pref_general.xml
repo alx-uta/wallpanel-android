@@ -179,6 +179,37 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="@string/pref_navigation_category">
+
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_browser_swipe_navigation"
+            android:key="@string/key_setting_browser_swipe_navigation"
+            android:title="@string/title_setting_browser_swipe_navigation"
+            android:summary="@string/summary_setting_browser_swipe_navigation"/>
+
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_browser_nav_buttons"
+            android:key="@string/key_setting_browser_nav_buttons"
+            android:title="@string/title_setting_browser_nav_buttons"
+            android:summary="@string/summary_setting_browser_nav_buttons"/>
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/pref_login_category">
+
+        <EditTextPreference
+            android:key="@string/key_setting_browser_login_username"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_browser_login_username"/>
+
+        <EditTextPreference
+            android:key="@string/key_setting_browser_login_password"
+            android:singleLine="true"
+            android:title="@string/title_setting_browser_login_password"/>
+
+    </PreferenceCategory>
+
     <PreferenceCategory android:title="@string/preference_title_screen">
 
         <SwitchPreference
@@ -266,24 +297,22 @@
 
     <PreferenceCategory android:title="@string/pref_speech_category">
 
-        <SwitchPreference
-            android:defaultValue="@string/default_setting_speech_ha_enabled"
-            android:key="@string/key_setting_speech_ha_enabled"
-            android:title="@string/title_setting_speech_ha_enabled"
-            android:summary="@string/summary_setting_speech_ha_enabled"/>
-
         <EditTextPreference
             android:key="@string/key_setting_speech_ha_url"
-            android:dependency="@string/key_setting_speech_ha_enabled"
             android:selectAllOnFocus="true"
             android:singleLine="true"
             android:title="@string/title_setting_speech_ha_url"/>
 
         <EditTextPreference
             android:key="@string/key_setting_speech_ha_token"
-            android:dependency="@string/key_setting_speech_ha_enabled"
             android:singleLine="true"
             android:title="@string/title_setting_speech_ha_token"/>
+
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_speech_ha_enabled"
+            android:key="@string/key_setting_speech_ha_enabled"
+            android:title="@string/title_setting_speech_ha_enabled"
+            android:summary="@string/summary_setting_speech_ha_enabled"/>
 
         <EditTextPreference
             android:key="@string/key_setting_speech_ha_engine"
@@ -298,6 +327,33 @@
             android:selectAllOnFocus="true"
             android:singleLine="true"
             android:title="@string/title_setting_speech_ha_language"/>
+
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_voice_enabled"
+            android:key="@string/key_setting_voice_enabled"
+            android:title="@string/title_setting_voice_enabled"
+            android:summary="@string/summary_setting_voice_enabled"/>
+
+        <EditTextPreference
+            android:key="@string/key_setting_voice_pipeline"
+            android:dependency="@string/key_setting_voice_enabled"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_voice_pipeline"/>
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/pref_backup_category">
+
+        <Preference
+            android:key="button_settings_export"
+            android:title="@string/title_settings_export"
+            android:summary="@string/summary_settings_export"/>
+
+        <Preference
+            android:key="button_settings_import"
+            android:title="@string/title_settings_import"
+            android:summary="@string/summary_settings_import"/>
 
     </PreferenceCategory>
 

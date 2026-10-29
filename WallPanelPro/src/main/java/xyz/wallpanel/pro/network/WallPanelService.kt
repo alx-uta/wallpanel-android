@@ -74,6 +74,8 @@ import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA_RESOLUTION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CLEAR_CACHE
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CONFIG
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_FOREGROUND
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_ASSIST
+import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_ASSIST
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_NOTIFICATION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR_BUTTON
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_EVAL
@@ -318,6 +320,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         filter.addAction(BROADCAST_BROWSER_SHOWN)
         filter.addAction(BROADCAST_BROWSER_HIDDEN)
         filter.addAction(BROADCAST_EVENT_BUTTON)
+        filter.addAction(BROADCAST_ACTION_SPEAK)
         localBroadCastManager = LocalBroadcastManager.getInstance(this)
         localBroadCastManager?.registerReceiver(mBroadcastReceiver, filter)
 
@@ -1249,6 +1252,11 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                     bringBrowserToFront()
                 }
             }
+            if (commandJson.has(COMMAND_ASSIST)) {
+                val intent = Intent(BROADCAST_ACTION_ASSIST)
+                intent.putExtra(BROADCAST_ACTION_ASSIST, commandJson.getBoolean(COMMAND_ASSIST))
+                LocalBroadcastManager.getInstance(applicationContext).sendBroadcast(intent)
+            }
             if (commandJson.has(COMMAND_SCREENSAVER)) {
                 setScreenSaver(commandJson.getBoolean(COMMAND_SCREENSAVER))
             }
@@ -2107,6 +2115,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                 if (key != null && action != null) {
                     publishButton(key, action)
                 }
+            } else if (BROADCAST_ACTION_SPEAK == intent.action) {
+                intent.getStringExtra(BROADCAST_ACTION_SPEAK)?.let { speakMessage(it) }
             }
         }
     }
@@ -2207,6 +2217,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         const val BROADCAST_BROWSER_SHOWN = "BROADCAST_BROWSER_SHOWN"
         const val BROADCAST_BROWSER_HIDDEN = "BROADCAST_BROWSER_HIDDEN"
         const val BROADCAST_EVENT_BUTTON = "BROADCAST_EVENT_BUTTON"
+        // A reply from the voice assistant that came without audio, to say the speak command's way
+        const val BROADCAST_ACTION_SPEAK = "BROADCAST_ACTION_SPEAK"
         const val BUTTON_EVENT_TYPE = "event_type"
         const val BUTTON_KEY = "key"
         const val BUTTON_ACTION = "action"
