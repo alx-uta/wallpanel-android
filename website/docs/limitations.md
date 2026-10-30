@@ -8,6 +8,8 @@ This WebView does not have full feature parity with Chrome for Android and is gi
 
 An old WebView also ages against the pages you point it at. Home Assistant's own dashboard is the common case: recent releases of its frontend no longer lay out correctly in the WebView that shipped with Android 8 and earlier, and on a tablet screen the sidebar can end up drawn over the cards. Switching that device to the GeckoView engine in Settings renders the same dashboard correctly, because GeckoView is built into WallPanel rather than supplied by the device. Grafana dashboards are another: current Grafana does not load in the WebView 84 that Android 8.1 devices are left with, and does under GeckoView on the same device.
 
+The WebView is updated through Google Play. A device without Google Play services, or one its maker stopped updating, keeps the WebView it shipped with for good, and pages written for current browsers stop working on it one by one, often as a blank page or one that never finishes loading. GeckoView is the way out there too: it needs neither Google Play nor the system WebView.
+
 Setting WallPanel as the default Home application will always load this application as your home. Removing this feature is difficult without uninstalling the application. So please do this is you wish to use the application as a "kiosk" type application.
 
 The home app alone still leaves the notification shade, Recents and other apps a swipe away. [Lockdown](./lockdown.md) closes those too.

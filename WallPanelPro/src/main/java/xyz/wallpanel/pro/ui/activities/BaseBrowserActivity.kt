@@ -671,6 +671,8 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
                 configuration.appPreventSleep,
                 configuration.clockScreenSaverScale,
                 configuration.clockScreenSaverMoves,
+                configuration.webScreenSaverZoom,
+                configuration.browserThirdPartyCookies,
                 ::handleVolumeKey
             )
             resetScreenBrightness(true)

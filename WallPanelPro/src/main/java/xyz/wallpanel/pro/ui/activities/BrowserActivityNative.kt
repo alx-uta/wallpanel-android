@@ -48,6 +48,7 @@ import androidx.lifecycle.LifecycleObserver
 import xyz.wallpanel.pro.databinding.ActivityBrowserBinding
 import xyz.wallpanel.pro.network.ConnectionLiveData
 import xyz.wallpanel.pro.utils.AppRestartHelper
+import xyz.wallpanel.pro.utils.TapFeedback
 import xyz.wallpanel.pro.utils.BootReadinessGate
 import xyz.wallpanel.pro.utils.DashboardLogin
 import xyz.wallpanel.pro.utils.Lockdown
@@ -102,6 +103,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     private var customViewCallback: WebChromeClient.CustomViewCallback? = null
     // Swiping in from the edges goes back and forward, when that is switched on
     private var edgeSwipe: EdgeSwipe? = null
+    private val tapFeedback by lazy { TapFeedback(this, configuration) }
     private var voiceAssistant: VoiceAssistant? = null
     // When an assist command came in while the dashboard was not on screen
     private var assistRequestedAt = 0L
@@ -540,6 +542,9 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         if (usingGeckoView) {
             GeckoViewWrapper.setDarkTheme(configuration.useDarkTheme)
         }
+        // Here as well as with the other settings, since leaving the settings screen only
+        // reloads the page when one of them changed
+        applyThirdPartyCookies()
 
         if (configuration.browserRefresh) {
             binding.swipeContainer.isEnabled = true
@@ -890,6 +895,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         if (usingGeckoView) {
             // GeckoView settings are handled in GeckoViewWrapper
             geckoViewWrapper?.setUserAgent(userAgent)
+            applyThirdPartyCookies()
         } else {
             if (webSettings == null) {
                 webSettings = webView?.settings
@@ -928,6 +934,8 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
                 webSettings?.userAgentString = userAgent
             }
 
+            applyThirdPartyCookies()
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 webSettings?.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             }
@@ -942,6 +950,15 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
                     webSettings?.forceDark = WebSettings.FORCE_DARK_OFF
                 }
             }
+        }
+    }
+
+    private fun applyThirdPartyCookies() {
+        val allow = configuration.browserThirdPartyCookies
+        if (usingGeckoView) {
+            GeckoViewWrapper.setThirdPartyCookies(allow)
+        } else {
+            webView?.let { CookieManager.getInstance().setAcceptThirdPartyCookies(it, allow) }
         }
     }
 
@@ -1302,6 +1319,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         configureWebViewClient()
 
         webView?.setOnTouchListener { v, event ->
+            tapFeedback.onTouchEvent(v, event)
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     resetScreen()
@@ -1336,6 +1354,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         geckoViewWrapper?.setPromptDelegate(geckoChromeAdapter)
 
         binding.activityBrowserGeckoview.setOnTouchListener { v, event ->
+            tapFeedback.onTouchEvent(v, event)
             when (event.action) {
                 MotionEvent.ACTION_DOWN -> {
                     resetScreen()

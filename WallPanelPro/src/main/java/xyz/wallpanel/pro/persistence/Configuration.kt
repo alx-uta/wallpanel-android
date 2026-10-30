@@ -431,6 +431,18 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     val browserNavButtons: Boolean
         get() = getBoolPref(R.string.key_setting_browser_nav_buttons, R.string.default_setting_browser_nav_buttons)
 
+    /** A tap on the dashboard plays the system click sound. */
+    val browserTapSound: Boolean
+        get() = getBoolPref(R.string.key_setting_browser_tap_sound, R.string.default_setting_browser_tap_sound)
+
+    /** A tap on the dashboard gives a short vibration. */
+    val browserTapVibrate: Boolean
+        get() = getBoolPref(R.string.key_setting_browser_tap_vibrate, R.string.default_setting_browser_tap_vibrate)
+
+    /** Pages embedded in the dashboard, such as an iframe card, may keep cookies. */
+    val browserThirdPartyCookies: Boolean
+        get() = getBoolPref(R.string.key_setting_browser_third_party_cookies, R.string.default_setting_browser_third_party_cookies)
+
     /** The username given to the dashboard's server when it asks for one. Empty is none. */
     val browserLoginUsername: String
         get() = sharedPreferences.getString(context.getString(R.string.key_setting_browser_login_username), null)?.trim().orEmpty()
@@ -642,6 +654,11 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     var webScreenSaverUrl: String
         get() = sharedPreferences.getString(PREF_WEB_SCREENSAVER_URL, WEB_SCREEN_SAVER).orEmpty()
         set(value) = this.sharedPreferences.edit().putString(PREF_WEB_SCREENSAVER_URL, value).apply()
+
+    /** The web screensaver's zoom, 1 being the page's own size. */
+    val webScreenSaverZoom: Float
+        get() = getStringPref(R.string.key_screensaver_web_zoom, R.string.default_screensaver_web_zoom)
+            .trim().toFloatOrNull()?.takeIf { it > 0f } ?: 1f
 
     var screenBrightness: Int
         get() = sharedPreferences.getInt(context.getString(R.string.key_setting_screen_brightness), 150)

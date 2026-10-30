@@ -55,6 +55,7 @@ import xyz.wallpanel.pro.persistence.Configuration.Companion.PREF_SCREEN_BRIGHTN
 import xyz.wallpanel.pro.ui.activities.SettingsActivity.Companion.PERMISSIONS_REQUEST_WRITE_SETTINGS
 import xyz.wallpanel.pro.ui.views.GeckoViewWrapper
 import xyz.wallpanel.pro.ui.views.SettingsCodeView
+import xyz.wallpanel.pro.utils.TapFeedback
 import xyz.wallpanel.pro.utils.AppExit
 import xyz.wallpanel.pro.utils.Lockdown
 import xyz.wallpanel.pro.utils.AppRestartHelper
@@ -248,6 +249,12 @@ class SettingsFragment : BaseSettingsFragment() {
                 false
             } else {
                 true
+            }
+        }
+        if (!TapFeedback.canVibrate(requireContext())) {
+            findPreference<SwitchPreference>(getString(R.string.key_setting_browser_tap_vibrate))?.apply {
+                isEnabled = false
+                setSummary(R.string.summary_setting_browser_tap_vibrate_none)
             }
         }
         useDarkThemeSettings.isChecked = configuration.useDarkTheme

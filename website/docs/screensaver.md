@@ -28,6 +28,15 @@ The clock moves to a new place every minute so it does not burn into the screen.
 matters on AMOLED screens and less on LCD ones, which is where **Move Clock** can be
 switched off to keep it in the middle.
 
+## Web screensaver
+
+**Web Screensaver** shows a web page of your choice, set in **Web Screensaver Url**. A
+touch anywhere on it ends the screensaver, so the page is for looking at rather than using.
+**Web Screensaver Zoom** draws it larger or smaller, for a page made for a different screen
+size: at 150% everything on it is half as big again. 100% shows the page at its own size.
+The screensaver always uses the WebView, whichever engine the dashboard uses, and the zoom
+applies the next time the screensaver comes up.
+
 ## Reloading after the screensaver
 
 **Settings &rarr; Reload After Screensaver** reloads the page whenever a screensaver goes

@@ -20,6 +20,22 @@ Navigation**:
 
 Both step aside while a video is fullscreen.
 
+## Tap sound and vibration
+
+Pages in a browser make no click when touched, unlike Android's own buttons. Two switches
+under **Settings &rarr; Navigation** add that feedback to the dashboard:
+
+- **Tap Sound** plays the system click sound on each tap. It follows the system volume
+  (**Settings &rarr; Sound** on the device, often called the system or touch volume), not
+  the media volume, and it plays whether or not Android's own touch sounds are switched on.
+- **Tap Vibration** gives a short vibration on each tap. On Android 13 and later it also
+  needs Android's own touch vibration setting (**Settings &rarr; Sound and vibration** on
+  the device) to be on. It is greyed out on a tablet with no vibration motor, which is most
+  wall tablets.
+
+Only taps count. Scrolling, pinching and long presses give no feedback, so a slider or a
+scrolling dashboard does not buzz the whole way along.
+
 ## Dashboards behind a login
 
 For a dashboard behind a username and password (HTTP basic authentication, often added by
@@ -32,6 +48,24 @@ are taken out before it is published.
 They are only given to the servers named in the dashboard address, so a page that links
 somewhere else can't collect them. If the server turns them down, or no login is set, the
 browser asks on screen instead.
+
+## Cookies in embedded pages
+
+A dashboard often embeds other pages, such as an iframe card showing a Squeezebox (LMS)
+player, Grafana or a camera's web page. To the browser those pages are third-party, and
+some of them refuse to work without cookies, with messages like "Your browser does not
+allow cookies". **Settings &rarr; Third-Party Cookies**, on by default, lets them keep
+cookies, and shares them with the same site opened on its own, so a login made there
+carries over to the card. Turn it off and pages from other sites keep no cookies at all.
+The setting applies to both browser engines and to the web screensaver, the next time the
+page loads.
+
+A recent WebView is stricter still. It only lets an embedded page keep a cookie that the
+page itself marks `SameSite=None; Secure`, and a secure cookie needs HTTPS. An embedded page
+served over plain `http://` from a different address than the dashboard, as many local
+services are, keeps no cookies in it whatever this setting says. GeckoView
+(**Settings &rarr; Use GeckoView**) keeps them, and so does an old WebView, such as the
+version 84 that Android 8.1 tablets are left with.
 
 ## Fullscreen video
 

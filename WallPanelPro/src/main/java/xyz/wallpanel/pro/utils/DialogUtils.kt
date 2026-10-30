@@ -170,6 +170,8 @@ class DialogUtils(base: Context?) : ContextWrapper(base), LifecycleObserver {
                         preventSleep: Boolean,
                         clockScale: Float = 1f,
                         clockMoves: Boolean = true,
+                        webZoom: Float = 1f,
+                        thirdPartyCookies: Boolean = true,
                         onKey: ((KeyEvent) -> Boolean)? = null) {
         if (screenSaverDialog != null && screenSaverDialog!!.isShowing) {
             return
@@ -179,7 +181,10 @@ class DialogUtils(base: Context?) : ContextWrapper(base), LifecycleObserver {
         val binding = DialogScreenSaverBinding.inflate(inflater, null, false)
         val screenSaverView = binding.screenSaverView
         screenSaverView.setOnClickListener(onClickListener)
-        screenSaverView.init(hasWeb, webUrl, hasWallpaper, hasClock, rotationInterval, clockScale, clockMoves)
+        screenSaverView.init(
+            hasWeb, webUrl, hasWallpaper, hasClock, rotationInterval, clockScale, clockMoves,
+            webZoom, thirdPartyCookies
+        )
         screenSaverDialog = buildImmersiveDialog(activity, true, screenSaverView, true)
         // Keys go to the window in front, which is this one and not the activity's
         onKey?.let { handler -> screenSaverDialog?.setOnKeyListener { _, _, event -> handler(event) } }

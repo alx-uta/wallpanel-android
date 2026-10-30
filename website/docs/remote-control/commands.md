@@ -9,7 +9,7 @@ Interact and control the application and device remotely using either MQTT or HT
 Key | Value | Example Payload | Description
 -|-|-|-
 clearCache | true | ```{"clearCache": true}``` | Clears the browser cache
-eval | JavaScript | ```{"eval": "alert('Hello World!');"}``` | Evaluates Javascript in the dashboard
+eval | JavaScript | ```{"eval": "history.back();"}``` | Runs JavaScript in the page on screen. See [Running JavaScript](#running-javascript) for recipes.
 audio | URL | ```{"audio": "http://<url>"}``` | Play the audio specified by the URL immediately
 relaunch | true | ```{"relaunch": true}``` | Relaunches the dashboard from configured launchUrl
 reload | true | ```{"reload": true}``` | Reloads the current page immediately
@@ -46,6 +46,76 @@ shell | command | ```{"shell": "log -t WallPanel hello-from-wallpanel"}``` | Run
   * WallPanel subscribes to topic ```wallpanel/[baseTopic]/command```
     * Default Topic: ```wallpanel/mywallpanel/command```
   * Publish a JSON payload to this topic (be mindful of quotes in JSON should be single quotes not double)
+
+## Running JavaScript
+
+`eval` runs a script in the page on screen, as if it were typed into the browser's
+console, with either browser engine. Nothing reloads, so for anything the page can do
+itself it is much quicker than sending a new `url`. What the script returns is not sent
+back.
+
+The script travels inside a JSON string, so a double quote in it needs a backslash in
+front (`\"`). Single quotes need nothing, which makes them the easier choice inside the
+script.
+
+**Open another Home Assistant view without reloading.** Home Assistant's frontend
+navigates on its own when the address changes and it is told so:
+
+```json
+{"eval": "history.pushState(null, '', '/lovelace/cameras'); window.dispatchEvent(new CustomEvent('location-changed'));"}
+```
+
+**Flash the screen red for five seconds**, say for a doorbell while the tablet is muted:
+
+```json
+{"eval": "var f = document.createElement('div'); f.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(255,0,0,0.6);z-index:99999;pointer-events:none'; document.body.appendChild(f); setTimeout(function () { f.remove(); }, 5000);"}
+```
+
+Commands can be combined, so `{"wake": true, "wakeTime": 60, "eval": "..."}` also brings
+the screen out of the screensaver first.
+
+Home Assistant's frontend is built from web components, each with its own shadow DOM, so
+`document.querySelector()` does not find buttons or tabs inside the dashboard. Changing
+the address, as above, is the reliable way to move around it.
+
+From Home Assistant, publish the command over MQTT:
+
+```yaml
+action: mqtt.publish
+data:
+  topic: wallpanel/mywallpanel/command
+  payload: >-
+    {"eval": "history.pushState(null, '', '/lovelace/cameras');
+    window.dispatchEvent(new CustomEvent('location-changed'));"}
+```
+
+or send it over HTTP with a `rest_command`, defined once in `configuration.yaml`:
+
+```yaml
+rest_command:
+  wallpanel_command:
+    url: "http://192.168.1.50:2971/api/command"
+    method: POST
+    content_type: "application/json; charset=utf-8"
+    payload: "{{ command | tojson }}"
+```
+
+With an [access token](#access-token) set, add it as a header:
+
+```yaml
+    headers:
+      Authorization: "Bearer <token>"
+```
+
+and called with the command as data:
+
+```yaml
+action: rest_command.wallpanel_command
+data:
+  command:
+    wake: true
+    eval: "history.pushState(null, '', '/lovelace/cameras'); window.dispatchEvent(new CustomEvent('location-changed'));"
+```
 
 ## Access token
 

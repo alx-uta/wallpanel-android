@@ -134,6 +134,12 @@
             android:summary="@string/pref_ignore_ssl_errors_summary"/>
 
         <SwitchPreference
+            android:defaultValue="@string/default_setting_browser_third_party_cookies"
+            android:key="@string/key_setting_browser_third_party_cookies"
+            android:title="@string/title_setting_browser_third_party_cookies"
+            android:summary="@string/summary_setting_browser_third_party_cookies"/>
+
+        <SwitchPreference
             android:defaultValue="false"
             android:key="pref_dark_theme"
             android:summary="Use dark theme"
@@ -192,6 +198,18 @@
             android:key="@string/key_setting_browser_nav_buttons"
             android:title="@string/title_setting_browser_nav_buttons"
             android:summary="@string/summary_setting_browser_nav_buttons"/>
+
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_browser_tap_sound"
+            android:key="@string/key_setting_browser_tap_sound"
+            android:title="@string/title_setting_browser_tap_sound"
+            android:summary="@string/summary_setting_browser_tap_sound"/>
+
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_browser_tap_vibrate"
+            android:key="@string/key_setting_browser_tap_vibrate"
+            android:title="@string/title_setting_browser_tap_vibrate"
+            android:summary="@string/summary_setting_browser_tap_vibrate"/>
 
     </PreferenceCategory>
 
@@ -294,6 +312,15 @@
             android:dependency="settings_screensaver_web"
             android:title="@string/pref_web_screen_url_title"
             android:summary="@string/pref_web_screen_url_description" />
+
+        <ListPreference
+            android:defaultValue="@string/default_screensaver_web_zoom"
+            android:key="@string/key_screensaver_web_zoom"
+            android:dependency="settings_screensaver_web"
+            android:title="@string/title_screensaver_web_zoom"
+            android:entries="@array/zoom_level_names"
+            android:entryValues="@array/zoom_level_values"
+            android:summary="%s"/>
 
         <ListPreference
             android:key="pref_screensaver_inactivity_time"

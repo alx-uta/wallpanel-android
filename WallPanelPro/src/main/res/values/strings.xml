@@ -546,6 +546,7 @@
     <string name="title_screensaver_clock_size">Clock Size</string>
     <string name="title_screensaver_clock_move">Move Clock</string>
     <string name="summary_screensaver_clock_move">Moves the clock every minute so it does not burn into the screen.</string>
+    <string name="title_screensaver_web_zoom">Web Screensaver Zoom</string>
 
     <string name="title_setting_exit">Exit WallPanel</string>
     <string name="summary_setting_exit">Closes WallPanel. MQTT, the HTTP server and the camera stop until it is opened again.</string>
@@ -596,6 +597,13 @@
     <string name="summary_setting_browser_swipe_navigation">Swipe in from the left edge to go back a page, from the right edge to go forward. Leave this off with a dashboard that uses swipes of its own near the edges.</string>
     <string name="title_setting_browser_nav_buttons">Back and Home Buttons</string>
     <string name="summary_setting_browser_nav_buttons">Shows a back button and a button that goes back to the dashboard.</string>
+    <string name="title_setting_browser_tap_sound">Tap Sound</string>
+    <string name="summary_setting_browser_tap_sound">Plays the system click sound when the dashboard is tapped, at the system volume, whatever the Android touch sounds setting.</string>
+    <string name="title_setting_browser_tap_vibrate">Tap Vibration</string>
+    <string name="summary_setting_browser_tap_vibrate">Vibrates briefly when the dashboard is tapped. Scrolls and long presses give no feedback. From Android 13, Android\'s own touch vibration setting has to be on as well.</string>
+    <string name="summary_setting_browser_tap_vibrate_none">This device cannot vibrate.</string>
+    <string name="title_setting_browser_third_party_cookies">Third-Party Cookies</string>
+    <string name="summary_setting_browser_third_party_cookies">Lets pages embedded in the dashboard, such as an iframe card, keep cookies. Some, like a Squeezebox or Grafana panel, say cookies are not allowed without it.</string>
     <string name="content_description_back">Back</string>
     <string name="content_description_home">Dashboard</string>
 

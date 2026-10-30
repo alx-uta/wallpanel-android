@@ -45,6 +45,7 @@ import timber.log.Timber
 import xyz.wallpanel.pro.databinding.DialogScreenSaverBinding
 import java.util.*
 import java.util.concurrent.TimeUnit
+import kotlin.math.roundToInt
 
 class ScreenSaverView : RelativeLayout {
 
@@ -64,6 +65,8 @@ class ScreenSaverView : RelativeLayout {
     private var dayTextSize = 0f
     private var rotationInterval = 900L
     private var webUrl = WEB_SCREEN_SAVER
+    private var webZoom = 1f
+    private var thirdPartyCookies = true
     private var certPermissionsShown = false
 
     val calendar: Calendar = Calendar.getInstance()
@@ -163,7 +166,9 @@ class ScreenSaverView : RelativeLayout {
         hasClock: Boolean,
         rotationDelay: Long,
         clockScale: Float = 1f,
-        clockMoves: Boolean = true
+        clockMoves: Boolean = true,
+        webZoom: Float = 1f,
+        thirdPartyCookies: Boolean = true
     ) {
         rotationInterval = rotationDelay
         showWebPage = hasWeb
@@ -172,6 +177,8 @@ class ScreenSaverView : RelativeLayout {
         showClock = hasClock
         this.clockScale = clockScale
         this.clockMoves = clockMoves
+        this.webZoom = webZoom
+        this.thirdPartyCookies = thirdPartyCookies
 
         // always allow the clock screensaver to be displayed
         if(showClock) {
@@ -339,13 +346,17 @@ class ScreenSaverView : RelativeLayout {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             webSettings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         }
+        CookieManager.getInstance().setAcceptThirdPartyCookies(binding.screenSaverWebView, thirdPartyCookies)
+        // The WebView counts its scale in screen pixels, so 100 would draw a page at a
+        // fraction of its size on any screen denser than one pixel per dp
+        if (webZoom != 1f) {
+            binding.screenSaverWebView.setInitialScale((webZoom * resources.displayMetrics.density * 100).roundToInt())
+        }
     }
 
+    // Cookies stay: the cookie store is the dashboard's as well
     private fun clearCache() {
         binding.screenSaverWebView.clearCache(true)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            CookieManager.getInstance().removeAllCookies(null)
-        }
     }
 
     companion object {

@@ -198,6 +198,12 @@
     <string name="default_setting_browser_swipe_navigation">false</string>
     <string name="key_setting_browser_nav_buttons">setting_browser_nav_buttons</string>
     <string name="default_setting_browser_nav_buttons">false</string>
+    <string name="key_setting_browser_tap_sound">setting_browser_tap_sound</string>
+    <string name="default_setting_browser_tap_sound">false</string>
+    <string name="key_setting_browser_tap_vibrate">setting_browser_tap_vibrate</string>
+    <string name="default_setting_browser_tap_vibrate">false</string>
+    <string name="key_setting_browser_third_party_cookies">setting_browser_third_party_cookies</string>
+    <string name="default_setting_browser_third_party_cookies">true</string>
     <string name="key_setting_browser_login_username">setting_browser_login_username</string>
     <string name="key_setting_browser_login_password">setting_browser_login_password</string>
 
@@ -213,6 +219,8 @@
     <string name="default_screensaver_clock_size">1</string>
     <string name="key_screensaver_clock_move">settings_screensaver_clock_move</string>
     <string name="default_screensaver_clock_move">true</string>
+    <string name="key_screensaver_web_zoom">settings_screensaver_web_zoom</string>
+    <string name="default_screensaver_web_zoom">1.0</string>
     <string-array name="clock_size_values">
         <item>1</item>
         <item>1.5</item>
