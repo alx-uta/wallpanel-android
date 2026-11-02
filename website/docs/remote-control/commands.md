@@ -9,18 +9,27 @@ Interact and control the application and device remotely using either MQTT or HT
 Key | Value | Example Payload | Description
 -|-|-|-
 clearCache | true | ```{"clearCache": true}``` | Clears the browser cache
-eval | JavaScript | ```{"eval": "alert('Hello World!');"}``` | Evaluates Javascript in the dashboard
+eval | JavaScript | ```{"eval": "history.back();"}``` | Runs JavaScript in the page on screen. See [Running JavaScript](#running-javascript) for recipes.
 audio | URL | ```{"audio": "http://<url>"}``` | Play the audio specified by the URL immediately
 relaunch | true | ```{"relaunch": true}``` | Relaunches the dashboard from configured launchUrl
 reload | true | ```{"reload": true}``` | Reloads the current page immediately
 restartApp | true | ```{"restartApp": true}``` | Restarts the WallPanel app (kills and relaunches the process) -- this is not a device reboot
+exit | true | ```{"exit": true}``` | Closes WallPanel. MQTT and HTTP go with it, so it can't be brought back remotely. See [Exit](#exit).
+playNotification | true | ```{"playNotification": true}``` | Plays the device's notification sound, at the notification volume. Send it ahead of `speak` to get attention first.
 url | URL | ```{"url": "http://<url>"}``` | Browse to a new URL immediately
 wake | true | ```{"wake": true, "wakeTime": 180}``` | Wakes the screen if it is asleep. Optional wakeTime (in seconds). If no wake time provided, screen will wake but return to screensaver mode on user inactivity.  Sending false value will return app to normal screensaver mode and display screensaver on user inactivity.
 wake | false | ```{"wake": false}``` | Release screen wake (Note: screen will not turn off before Androids Display Timeout finished)
-speak | data | ```{"speak": "Hello!"}``` | Uses the devices TTS to speak the message
+screenOff | true | ```{"screenOff": true}``` | Turns the screen off straight away, the way the power button does. Needs WallPanel to be a device admin, see [Lockdown](../lockdown.md#turning-the-screen-off).
+reboot | true | ```{"reboot": true}``` | Reboots the device. Needs WallPanel to be the device owner and Android 7.0 or later, see [Lockdown](../lockdown.md#device-owner).
+speak | data | ```{"speak": "Hello!"}``` | Uses the devices TTS to speak the message, or [Home Assistant's](#speaking-through-home-assistant) when that is set up
+notification | text or object | ```{"notification": "The washing is done"}``` | Puts a message on the dashboard that stays until it is touched. See [Notifications](#notifications).
+config | object | ```{"config": {"screenSaverMode": "dim", "preventSleep": false}}``` | Changes screensaver and display settings. See [Changing settings](#changing-settings).
+foreground | true | ```{"foreground": true}``` | Brings WallPanel back in front of another app, keeping the page it had. See [Bringing WallPanel to the front](#bringing-wallpanel-to-the-front).
+assist | true/false | ```{"assist": true}``` | Starts the [voice assistant](../voice-assistant.md) listening, as a tap on its button does; `false` stops it. Only with the voice assistant switched on in the settings.
 settings | data | ```{"settings": true}``` | Opens the settings screen remotely. With **Require Security Code** on, the settings still ask for the code on the device before they show.
 brightness | data | ```{"brightness": 1}``` | Changes the screens brightness, value 0-255 (0 turns the backlight off).
 camera | data | ```{"camera": true}``` | Turns on/off camera, this will also disable streaming, motion, QRCode, and face detection. The REST API stays up; the stream endpoint answers 503 while the camera is off. Turning it on without the camera permission granted shows a "Camera permission not granted" message and the camera does not start.
+stream | true/false | ```{"stream": false}``` | Stops or starts the [video stream](../video-streaming.md#stopping-the-stream) on its own. The camera keeps running for motion, face and QR detection. Stays set across restarts, like **MJPEG Camera Streaming** in the settings, which it changes.
 cameraResolution | size or auto | ```{"cameraResolution": "1280x720"}``` | Runs the camera at `320x240`, `640x480` or `1280x720` until told otherwise; `auto` goes back to the configured resolution. See [Camera resolution and frame rate](#camera-resolution-and-frame-rate).
 cameraFps | 1-30 or auto | ```{"cameraFps": 20}``` | Runs the camera at this frame rate until told otherwise; `auto` goes back to the configured one. See [Camera resolution and frame rate](#camera-resolution-and-frame-rate).
 volume | data | ```{"volume": 100}``` | Sets the device's media volume, value 0-100 (in %). Applies to audio playback and Text-To-Speech alike.
@@ -33,17 +42,253 @@ shell | command | ```{"shell": "log -t WallPanel hello-from-wallpanel"}``` | Run
   * eg, ```{"clearCache":true, "relaunch":true}```
 * For REST
   * POST the JSON to URL ```http://<the.device.ip.address>:2971/api/command```
+  * With an [access token](#access-token) set, send it along with every request
+  * The reply is `{"result": true}`, or `false` when a command in it could not be carried
+    out. A body that is not a JSON object, malformed JSON included, gets HTTP 400 and
+    `{"result": false, "error": "The body must be a JSON object"}`
 * For MQTT
   * WallPanel subscribes to topic ```wallpanel/[baseTopic]/command```
     * Default Topic: ```wallpanel/mywallpanel/command```
   * Publish a JSON payload to this topic (be mindful of quotes in JSON should be single quotes not double)
+  * A payload that is not a JSON object is logged and ignored
+
+## Running JavaScript
+
+`eval` runs a script in the page on screen, as if it were typed into the browser's
+console, with either browser engine. Nothing reloads, so for anything the page can do
+itself it is much quicker than sending a new `url`. What the script returns is not sent
+back.
+
+The script travels inside a JSON string, so a double quote in it needs a backslash in
+front (`\"`). Single quotes need nothing, which makes them the easier choice inside the
+script.
+
+**Open another Home Assistant view without reloading.** Home Assistant's frontend
+navigates on its own when the address changes and it is told so:
+
+```json
+{"eval": "history.pushState(null, '', '/lovelace/cameras'); window.dispatchEvent(new CustomEvent('location-changed'));"}
+```
+
+**Flash the screen red for five seconds**, say for a doorbell while the tablet is muted:
+
+```json
+{"eval": "var f = document.createElement('div'); f.style.cssText = 'position:fixed;top:0;left:0;right:0;bottom:0;background:rgba(255,0,0,0.6);z-index:99999;pointer-events:none'; document.body.appendChild(f); setTimeout(function () { f.remove(); }, 5000);"}
+```
+
+Commands can be combined, so `{"wake": true, "wakeTime": 60, "eval": "..."}` also brings
+the screen out of the screensaver first.
+
+Home Assistant's frontend is built from web components, each with its own shadow DOM, so
+`document.querySelector()` does not find buttons or tabs inside the dashboard. Changing
+the address, as above, is the reliable way to move around it.
+
+From Home Assistant, publish the command over MQTT:
+
+```yaml
+action: mqtt.publish
+data:
+  topic: wallpanel/mywallpanel/command
+  payload: >-
+    {"eval": "history.pushState(null, '', '/lovelace/cameras');
+    window.dispatchEvent(new CustomEvent('location-changed'));"}
+```
+
+or send it over HTTP with a `rest_command`, defined once in `configuration.yaml`:
+
+```yaml
+rest_command:
+  wallpanel_command:
+    url: "http://192.168.1.50:2971/api/command"
+    method: POST
+    content_type: "application/json; charset=utf-8"
+    payload: "{{ command | tojson }}"
+```
+
+With an [access token](#access-token) set, add it as a header:
+
+```yaml
+    headers:
+      Authorization: "Bearer <token>"
+```
+
+and called with the command as data:
+
+```yaml
+action: rest_command.wallpanel_command
+data:
+  command:
+    wake: true
+    eval: "history.pushState(null, '', '/lovelace/cameras'); window.dispatchEvent(new CustomEvent('location-changed'));"
+```
+
+## Reading the log
+
+`GET /api/log` answers with the device's log as plain text, the same one **Settings &rarr; Share Log** sends. See [Troubleshooting](../troubleshooting.md).
+
+## Access token
+
+Out of the box anyone on the network can use the REST API and watch the camera stream.
+Set **Settings &rarr; HTTP &rarr; Access Token** and every request needs it: `/api/command`,
+`/api/state`, `/api/sensors`, `/api/log` and `/camera/stream` all answer `401 Unauthorized` without it. It is accepted
+three ways, so every kind of client has one it can use:
+
+- an `Authorization: Bearer <token>` header:
+
+  ```sh
+  curl --request POST 'http://192.168.1.1:2971/api/command' \
+  --header 'Authorization: Bearer <token>' \
+  --header 'Content-Type: application/json' \
+  --data-raw '{"reload": true}'
+  ```
+
+- HTTP basic authentication with the token as the password and any user name, which is
+  what a browser asks for, and what Home Assistant's MJPEG camera and go2rtc support;
+- a `token` parameter on the URL, for clients that can only be given an address:
+  `http://192.168.1.1:2971/camera/stream?token=<token>`.
+
+A token in a URL ends up in logs and browser history, so prefer the header or basic
+authentication where the client allows it. The token does not protect MQTT, which has the
+broker's own authentication. Leave the field empty to switch the check off.
+
+## Exit
+
+`{"exit": true}`, and **Settings &rarr; Exit WallPanel** on the device, close the browser
+and stop the service, so MQTT, the HTTP server and the camera stop with it. Nothing brings
+WallPanel back remotely: it opens again when it is launched, when the device restarts with
+**Open On Device Boot** set, or when a [scheduled task](../scheduled-tasks.md) fires.
+
+When WallPanel is the device's home app, Android would open it again straight away, so
+the system's home app setting opens instead, for another one to be picked.
+
+## Changing settings
+
+`config` changes the settings a day and night routine wants to move, which the
+**Settings** screen otherwise keeps to itself. They stay changed, the same as if they had
+been set on the device, and take effect straight away.
+
+```json
+{"config": {"screenSaverMode": "dim", "screenSaverDim": 75, "inactivityTime": 60, "preventSleep": false}}
+{"config": {"screenSaverMode": "clock", "preventSleep": true, "darkTheme": false}}
+```
+
+Key | Value | Setting
+-|-|-
+screenSaverMode | `off`, `clock`, `dim`, `wallpaper` or `web` | Which screensaver comes up. `wallpaper` keeps the clock on top of it if the clock was on.
+inactivityTime | seconds, 5 to 86400 | How long without a touch before the screensaver comes up
+screenSaverDim | 0 to 99 | How far the dim screensaver dims, in %
+screenSaverUrl | URL | The page the `web` screensaver shows
+preventSleep | true/false | **Prevent Sleep**: keep the screen on while WallPanel is in front
+darkTheme | true/false | The dark theme. The page reloads to pick it up; with the WebView engine the dashboard loads again from the start.
+lockdown | true/false | [Lockdown](../lockdown.md). Takes effect when the dashboard is next in front with nothing over it; with screen pinning, someone has to confirm on the device.
+
+- A key that isn't listed, or a value that doesn't fit, is ignored and logged to
+  `adb logcat`, and the rest of the command still applies.
+- A screensaver that is up when its settings change is put up again with the new ones.
+- Everything but `screenSaverUrl` comes back in the [application state](./sensors.md#application-state-data).
+- With [MQTT Discovery](./sensors.md#home-assistant-discovery) each one is an entity of
+  its own: **Screensaver Type**, **Screensaver Timeout**, **Screensaver Dim Level**,
+  **Screensaver URL**, **Prevent Sleep**, **Dark Theme** and **Lockdown**.
+
+The dark theme reaches the page as `prefers-color-scheme`, so a Home Assistant dashboard
+follows it when its theme is set to follow the system. The WebView engine on Android 9 and
+older has no dark preference to pass on, so there the page stays light; GeckoView passes it
+on everywhere.
+
+A Home Assistant automation that dims the screensaver at night and keeps the screen on by
+day:
+
+```yaml
+automation:
+  - alias: "Panel night mode"
+    triggers:
+      - trigger: time
+        at: "22:00:00"
+    actions:
+      - action: mqtt.publish
+        data:
+          topic: wallpanel/mywallpanel/command
+          payload: '{"config": {"screenSaverMode": "dim", "screenSaverDim": 90, "preventSleep": false}}'
+  - alias: "Panel day mode"
+    triggers:
+      - trigger: time
+        at: "07:00:00"
+    actions:
+      - action: mqtt.publish
+        data:
+          topic: wallpanel/mywallpanel/command
+          payload: '{"config": {"screenSaverMode": "clock", "preventSleep": true}}'
+```
+
+## Notifications
+
+`notification` puts a message across the top of the dashboard. It stays until it is
+touched, so it is still there for someone who walks up later, unlike `toast`. It also
+dismisses the screensaver so it can be seen.
+
+```json
+{"notification": "The washing is done"}
+{"notification": {"title": "Front door", "message": "Someone is at the door", "timeout": 60}}
+```
+
+`title` and `timeout` are optional. `timeout` takes the message down after that many
+seconds if nobody touched it. Up to five messages show at once, the oldest going first.
+A screensaver that comes up later covers them; they are there again when it goes.
+
+With [MQTT Discovery](./sensors.md#home-assistant-discovery) this is a **Notification**
+entity, so Home Assistant's `notify.send_message` action works like it does for a phone:
+
+```yaml
+action: notify.send_message
+target:
+  entity_id: notify.mywallpanel_notification
+data:
+  message: "The washing is done"
+```
+
+Home Assistant's MQTT notify entity passes on the message only, not a title. Send the
+command yourself for a title or a timeout. Pair it with `playNotification` to get
+attention.
+
+## Bringing WallPanel to the front
+
+`{"foreground": true}` brings WallPanel back when another app was opened over it, a
+camera app after a doorbell for instance, with the dashboard as it was. **Settings &rarr;
+Return to WallPanel** does the same on its own once another app has been in front for that
+many minutes, for a tablet that people leave on whatever app they used last. The countdown
+only starts while the screen is on; if the screen has gone off by the time it runs out,
+WallPanel comes back when the screen next comes on.
+
+From Android 10, an app may only bring itself to the front with **Display over other
+apps** allowed, which WallPanel asks for on first start and offers in its settings.
+Without it WallPanel shows a notification that opens it when tapped, and Android only
+opens it by itself on a locked or sleeping screen.
+
+## Speaking through Home Assistant
+
+The device's own text-to-speech is missing or poor on many older tablets. With **Settings
+&rarr; Home Assistant &rarr; Speak Through Home Assistant** on, `speak` asks Home Assistant to turn
+the message into audio and plays the result, so any engine Home Assistant has works: Google
+Translate, Piper, Home Assistant Cloud and the rest.
+
+- **Home Assistant Access Token** is required: create a long-lived access token at the
+  bottom of your Home Assistant profile page.
+- **Home Assistant Address** can stay empty when the dashboard is served by Home Assistant;
+  its address is used.
+- **Text-to-Speech Entity**, such as `tts.google_translate_en_com`, picks the engine.
+  Empty uses the first one Home Assistant has.
+- **Language** is optional and passed to the engine as is, `en` or `de` for instance.
+
+The audio plays at the media volume, like the `audio` command. If Home Assistant can't be
+reached or refuses, the message is spoken by the device's engine instead, so it isn't
+lost. A refused token shows in `adb logcat` as a 401.
 
 ## Wake and the screen switch
 
 `{"wake": false}` releases the screen wake lock, but that's not the same as turning the
-screen off. An ordinary Android app -- WallPanel has no device-admin or root privileges --
-has no way to blank the display directly; only the OS's own inactivity timeout can do
-that. Releasing the lock just stops WallPanel from holding the screen on; the screen
+screen off. An ordinary Android app has no way to blank the display directly; only the OS's
+own inactivity timeout can do that. [`{"screenOff": true}`](../lockdown.md#turning-the-screen-off)
+does turn it off, once WallPanel is allowed to as a device admin. Releasing the lock just stops WallPanel from holding the screen on; the screen
 itself goes dark whenever the device's own timeout next expires.
 
 If you're using [MQTT Discovery](./mqtt-setup.md), this shows up as the **Keep Screen

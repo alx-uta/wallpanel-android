@@ -25,7 +25,10 @@ import android.content.IntentFilter
 import android.Manifest
 import android.content.pm.PackageManager
 import android.hardware.display.DisplayManager
+import android.media.AudioAttributes
 import android.media.MediaPlayer
+import android.media.Ringtone
+import android.media.RingtoneManager
 import android.net.wifi.WifiManager
 import android.os.*
 import android.view.Display
@@ -36,9 +39,8 @@ import androidx.lifecycle.Observer
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import com.koushikdutta.async.AsyncServer
 import com.koushikdutta.async.ByteBufferList
-import com.koushikdutta.async.http.body.JSONObjectBody
-import com.koushikdutta.async.http.body.StringBody
 import com.koushikdutta.async.http.server.AsyncHttpServer
+import com.koushikdutta.async.http.server.AsyncHttpServerRequest
 import com.koushikdutta.async.http.server.AsyncHttpServerResponse
 import com.koushikdutta.async.util.Charsets
 import dagger.android.AndroidInjection
@@ -47,8 +49,13 @@ import org.json.JSONObject
 import timber.log.Timber
 import xyz.wallpanel.pro.R
 import xyz.wallpanel.pro.modules.*
+import xyz.wallpanel.pro.network.MqttDiscovery.Companion.OBJECT_FACE
+import xyz.wallpanel.pro.network.MqttDiscovery.Companion.OBJECT_MOTION
 import xyz.wallpanel.pro.persistence.Configuration
+import xyz.wallpanel.pro.persistence.RemoteConfig
 import xyz.wallpanel.pro.persistence.ScheduleRepository
+import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_CONFIG_CHANGED
+import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_NOTIFICATION
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_CLEAR_BROWSER_CACHE
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_JS_EXEC
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_LOAD_URL
@@ -56,7 +63,11 @@ import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_A
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_RELOAD_PAGE
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_HIDE_SCREENSAVER
 import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_SHOW_SCREENSAVER
+import xyz.wallpanel.pro.utils.AppExit
 import xyz.wallpanel.pro.utils.AppRestartHelper
+import xyz.wallpanel.pro.utils.Lockdown
+import xyz.wallpanel.pro.utils.DiagnosticLog
+import xyz.wallpanel.pro.utils.LogRedactor
 import xyz.wallpanel.pro.utils.MqttUtils
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_AUDIO
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_BRIGHTNESS
@@ -64,10 +75,19 @@ import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA_FPS
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CAMERA_RESOLUTION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CLEAR_CACHE
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CONFIG
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_FOREGROUND
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_ASSIST
+import xyz.wallpanel.pro.ui.activities.BaseBrowserActivity.Companion.BROADCAST_ACTION_ASSIST
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_NOTIFICATION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_EVAL
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_EXIT
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_PLAY_NOTIFICATION
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELAUNCH
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RELOAD
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_REBOOT
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_RESTART_APP
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SCREEN_OFF
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SCREENSAVER
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR_FACE
@@ -77,6 +97,7 @@ import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SENSOR_SHELL
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SETTINGS
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SPEAK
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_STATE
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_STREAM
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_TOAST
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_URL
 import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SHELL
@@ -123,6 +144,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     private var sensorsStarted = false
     private var sensorsFrequency = 0
     private var sensorsSelection: Set<String>? = null
+    // Whether the last proximity reading was near. Main looper only.
+    private var proximityNear = false
 
     @Inject
     lateinit var sensorReader: SensorReader
@@ -151,6 +174,10 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     private var keyguardLock: KeyguardManager.KeyguardLock? = null
     private var audioPlayer: MediaPlayer? = null
     private var audioPlayerBusy: Boolean = false
+    // The notification sound playing, held so a second one stops it rather than overlapping.
+    // Only touched on the main looper.
+    private var notificationSound: Ringtone? = null
+    private val notificationSoundHandler = Handler(Looper.getMainLooper())
     private var httpServer: AsyncHttpServer? = null
     private var httpServerPort = 0
     private var mjpegEndpointRegistered = false
@@ -170,6 +197,10 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     // profile does not restart it.
     @Volatile
     private var appliedCameraProfile: CameraProfile? = null
+    // Whether the running camera was started with streaming on. The stream is set up when the
+    // camera starts, so turning it on later takes a restart.
+    @Volatile
+    private var cameraStartedWithStream = false
     @Volatile
     private var cameraPermissionToastShown = false
     private val cameraProfileHandler = Handler(Looper.getMainLooper())
@@ -184,6 +215,16 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     private val wakeScreenHandler = Handler(Looper.getMainLooper())
     private val mjpegHandler = Handler(Looper.getMainLooper())
     private var textToSpeechModule: TextToSpeechModule? = null
+    // Asking Home Assistant to speak waits on the network, one message at a time so they
+    // are spoken in the order they came.
+    private val speechExecutor = Executors.newSingleThreadExecutor()
+    private val audioHandler = Handler(Looper.getMainLooper())
+    // Whether the browser is on screen, and the countdown that brings it back after another
+    // app has been left in front. Main looper only.
+    private var browserVisible = false
+    private var returnToBrowserOnScreenOn = false
+    private val returnToBrowserHandler = Handler(Looper.getMainLooper())
+    private val returnToBrowserRunnable = Runnable { returnToBrowser() }
     private var mqttModule: MQTTModule? = null
     // A client opened only to take the entities down after MQTT was switched off, see
     // retractDiscoveryWhileDisabled().
@@ -242,6 +283,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
         AndroidInjection.inject(this)
 
+        Timber.i("Service started")
+
         startForeground()
 
         // prepare the lock types we may use
@@ -287,6 +330,9 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         filter.addAction(BROADCAST_EVENT_SCREEN_TOUCH)
         filter.addAction(BROADCAST_SCREENSAVER_STARTED)
         filter.addAction(BROADCAST_SCREENSAVER_STOPPED)
+        filter.addAction(BROADCAST_BROWSER_SHOWN)
+        filter.addAction(BROADCAST_BROWSER_HIDDEN)
+        filter.addAction(BROADCAST_ACTION_SPEAK)
         localBroadCastManager = LocalBroadcastManager.getInstance(this)
         localBroadCastManager?.registerReceiver(mBroadcastReceiver, filter)
 
@@ -327,20 +373,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         // The same screen can switch these on for the first time, and each does nothing
         // when what it starts is already running or still switched off.
         configureMqtt()
-        // The running server holds the port it bound to, and startHttp() leaves a server
-        // that exists alone, so a changed port or both endpoints switched off is a stop
-        // first. With neither endpoint on, httpEnabled is false and it stays down.
-        if (httpServer != null && (!configuration.httpEnabled || httpServerPort != configuration.httpPort)) {
-            stopHttp()
-        }
-        startHttp()
-        if (configuration.httpMJPEGEnabled) {
-            startMJPEG()
-        } else {
-            // Streams already running would otherwise keep receiving frames after streaming
-            // was switched off, while new requests are turned away.
-            stopMJPEG()
-        }
+        reconcileHttp()
         // Not a plain configureCamera(): that one restarts a running camera, which is what
         // a camera command wants and a return from the settings screen does not.
         if (configuration.cameraEnabled && !cameraRunning) {
@@ -402,7 +435,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             if (command.isNullOrEmpty()) {
                 Timber.w("Received a run command intent without a command")
             } else {
-                Timber.i("Running command from an intent: $command")
+                Timber.i("Running command from an intent: ${describeCommand(command)}")
                 processCommand(command)
             }
         }
@@ -442,6 +475,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     override fun onDestroy() {
         super.onDestroy()
+        Timber.i("Service stopped")
         mqttModule?.let {
             it.pause()
             mqttModule = null
@@ -470,7 +504,13 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         qrCodeClearHandler.removeCallbacksAndMessages(null)
         faceClearHandler.removeCallbacksAndMessages(null)
         wakeScreenHandler.removeCallbacksAndMessages(null)
+        notificationSoundHandler.removeCallbacksAndMessages(null)
+        returnToBrowserHandler.removeCallbacksAndMessages(null)
+        audioHandler.removeCallbacksAndMessages(null)
+        notificationSound?.stop()
+        notificationSound = null
         discoveryExecutor.shutdown()
+        speechExecutor.shutdownNow()
     }
 
     override fun onBind(intent: Intent): IBinder {
@@ -504,6 +544,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                 // the display, so screenOn would keep that switch showing on.
                 state.put(MqttUtils.STATE_SCREEN_AWAKE, screenWakeLock?.isHeld == true)
                 state.put(MqttUtils.STATE_CAMERA, configuration.cameraEnabled)
+                state.put(MqttUtils.STATE_STREAM, configuration.httpMJPEGEnabled)
                 // The live screen value and the configured level are not the same number
                 // while the screensaver is dimming, so both are reported: a slider that
                 // reads the dimmed value back would jump away from whatever was just set.
@@ -527,6 +568,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                     else -> activeFps.toDouble()
                 })
                 state.put(MqttUtils.STATE_CAMERA_BOOSTED, cameraBoosted)
+                RemoteConfig(configuration).putState(state)
             } catch (e: JSONException) {
                 e.printStackTrace()
             }
@@ -542,6 +584,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         // listen for network connectivity changes
         connectionLiveData = ConnectionLiveData(this)
         connectionLiveData?.observe(this, Observer { connected ->
+            Timber.i("Network ${if (connected == true) "connected" else "disconnected"}")
             if (connected!!) {
                 handleNetworkConnect()
             } else {
@@ -617,17 +660,30 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
      * without the service stopping. Restarting them resends the readings that never change,
      * so it happens only when they are not running, the interval moved or the choice of
      * sensors changed. The sensors unticked in the discovery settings are not read at all
-     * while discovery is on; with it off the picker is greyed out and every reading goes out.
+     * while discovery is in use; otherwise the picker has no say and every reading is taken.
+     * MQTT is one of three things that want the readings, along with the REST API, which
+     * serves the last of each, and the proximity sensor waking the screen.
      */
     private fun startSensors() {
         val frequency = configuration.mqttSensorFrequency
-        val selection = if (configuration.mqttDiscovery) configuration.mqttDiscoverySensorIds else null
-        if (configuration.sensorsEnabled && mqttOptions.isValid) {
+        val mqttOn = mqttOptions.isValid
+        val proximityWake = configuration.sensorsProximityWake
+        val selection = when {
+            mqttOn && configuration.mqttDiscovery ->
+                configuration.mqttDiscoverySensorIds.let { if (proximityWake) it + SensorReader.PROXIMITY else it }
+            // Nothing would read the rest.
+            !mqttOn && !configuration.httpRestEnabled -> setOf(SensorReader.PROXIMITY)
+            else -> null
+        }
+        if (configuration.sensorsEnabled && (mqttOn || configuration.httpRestEnabled || proximityWake)) {
             if (!sensorsStarted || sensorsFrequency != frequency || sensorsSelection != selection) {
                 sensorsStarted = true
                 sensorsFrequency = frequency
                 sensorsSelection = selection
                 sensorReader.startReadings(frequency, sensorCallback, selection)
+                // The first cycle now rather than a whole interval from now: without a broker
+                // to reconnect to, nothing else would fill the REST API before then.
+                sensorReader.refreshSensors()
             }
         } else if (sensorsStarted) {
             sensorsStarted = false
@@ -659,6 +715,26 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             mqttOptions.getVersion(),
             mqttOptions.getTlsConnection().toString()
         ).joinToString("|")
+    }
+
+    /**
+     * Brings the HTTP server and the stream in line with the settings. The running server
+     * holds the port it bound to, and startHttp() leaves a server that exists alone, so a
+     * changed port or both endpoints switched off is a stop first. With neither endpoint on,
+     * httpEnabled is false and it stays down.
+     */
+    private fun reconcileHttp() {
+        if (httpServer != null && (!configuration.httpEnabled || httpServerPort != configuration.httpPort)) {
+            stopHttp()
+        }
+        startHttp()
+        if (configuration.httpMJPEGEnabled) {
+            startMJPEG()
+        } else {
+            // Streams already running would otherwise keep receiving frames after streaming
+            // was switched off, while new requests are turned away.
+            stopMJPEG()
+        }
     }
 
     override fun onMQTTConnect() {
@@ -712,7 +788,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     }
 
     override fun onMQTTMessage(id: String, topic: String, payload: String) {
-        Timber.i("onMQTTMessage: $id, $topic, $payload")
+        Timber.i("onMQTTMessage: $id, $topic, ${describeCommand(payload)}")
         processCommand(payload)
     }
 
@@ -756,6 +832,7 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         val reader = cameraReader
         val profile = currentCameraProfile()
         appliedCameraProfile = profile
+        cameraStartedWithStream = configuration.httpMJPEGEnabled
         cameraRunning = true
         submitCamera {
             reader?.startCamera(cameraDetectorCallback, configuration, profile)
@@ -874,6 +951,8 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     // TODO text to speech requies content type 'Content-Type': 'application/json; charset=UTF-8'
     // Does nothing while the server is already running, so the routes are registered once.
+    // Commands reach this from the MQTT thread as well as the main looper.
+    @Synchronized
     private fun startHttp() {
         if (httpServer != null || !configuration.httpEnabled) {
             return
@@ -902,30 +981,32 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         // life of the process, ignoring the setting being switched off afterward -- the
         // same live-check approach the shell command already uses for its own toggle.
         server.addAction("POST", "/api/command") { request, response ->
+            if (!authorize(request, response)) {
+                return@addAction
+            }
             if (!configuration.httpRestEnabled) {
                 response.code(403)
                 response.send("REST API is disabled")
                 return@addAction
             }
-            var result = false
-            if (request.body is JSONObjectBody) {
-                Timber.i("POST Json Arrived (command)")
-                val body = (request.body as JSONObjectBody).get()
-                result = processCommand(body)
-            } else if (request.body is StringBody) {
-                Timber.i("POST String Arrived (command)")
-                result = processCommand((request.body as StringBody).get())
-            }
+            Timber.i("POST Arrived (command)")
+            val command = CommandJson.fromBody(request.body)
             val j = JSONObject()
-            try {
-                j.put("result", result)
-            } catch (e: JSONException) {
-                e.printStackTrace()
+            if (command == null) {
+                Timber.w("Turned down a command that is not a JSON object")
+                j.put("result", false)
+                j.put("error", "The body must be a JSON object")
+                response.code(400)
+            } else {
+                j.put("result", processCommand(command))
             }
             response.send(j)
         }
 
         server.addAction("GET", "/api/state") { request, response ->
+            if (!authorize(request, response)) {
+                return@addAction
+            }
             if (!configuration.httpRestEnabled) {
                 response.code(403)
                 response.send("REST API is disabled")
@@ -934,11 +1015,122 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             Timber.i("GET Arrived (/api/state)")
             response.send(state)
         }
+
+        server.addAction("GET", "/api/sensors") { request, response ->
+            if (!authorize(request, response)) {
+                return@addAction
+            }
+            if (!configuration.httpRestEnabled) {
+                response.code(403)
+                response.send("REST API is disabled")
+                return@addAction
+            }
+            Timber.i("GET Arrived (/api/sensors)")
+            response.send(sensorReadings())
+        }
+        server.addAction("GET", "/api/log") { request, response ->
+            if (!authorize(request, response)) {
+                return@addAction
+            }
+            if (!configuration.httpRestEnabled) {
+                response.code(403)
+                response.send("REST API is disabled")
+                return@addAction
+            }
+            Timber.i("GET Arrived (/api/log)")
+            sendLog(response)
+        }
         Timber.i("Registered REST endpoints")
 
+        // Registered with streaming off too, so that a stream switched off and one that
+        // never was on answer alike.
+        registerMJPEGEndpoint()
         if (configuration.httpMJPEGEnabled) {
             startMJPEG()
         }
+    }
+
+    /**
+     * The last sensor readings, with the camera's motion and face detection, which are
+     * events rather than readings and keep their state here.
+     */
+    private fun sensorReadings(): JSONObject {
+        val readings = sensorReader.latestReadings()
+        try {
+            if (configuration.cameraEnabled && configuration.cameraMotionEnabled) {
+                readings.put(OBJECT_MOTION, JSONObject().put(VALUE, motionDetected))
+            }
+            if (configuration.cameraEnabled && configuration.cameraFaceEnabled) {
+                readings.put(OBJECT_FACE, JSONObject().put(VALUE, faceDetected))
+            }
+        } catch (e: JSONException) {
+            Timber.e(e, "Could not add the detections to the sensor readings")
+        }
+        return readings
+    }
+
+    /**
+     * Switches streaming on or off, keeping the camera and its detection
+     * running. The HTTP server is left to the main looper along with the rest of the
+     * service's start and stop work, and it goes down with the stream if it was all that
+     * kept the server up.
+     */
+    private fun setStream(enabled: Boolean) {
+        configuration.setHttpMJPEGEnabled(enabled)
+        mjpegHandler.post { applyStream() }
+    }
+
+    private fun applyStream() {
+        reconcileHttp()
+        // The same restart a change of profile takes. Off with no detection left, it lets
+        // go of the camera, which would otherwise stay open with nothing using it.
+        val restart = if (configuration.httpMJPEGEnabled) !cameraStartedWithStream else !configuration.hasCameraDetections()
+        if (cameraRunning && restart) {
+            configureCamera()
+        }
+        publishApplicationState()
+    }
+
+    // Up to a couple of megabytes to redact, which must not hold up the server's only thread
+    private fun sendLog(response: AsyncHttpServerResponse) {
+        DiagnosticLog.inBackground {
+            val report = try {
+                DiagnosticLog.report()
+            } catch (e: Throwable) {
+                Timber.e(e, "Could not read the log")
+                null
+            }
+            // The caller may have gone by now, and nothing catches on the server's thread
+            AsyncServer.getDefault().post {
+                try {
+                    if (report == null) {
+                        response.code(500)
+                        response.send("Could not read the log")
+                    } else {
+                        response.send("text/plain; charset=utf-8", report)
+                    }
+                } catch (e: Exception) {
+                    Timber.w(e, "Could not send the log")
+                }
+            }
+        }
+    }
+
+    /**
+     * Turns the request away with a 401 unless it carries the access token, see [HttpAuth].
+     * The token is read per request, so a change in the settings applies to the running
+     * server. The challenge is what makes a browser ask for it.
+     */
+    private fun authorize(request: AsyncHttpServerRequest, response: AsyncHttpServerResponse): Boolean {
+        val token = configuration.httpToken
+        if (HttpAuth.isAuthorized(token, request.headers.get("Authorization"), request.query?.getString(HttpAuth.QUERY_PARAMETER))) {
+            return true
+        }
+        Timber.w("Refused ${request.method} ${request.path} without a valid access token")
+        response.headers.set("WWW-Authenticate", "Basic realm=\"${HttpAuth.REALM}\", charset=\"UTF-8\"")
+        response.code(401)
+        response.send("Unauthorized")
+        return false
     }
 
     /**
@@ -952,14 +1144,17 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         if (server == null || mjpegEndpointRegistered) {
             return
         }
-        server.addAction("GET", "/camera/stream") { _, response ->
+        server.addAction("GET", "/camera/stream") { request, response ->
             Timber.i("GET Arrived (/camera/stream)")
-            startMJPEG(response)
+            if (authorize(request, response)) {
+                startMJPEG(response)
+            }
         }
         mjpegEndpointRegistered = true
         Timber.i("Enabled MJPEG Endpoint")
     }
 
+    @Synchronized
     private fun stopHttp() {
         httpServer?.let {
             stopMJPEG()
@@ -1050,14 +1245,17 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         publishApplicationState()
     }
 
-    // Drops the open streams, so they stop receiving frames. A client that is still
-    // connected keeps its connection until it gives up on its own. The endpoint stays
-    // registered and answers with a 503 while the camera is off.
+    // Drops the open streams, so they stop receiving frames. Ending the response leaves the
+    // connection up, and a viewer would sit on its last frame rather than find out, so the
+    // connection is closed too, on the server's own thread. The endpoint stays registered
+    // and answers with a 503 while the camera is off.
     private fun stopMJPEG() {
         for (socket in mJpegSockets) {
             mJpegSockets.remove(socket)
             try {
+                val connection = socket.socket
                 socket.end()
+                AsyncServer.getDefault().post { connection?.close() }
             } catch (e: Exception) {
                 Timber.w(e, "Could not close an MJPEG stream")
             }
@@ -1108,10 +1306,18 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     private fun processCommand(commandJson: JSONObject): Boolean {
         try {
+            // First, so a command that also shows the screensaver shows the one it set up.
+            if (commandJson.has(COMMAND_CONFIG)) {
+                applyConfig(commandJson.getJSONObject(COMMAND_CONFIG))
+            }
             // Ahead of the camera switch, so a command that carries both starts the camera
             // at the size it asks for.
             if (commandJson.has(COMMAND_CAMERA_RESOLUTION) || commandJson.has(COMMAND_CAMERA_FPS)) {
                 setCameraOverrides(commandJson)
+            }
+            // And this one so it starts with or without the stream.
+            if (commandJson.has(COMMAND_STREAM)) {
+                setStream(commandJson.getBoolean(COMMAND_STREAM))
             }
             if (commandJson.has(COMMAND_CAMERA)) {
                 val enableCamera = commandJson.getBoolean(COMMAND_CAMERA)
@@ -1142,6 +1348,11 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                     wakeScreenOff()
                 }
             }
+            if (commandJson.has(COMMAND_SCREEN_OFF)) {
+                if (commandJson.getBoolean(COMMAND_SCREEN_OFF)) {
+                    screenOff()
+                }
+            }
             if (commandJson.has(COMMAND_BRIGHTNESS)) {
                 // This will permanently change the screen brightness level
                 val brightness = commandJson.getInt(COMMAND_BRIGHTNESS)
@@ -1163,11 +1374,29 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             if (commandJson.has(COMMAND_AUDIO)) {
                 playAudio(commandJson.getString(COMMAND_AUDIO))
             }
+            if (commandJson.has(COMMAND_PLAY_NOTIFICATION)) {
+                if (commandJson.getBoolean(COMMAND_PLAY_NOTIFICATION)) {
+                    playNotificationSound()
+                }
+            }
             if (commandJson.has(COMMAND_SPEAK)) {
                 speakMessage(commandJson.getString(COMMAND_SPEAK))
             }
             if (commandJson.has(COMMAND_TOAST)) {
                 sendToastMessage(commandJson.getString(COMMAND_TOAST))
+            }
+            if (commandJson.has(COMMAND_NOTIFICATION)) {
+                showNotification(commandJson.get(COMMAND_NOTIFICATION))
+            }
+            if (commandJson.has(COMMAND_FOREGROUND)) {
+                if (commandJson.getBoolean(COMMAND_FOREGROUND)) {
+                    bringBrowserToFront()
+                }
+            }
+            if (commandJson.has(COMMAND_ASSIST)) {
+                val intent = Intent(BROADCAST_ACTION_ASSIST)
+                intent.putExtra(BROADCAST_ACTION_ASSIST, commandJson.getBoolean(COMMAND_ASSIST))
+                LocalBroadcastManager.getInstance(applicationContext).sendBroadcast(intent)
             }
             if (commandJson.has(COMMAND_SCREENSAVER)) {
                 setScreenSaver(commandJson.getBoolean(COMMAND_SCREENSAVER))
@@ -1181,14 +1410,30 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             if (commandJson.has(COMMAND_SHELL) && configuration.httpShellEnabled) {
                 executeShellCommand(commandJson.getString(COMMAND_SHELL))
             }
-            // Kept last, it does not return.
+            // Kept last, they end the process.
+            if (commandJson.has(COMMAND_EXIT)) {
+                if (commandJson.getBoolean(COMMAND_EXIT)) {
+                    Handler(Looper.getMainLooper()).post { AppExit.exit(applicationContext) }
+                    return true
+                }
+            }
             if (commandJson.has(COMMAND_RESTART_APP)) {
                 if (commandJson.getBoolean(COMMAND_RESTART_APP)) {
                     restartApplication()
                 }
             }
+            if (commandJson.has(COMMAND_REBOOT)) {
+                if (commandJson.getBoolean(COMMAND_REBOOT)) {
+                    Lockdown.reboot(applicationContext)
+                }
+            }
         } catch (ex: JSONException) {
-            Timber.e("Invalid JSON passed as a command: " + commandJson.toString())
+            Timber.e("Invalid JSON passed as a command: ${LogRedactor.commandNames(commandJson)}")
+            return false
+        } catch (ex: RuntimeException) {
+            // Commands come from the network, so one that trips over something is logged
+            // and refused rather than taking the panel down with it
+            Timber.e(ex, "Command failed: ${commandJson.keys().asSequence().toList()}")
             return false
         }
 
@@ -1215,18 +1460,19 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             val output = try {
                 process.inputStream.bufferedReader().use { it.readText() }.trim()
             } catch (e: Exception) {
-                Timber.e(e, "Failed to read output of shell command: $command")
+                Timber.e(e, "Failed to read output of a shell command")
                 ""
             }
             val exitCode = process.waitFor()
             if (exitCode == 0) {
-                Timber.i("Shell command [$command] exited with code $exitCode, output: $output")
+                Timber.i("Shell command exited with code $exitCode")
             } else {
-                Timber.w("Shell command [$command] failed with exit code $exitCode, output: $output")
+                Timber.w("Shell command failed with exit code $exitCode")
             }
+            Timber.d("Shell command [$command] output: $output")
             publishShellResult(command, exitCode, output)
         } catch (e: Exception) {
-            Timber.e(e, "Failed to execute shell command: $command")
+            Timber.e(e, "Failed to execute a shell command")
             publishShellResult(command, SHELL_EXIT_CODE_FAILED_TO_START, e.message.orEmpty())
         }
     }
@@ -1252,11 +1498,20 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
     }
 
     private fun processCommand(command: String): Boolean {
+        val commandJson = CommandJson.parse(command)
+        if (commandJson == null) {
+            Timber.e("Invalid JSON passed as a command, ${command.length} characters")
+            return false
+        }
+        return processCommand(commandJson)
+    }
+
+    // For the log, which keeps what was asked for and leaves out the values
+    private fun describeCommand(command: String): String {
         return try {
-            processCommand(JSONObject(command))
-        } catch (ex: JSONException) {
-            Timber.e("Invalid JSON passed as a command: $command")
-            false
+            LogRedactor.commandNames(JSONObject(command))
+        } catch (e: JSONException) {
+            "not JSON"
         }
     }
 
@@ -1292,6 +1547,40 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
      * instead, which the player resets after every clip, so the level never survived
      * more than one playback and never applied to speech at all.
      */
+    /**
+     * Plays the device's notification sound, at the notification volume. A device with the
+     * sound set to none plays nothing.
+     */
+    private fun playNotificationSound() {
+        notificationSoundHandler.post {
+            try {
+                val uri = RingtoneManager.getDefaultUri(RingtoneManager.TYPE_NOTIFICATION)
+                val sound = RingtoneManager.getRingtone(applicationContext, uri)
+                if (sound == null) {
+                    Timber.w("This device has no notification sound to play")
+                    return@post
+                }
+                sound.audioAttributes = AudioAttributes.Builder()
+                    .setUsage(AudioAttributes.USAGE_NOTIFICATION)
+                    .setContentType(AudioAttributes.CONTENT_TYPE_SONIFICATION)
+                    .build()
+                notificationSound?.stop()
+                notificationSound = sound
+                sound.play()
+                // Stopping is what gives back its player, which would otherwise be held
+                // until the next sound
+                notificationSoundHandler.postDelayed({
+                    if (notificationSound === sound) {
+                        sound.stop()
+                        notificationSound = null
+                    }
+                }, NOTIFICATION_SOUND_MAX_MS)
+            } catch (e: Exception) {
+                Timber.e(e, "Unable to play the notification sound")
+            }
+        }
+    }
+
     private fun setVolume(volumePercent: Int) {
         if (volumeUtils.setVolumePercent(volumePercent)) {
             publishApplicationState()
@@ -1300,11 +1589,149 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
 
     // TODO we need to url decode incoming strings to support other languages
     private fun speakMessage(message: String) {
+        if (configuration.speechHaEnabled) {
+            speakThroughHomeAssistant(message)
+            return
+        }
+        speakOnDevice(message)
+    }
+
+    private fun speakOnDevice(message: String) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             textToSpeechModule?.speakText(message)
         } else {
             sendAlertMessage("Text to Speech is not supported on this device's version of Android")
         }
+    }
+
+    /**
+     * Has Home Assistant render the message and plays the result, falling back to the
+     * device's own engine when Home Assistant is not set up or does not answer, so a message
+     * is never silently lost.
+     */
+    private fun speakThroughHomeAssistant(message: String) {
+        val baseUrl = HomeAssistantSpeech.baseUrl(configuration.speechHaUrl, configuration.appLaunchUrl)
+        val token = configuration.speechHaToken
+        if (baseUrl == null || token.isEmpty()) {
+            Timber.w("Speaking through Home Assistant needs its address and an access token, using the device")
+            speakOnDevice(message)
+            return
+        }
+        val speech = HomeAssistantSpeech(baseUrl, token, configuration.speechHaEngine, configuration.speechHaLanguage)
+        try {
+            speechExecutor.execute {
+                val url = speech.audioUrl(message)
+                audioHandler.post {
+                    // The answer can come back after the service has gone
+                    if (speechExecutor.isShutdown) {
+                        return@post
+                    }
+                    if (url != null) {
+                        playAudio(url)
+                    } else {
+                        speakOnDevice(message)
+                    }
+                }
+            }
+        } catch (e: RejectedExecutionException) {
+            Timber.d("Not speaking, the service is shutting down")
+        }
+    }
+
+    /**
+     * Puts a message on the dashboard that stays until it is touched, for Home Assistant's
+     * notify entity. Takes the text alone or `{"message", "title", "timeout"}`.
+     */
+    private fun showNotification(value: Any) {
+        val notification = value as? JSONObject
+        val message = notification?.optString(NOTIFICATION_MESSAGE) ?: value.toString()
+        if (message.isBlank()) {
+            Timber.w("Ignoring a notification without a message")
+            return
+        }
+        val intent = Intent(BROADCAST_ACTION_NOTIFICATION)
+        intent.putExtra(NOTIFICATION_MESSAGE, message)
+        notification?.optString(NOTIFICATION_TITLE)?.takeIf { it.isNotBlank() }?.let {
+            intent.putExtra(NOTIFICATION_TITLE, it)
+        }
+        val timeout = notification?.optLong(NOTIFICATION_TIMEOUT, 0L) ?: 0L
+        if (timeout > 0) {
+            intent.putExtra(NOTIFICATION_TIMEOUT, timeout)
+        }
+        LocalBroadcastManager.getInstance(applicationContext).sendBroadcast(intent)
+    }
+
+    /** The `config` command. The browser applies what changed to what is on screen. */
+    private fun applyConfig(settings: JSONObject) {
+        val applied = RemoteConfig(configuration).apply(settings)
+        if (applied.isEmpty()) {
+            return
+        }
+        Timber.i("Changed by command: $applied")
+        if (MqttUtils.STATE_LOCKDOWN in applied && !configuration.appLockdown) {
+            // As the device owner the lock is let go of at once, rather than when the
+            // dashboard is next in front, since an allowed app or the dark screen may be
+            Lockdown.liftOwnerPolicy(applicationContext)
+        }
+        val intent = Intent(BROADCAST_ACTION_CONFIG_CHANGED)
+        intent.putExtra(BROADCAST_ACTION_CONFIG_CHANGED, applied.toTypedArray())
+        LocalBroadcastManager.getInstance(applicationContext).sendBroadcast(intent)
+        publishApplicationState()
+    }
+
+    private fun bringBrowserToFront() {
+        returnToBrowserHandler.post {
+            if (!AppExit.exiting) {
+                AppRestartHelper.bringBrowserToFront(applicationContext)
+            }
+        }
+    }
+
+    /**
+     * Starts the countdown that brings the browser back when it has gone from the screen
+     * with the screen still on, which is another app, or the settings, opening over it.
+     * The screen going off stops the browser too, and that is not a reason to come back.
+     */
+    private fun onBrowserHidden() {
+        browserVisible = false
+        returnToBrowserHandler.removeCallbacks(returnToBrowserRunnable)
+        val minutes = configuration.appReturnMinutes
+        if (minutes > 0 && !AppExit.exiting && isInteractive()) {
+            returnToBrowserHandler.postDelayed(returnToBrowserRunnable, TimeUnit.MINUTES.toMillis(minutes.toLong()))
+        }
+    }
+
+    private fun onBrowserShown() {
+        browserVisible = true
+        returnToBrowserOnScreenOn = false
+        returnToBrowserHandler.removeCallbacks(returnToBrowserRunnable)
+    }
+
+    /**
+     * The settings screen is left alone, it goes back to the browser itself when closed. A
+     * screen that has gone dark in the meantime gets the browser when it next comes on, so
+     * starting it does not light the screen up.
+     */
+    private fun returnToBrowser() {
+        if (browserVisible || AppExit.exiting) {
+            return
+        }
+        if (settingsScreensShown > 0) {
+            returnToBrowserHandler.postDelayed(returnToBrowserRunnable,
+                TimeUnit.MINUTES.toMillis(configuration.appReturnMinutes.coerceAtLeast(1).toLong()))
+            return
+        }
+        if (!isInteractive()) {
+            returnToBrowserOnScreenOn = true
+            return
+        }
+        Timber.i("Another app was left in front, bringing WallPanel back")
+        AppRestartHelper.bringBrowserToFront(applicationContext)
+    }
+
+    private fun isInteractive(): Boolean {
+        val powerManager = getSystemService(Context.POWER_SERVICE) as PowerManager
+        return powerManager.isInteractive
     }
 
     // TODO temporarily wake screen
@@ -1377,6 +1804,16 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         // goes out either way so Home Assistant shows what the screen is actually doing
         // rather than what was asked for.
         publishApplicationState()
+    }
+
+    /**
+     * Turns the display off, as a device admin. The wake lock goes first, since a held one
+     * would light the screen again, and the state reports that the screen is no longer kept
+     * awake. Without device admin this is what `{"wake": false}` does and no more.
+     */
+    private fun screenOff() {
+        wakeScreenOff()
+        Lockdown.screenOff(applicationContext)
     }
 
     private fun changeScreenBrightness(brightness: Int) {
@@ -1814,6 +2251,10 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                 Timber.i("Screen turned on")
                 publishApplicationState()
                 sendBrowserEngineResume()
+                if (returnToBrowserOnScreenOn) {
+                    returnToBrowserOnScreenOn = false
+                    returnToBrowser()
+                }
             } else if (Intent.ACTION_USER_PRESENT == intent.action) {
                 Timber.i("User present")
                 publishApplicationState()
@@ -1827,12 +2268,30 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                 Timber.i("Screensaver stopped")
                 isScreenSaverActive = false
                 publishApplicationState()
+            } else if (BROADCAST_BROWSER_SHOWN == intent.action) {
+                onBrowserShown()
+            } else if (BROADCAST_BROWSER_HIDDEN == intent.action) {
+                onBrowserHidden()
+            } else if (BROADCAST_ACTION_SPEAK == intent.action) {
+                intent.getStringExtra(BROADCAST_ACTION_SPEAK)?.let { speakMessage(it) }
             }
         }
     }
 
+    /** Main looper: the reader calls back on it for the hardware sensors. */
+    private fun onProximity(near: Boolean) {
+        if (near && !proximityNear && configuration.sensorsProximityWake) {
+            Timber.i("Proximity wake")
+            wakeForDetection()
+        }
+        proximityNear = near
+    }
+
     private val sensorCallback = object : SensorCallback {
         override fun publishSensorData(sensorName: String, sensorData: JSONObject) {
+            if (sensorName == SensorReader.PROXIMITY) {
+                onProximity(sensorData.optBoolean(SensorReader.NEAR))
+            }
             // The state topic carries no sensor data. These refresh the values a person can
             // change on the device itself, brightness and volume, and a reading cycle brings
             // a dozen of them within a few seconds, so one refresh covers the cycle. Taking
@@ -1924,11 +2383,20 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
         const val BROADCAST_BROWSER_ENGINE_RESUME = "BROADCAST_BROWSER_ENGINE_RESUME"
         const val BROADCAST_SCREENSAVER_STARTED = "BROADCAST_SCREENSAVER_STARTED"
         const val BROADCAST_SCREENSAVER_STOPPED = "BROADCAST_SCREENSAVER_STOPPED"
+        const val BROADCAST_BROWSER_SHOWN = "BROADCAST_BROWSER_SHOWN"
+        const val BROADCAST_BROWSER_HIDDEN = "BROADCAST_BROWSER_HIDDEN"
+        // A reply from the voice assistant that came without audio, to say the speak command's way
+        const val BROADCAST_ACTION_SPEAK = "BROADCAST_ACTION_SPEAK"
+        const val NOTIFICATION_MESSAGE = "message"
+        const val NOTIFICATION_TITLE = "title"
+        const val NOTIFICATION_TIMEOUT = "timeout"
         const val BROADCAST_CONNTED = "BROADCAST_SCREEN_BRIGHTNESS_CHANGE"
         const val ACTION_RUN_COMMAND = "xyz.wallpanel.pro.action.RUN_COMMAND"
         const val ACTION_SETTINGS_OPENED = "xyz.wallpanel.pro.action.SETTINGS_OPENED"
         const val ACTION_SETTINGS_CLOSED = "xyz.wallpanel.pro.action.SETTINGS_CLOSED"
         const val EXTRA_COMMAND_JSON = "EXTRA_COMMAND_JSON"
+        // Longer than any notification sound, which are a second or two
+        private const val NOTIFICATION_SOUND_MAX_MS = 30_000L
 
         /**
          * The process exit is delayed rather than immediate: when a restart is reached from

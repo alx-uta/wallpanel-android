@@ -18,6 +18,8 @@ package xyz.wallpanel.pro.modules
 
 import android.content.Context
 import android.content.pm.PackageManager
+import android.hardware.Sensor
+import android.hardware.SensorManager
 import android.os.Looper
 import androidx.test.core.app.ApplicationProvider
 import org.json.JSONObject
@@ -31,6 +33,8 @@ import org.junit.Test
 import org.junit.runner.RunWith
 import org.robolectric.RobolectricTestRunner
 import org.robolectric.Shadows.shadowOf
+import org.robolectric.shadows.ShadowSensor
+import org.robolectric.shadows.ShadowSensorManager
 import java.time.Duration
 import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.atomic.AtomicInteger
@@ -226,6 +230,84 @@ class SensorReaderTest {
     fun `no selection publishes every reading`() {
         val names = publishedWith(null)
         assertTrue(names.containsAll(listOf(SensorReader.BATTERY, SensorReader.UPTIME, SensorReader.APP_VERSION)))
+    }
+
+    /** https://github.com/TheTimeWalker/wallpanel-android/issues/81 */
+    @Test
+    fun `the last readings are kept for the http api until the readings stop`() {
+        assertEquals(0, sensorReader.latestReadings().length())
+        val published = AtomicInteger()
+        sensorReader.startReadings(SENSOR_FREQUENCY_SECONDS, object : SensorCallback {
+            override fun publishSensorData(sensorName: String, sensorData: JSONObject) {
+                published.incrementAndGet()
+            }
+        }, setOf(SensorReader.UPTIME, SensorReader.MEMORY_USAGE))
+        sensorReader.refreshSensors()
+        drainCycle(published)
+
+        val readings = sensorReader.latestReadings()
+        assertEquals(setOf(SensorReader.UPTIME, SensorReader.MEMORY_USAGE), readings.keys().asSequence().toSet())
+        assertEquals(SensorReader.UNIT_SECONDS, readings.getJSONObject(SensorReader.UPTIME).getString(SensorReader.UNIT))
+
+        sensorReader.stopReadings()
+        assertEquals(0, sensorReader.latestReadings().length())
+    }
+
+    @Test
+    fun `a device without a proximity sensor does not list one`() {
+        assertFalse(SensorReader.PROXIMITY in sensorTypes())
+    }
+
+    /** https://github.com/TheTimeWalker/wallpanel-android/issues/89 */
+    @Test
+    fun `proximity goes out at once on a change and once a cycle otherwise`() {
+        val sensor = ShadowSensor.newInstance(Sensor.TYPE_PROXIMITY)
+        shadowOf(sensor).setMaximumRange(8f)
+        val sensorManager = context.getSystemService(Context.SENSOR_SERVICE) as SensorManager
+        shadowOf(sensorManager).addSensor(sensor)
+        val reader = SensorReader(context)
+        assertTrue(SensorReader.PROXIMITY in sensorTypes(reader))
+
+        val nearValues = mutableListOf<Boolean>()
+        reader.startReadings(SENSOR_FREQUENCY_SECONDS, object : SensorCallback {
+            override fun publishSensorData(sensorName: String, sensorData: JSONObject) {
+                nearValues.add(sensorData.getBoolean(SensorReader.NEAR))
+            }
+        }, setOf(SensorReader.PROXIMITY))
+        fun send(distance: Float) {
+            val event = ShadowSensorManager.createSensorEvent(1, Sensor.TYPE_PROXIMITY)
+            event.sensor = sensor
+            event.values[0] = distance
+            shadowOf(sensorManager).sendSensorEventToListeners(event)
+        }
+
+        send(8f)
+        assertEquals(listOf(false), nearValues)
+        send(7f)
+        assertEquals("the same side again waits for the next cycle", listOf(false), nearValues)
+        send(0f)
+        assertEquals("a change does not wait", listOf(false, true), nearValues)
+        assertTrue(reader.latestReadings().getJSONObject(SensorReader.PROXIMITY).getBoolean(SensorReader.NEAR))
+
+        shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(SENSOR_FREQUENCY_SECONDS + 1L))
+        assertEquals("the cycle sends the last reading again", listOf(false, true, true), nearValues)
+        send(1f)
+        assertEquals("the resend counts as the reading of the cycle", listOf(false, true, true), nearValues)
+
+        reader.stopReadings()
+        assertFalse(reader.latestReadings().has(SensorReader.PROXIMITY))
+    }
+
+    /** Most report 0 and their maximum, which varies by device, and nothing in between. */
+    @Test
+    fun `near is short of both the maximum range and the usual distance`() {
+        assertTrue(SensorReader.isNear(0f, 8f))
+        assertTrue(SensorReader.isNear(4.9f, 100f))
+        assertFalse(SensorReader.isNear(8f, 8f))
+        assertFalse(SensorReader.isNear(5f, 100f))
+        assertFalse(SensorReader.isNear(1f, 1f))
+        assertTrue(SensorReader.isNear(0f, 1f))
+        assertFalse(SensorReader.isNear(-1f, 8f))
     }
 
     private fun publishedWith(selection: Set<String>?): Set<String> {

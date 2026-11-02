@@ -16,6 +16,9 @@
 
 package xyz.wallpanel.pro.ui.fragments
 
+import android.app.Activity
+import android.app.admin.DevicePolicyManager
+import android.content.ActivityNotFoundException
 import android.content.Context
 import android.content.DialogInterface
 import android.content.Intent
@@ -24,15 +27,23 @@ import android.content.pm.PackageManager
 import android.net.Uri
 import android.os.Build
 import android.os.Bundle
+import android.os.Handler
+import android.os.Looper
+import android.provider.DocumentsContract
 import android.provider.Settings
+import android.text.InputType
 import android.view.Menu
 import android.view.MenuInflater
 import android.view.MenuItem
 import android.view.View
+import android.widget.CheckBox
 import android.widget.Toast
+import androidx.activity.result.contract.ActivityResultContracts
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
 import androidx.appcompat.app.AppCompatDelegate
+import androidx.core.app.ShareCompat
+import androidx.core.content.FileProvider
 import androidx.core.view.MenuProvider
 import androidx.lifecycle.Lifecycle
 import androidx.navigation.Navigation
@@ -40,15 +51,26 @@ import androidx.preference.EditTextPreference
 import androidx.preference.ListPreference
 import androidx.preference.Preference
 import androidx.preference.SwitchPreference
+import org.json.JSONObject
+import java.io.File
+import xyz.wallpanel.pro.BuildConfig
 import xyz.wallpanel.pro.R
+import xyz.wallpanel.pro.network.HomeAssistantSpeech
+import xyz.wallpanel.pro.persistence.SettingsBackup
 import xyz.wallpanel.pro.persistence.Configuration.Companion.PREF_SCREENSAVER_DIM_VALUE
 import xyz.wallpanel.pro.persistence.Configuration.Companion.PREF_SCREEN_BRIGHTNESS
 import xyz.wallpanel.pro.ui.activities.SettingsActivity.Companion.PERMISSIONS_REQUEST_WRITE_SETTINGS
 import xyz.wallpanel.pro.ui.views.GeckoViewWrapper
 import xyz.wallpanel.pro.ui.views.SettingsCodeView
+import xyz.wallpanel.pro.utils.AppExit
+import xyz.wallpanel.pro.utils.Lockdown
+import xyz.wallpanel.pro.utils.AppRestartHelper
+import xyz.wallpanel.pro.utils.DashboardLogin
+import xyz.wallpanel.pro.utils.DiagnosticLog
 import xyz.wallpanel.pro.utils.DateUtils
 import xyz.wallpanel.pro.utils.DateUtils.SECONDS_VALUE
 import xyz.wallpanel.pro.utils.OverlayPermission
+import xyz.wallpanel.pro.utils.PhotoFolder
 import xyz.wallpanel.pro.utils.ScreenUtils
 import dagger.android.support.AndroidSupportInjection
 import timber.log.Timber
@@ -88,6 +110,9 @@ class SettingsFragment : BaseSettingsFragment() {
     private var dimPreference: ListPreference? = null
     private var rotationPreference: EditTextPreference? = null
     private var geckoSuspendPreference: EditTextPreference? = null
+    private var idleReturnPreference: EditTextPreference? = null
+    private var reloadIntervalPreference: EditTextPreference? = null
+    private var returnMinutesPreference: EditTextPreference? = null
 
     private val fullScreenPreference: SwitchPreference by lazy {
         findPreference<SwitchPreference>(PREF_SETTINGS_FULL_SCREEN) as SwitchPreference
@@ -139,6 +164,26 @@ class SettingsFragment : BaseSettingsFragment() {
 
     private val webScreenSaverUrl: EditTextPreference by lazy {
         findPreference<EditTextPreference>(PREF_SETTINGS_WEB_SCREENSAVER_URL) as EditTextPreference
+    }
+
+    // Whether the export being saved carries the passwords, chosen before the file is
+    private var exportSecrets = false
+    private var importKeepIdentity = true
+
+    private val exportFile = registerForActivityResult(ActivityResultContracts.CreateDocument(SETTINGS_FILE_TYPE)) { uri ->
+        uri?.let { writeSettingsFile(it) }
+    }
+
+    private val importFile = registerForActivityResult(ActivityResultContracts.OpenDocument()) { uri ->
+        uri?.let { readSettingsFile(it) }
+    }
+
+    private val logFile = registerForActivityResult(ActivityResultContracts.CreateDocument(LOG_FILE_TYPE)) { uri ->
+        uri?.let { saveLog(it) }
+    }
+
+    private val photoFolderPicker = registerForActivityResult(ActivityResultContracts.OpenDocumentTree()) { uri ->
+        uri?.let { setPhotoFolder(it) }
     }
 
     override fun onCreate(savedInstanceState: Bundle?) {
@@ -284,6 +329,23 @@ class SettingsFragment : BaseSettingsFragment() {
         geckoSuspendPreference?.summary = getString(R.string.summary_use_geckoview_suspend_seconds, configuration.geckoViewSuspendSeconds.toString())
         geckoSuspendPreference?.setDefaultValue(configuration.geckoViewSuspendSeconds.toString())
 
+        idleReturnPreference = findPreference(getString(R.string.key_setting_browser_idle_return))
+        idleReturnPreference?.text = configuration.browserIdleReturnMinutes.toString()
+        idleReturnPreference?.summary = getString(R.string.summary_setting_browser_idle_return, configuration.browserIdleReturnMinutes.toString())
+        reloadIntervalPreference = findPreference(getString(R.string.key_setting_browser_reload_interval))
+        reloadIntervalPreference?.text = configuration.browserReloadIntervalMinutes.toString()
+        reloadIntervalPreference?.summary = getString(R.string.summary_setting_browser_reload_interval, configuration.browserReloadIntervalMinutes.toString())
+        returnMinutesPreference = findPreference(getString(R.string.key_setting_app_return_minutes))
+        returnMinutesPreference?.text = configuration.appReturnMinutes.toString()
+        returnMinutesPreference?.summary = getString(R.string.summary_setting_app_return_minutes, configuration.appReturnMinutes.toString())
+        listOf(R.string.key_setting_speech_ha_token, R.string.key_setting_browser_login_password).forEach { key ->
+            findPreference<EditTextPreference>(getString(key))?.setOnBindEditTextListener { editText ->
+                editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
+            }
+        }
+        updateSpeechSummaries()
+        updateLoginSummaries()
+
         // Setup additional screensaver options
         webScreenSaver.isChecked = configuration.webScreenSaver
         dimScreensaver.isChecked = configuration.hasDimScreenSaver
@@ -294,6 +356,8 @@ class SettingsFragment : BaseSettingsFragment() {
         } else if (webScreenSaver.isChecked) {
             setWebScreensaver(true)
         }
+
+        showPhotoFolder()
 
         val webScreensaverUrlValue = configuration.webScreenSaverUrl
         if(webScreensaverUrlValue.isNotEmpty()) {
@@ -349,6 +413,36 @@ class SettingsFragment : BaseSettingsFragment() {
                 OverlayPermission.openSettings(requireContext())
                 true
             }
+
+            findPreference<Preference>(PREF_DEVICE_ADMIN)?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                onDeviceAdminClicked()
+                true
+            }
+
+            findPreference<Preference>(PREF_SCREENSAVER_PHOTO_FOLDER)?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                onPhotoFolderClicked()
+                true
+            }
+
+            findPreference<Preference>("button_exit")?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                confirmExit()
+                true
+            }
+
+            findPreference<Preference>("button_settings_export")?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                confirmExport()
+                true
+            }
+
+            findPreference<Preference>("button_settings_import")?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                confirmImport()
+                true
+            }
+
+            findPreference<Preference>("button_share_log")?.onPreferenceClickListener = Preference.OnPreferenceClickListener {
+                confirmShareLog()
+                true
+            }
         }  catch (e: IllegalArgumentException) {
             // Add debug if required
             // Timber.d(e.message)
@@ -357,6 +451,8 @@ class SettingsFragment : BaseSettingsFragment() {
 
     override fun onResume() {
         super.onResume()
+        // Device admin is granted on a system screen, and device owner over adb
+        updateLockdownSummaries()
         // The permission is granted on a system screen, so it is read again on the way back.
         overlayPermissionPreference?.summary = getString(
             if (OverlayPermission.isGranted(requireContext())) {
@@ -438,6 +534,7 @@ class SettingsFragment : BaseSettingsFragment() {
                     configuration.appLaunchUrl = value
                     dashboardPreference?.summary = value
                 }
+                updateLoginSummaries()
             }
             PREF_SETTINGS_WEB_SCREENSAVER_URL -> {
                 val value = webScreenSaverUrl.text.orEmpty()
@@ -480,6 +577,38 @@ class SettingsFragment : BaseSettingsFragment() {
                     }
                 }
             }
+            getString(R.string.key_setting_browser_idle_return) -> {
+                val minutes = idleReturnPreference?.text?.trim()?.toIntOrNull()
+                if (minutes != null && minutes >= 0) {
+                    idleReturnPreference?.summary = getString(R.string.summary_setting_browser_idle_return, minutes.toString())
+                } else {
+                    Toast.makeText(requireContext(), getString(R.string.toast_error_bad_decimal), Toast.LENGTH_SHORT).show()
+                }
+            }
+            getString(R.string.key_setting_app_return_minutes) -> {
+                val minutes = returnMinutesPreference?.text?.trim()?.toIntOrNull()
+                if (minutes != null && minutes >= 0) {
+                    returnMinutesPreference?.summary = getString(R.string.summary_setting_app_return_minutes, minutes.toString())
+                } else {
+                    Toast.makeText(requireContext(), getString(R.string.toast_error_bad_decimal), Toast.LENGTH_SHORT).show()
+                }
+            }
+            getString(R.string.key_setting_speech_ha_url),
+            getString(R.string.key_setting_speech_ha_token),
+            getString(R.string.key_setting_speech_ha_engine),
+            getString(R.string.key_setting_speech_ha_language),
+            getString(R.string.key_setting_voice_pipeline) -> updateSpeechSummaries()
+            getString(R.string.key_setting_browser_login_username),
+            getString(R.string.key_setting_browser_login_password) -> updateLoginSummaries()
+            getString(R.string.key_setting_app_lockdown_apps) -> updateLockdownSummaries()
+            getString(R.string.key_setting_browser_reload_interval) -> {
+                val minutes = reloadIntervalPreference?.text?.trim()?.toIntOrNull()
+                if (minutes != null && minutes >= 0) {
+                    reloadIntervalPreference?.summary = getString(R.string.summary_setting_browser_reload_interval, minutes.toString())
+                } else {
+                    Toast.makeText(requireContext(), getString(R.string.toast_error_bad_decimal), Toast.LENGTH_SHORT).show()
+                }
+            }
             getString(R.string.key_use_geckoview_suspend_seconds) -> {
                 geckoSuspendPreference?.text?.let {
                     val seconds = it.toIntOrNull()
@@ -491,6 +620,318 @@ class SettingsFragment : BaseSettingsFragment() {
                 }
             }
         }
+    }
+
+    /** Shows what each speech field holds, or what an empty one falls back to. The token stays hidden. */
+    private fun updateSpeechSummaries() {
+        findPreference<Preference>(getString(R.string.key_setting_speech_ha_url))?.summary =
+            configuration.speechHaUrl.ifEmpty {
+                getString(R.string.summary_setting_speech_ha_url_default,
+                    HomeAssistantSpeech.baseUrl("", configuration.appLaunchUrl).orEmpty())
+            }
+        findPreference<Preference>(getString(R.string.key_setting_speech_ha_token))?.setSummary(
+            if (configuration.speechHaToken.isEmpty()) R.string.summary_setting_speech_ha_token_off
+            else R.string.summary_setting_speech_ha_token_on
+        )
+        findPreference<Preference>(getString(R.string.key_setting_speech_ha_engine))?.summary =
+            configuration.speechHaEngine.ifEmpty { getString(R.string.summary_setting_speech_ha_engine_default) }
+        findPreference<Preference>(getString(R.string.key_setting_speech_ha_language))?.summary =
+            configuration.speechHaLanguage.ifEmpty { getString(R.string.summary_setting_speech_ha_language_default) }
+        findPreference<Preference>(getString(R.string.key_setting_voice_pipeline))?.summary =
+            configuration.voicePipeline.ifEmpty { getString(R.string.summary_setting_voice_pipeline_default) }
+    }
+
+    /** What lockdown does on this device, which depends on whether WallPanel is its owner. */
+    private fun updateLockdownSummaries() {
+        val context = context ?: return
+        val owner = Lockdown.isDeviceOwner(context)
+        findPreference<Preference>(getString(R.string.key_setting_app_lockdown))?.setSummary(
+            if (owner) R.string.summary_setting_app_lockdown_owner else R.string.summary_setting_app_lockdown
+        )
+        val apps = Lockdown.parseApps(configuration.appLockdownApps)
+        findPreference<Preference>(getString(R.string.key_setting_app_lockdown_apps))?.summary =
+            if (apps.isEmpty()) getString(R.string.summary_setting_app_lockdown_apps_off)
+            else getString(R.string.summary_setting_app_lockdown_apps_on, apps.joinToString(", "))
+        val component = Lockdown.admin(context).flattenToShortString()
+        findPreference<Preference>(PREF_DEVICE_ADMIN)?.summary = when {
+            owner -> getString(R.string.summary_device_admin_owner)
+            Lockdown.isAdminActive(context) -> getString(R.string.summary_device_admin_on, component)
+            else -> getString(R.string.summary_device_admin_off, component)
+        }
+    }
+
+    /**
+     * Asks Android to make WallPanel a device admin, or gives that up, or the device owner
+     * along with it. Device owner can only be given over adb, so it is not offered here.
+     */
+    private fun onDeviceAdminClicked() {
+        val context = requireContext()
+        if (!Lockdown.isAdminActive(context)) {
+            val intent = Intent(DevicePolicyManager.ACTION_ADD_DEVICE_ADMIN)
+                .putExtra(DevicePolicyManager.EXTRA_DEVICE_ADMIN, Lockdown.admin(context))
+                .putExtra(DevicePolicyManager.EXTRA_ADD_EXPLANATION, getString(R.string.device_admin_explanation))
+            try {
+                startActivity(intent)
+            } catch (e: Exception) {
+                Timber.w(e, "No screen to add a device admin")
+                Toast.makeText(context, R.string.toast_device_admin_failed, Toast.LENGTH_SHORT).show()
+            }
+            return
+        }
+        val owner = Lockdown.isDeviceOwner(context)
+        AlertDialog.Builder(context)
+            .setTitle(if (owner) R.string.dialog_device_owner_remove_title else R.string.dialog_device_admin_remove_title)
+            .setMessage(if (owner) R.string.dialog_device_owner_remove_message else R.string.dialog_device_admin_remove_message)
+            .setPositiveButton(R.string.button_remove) { _, _ ->
+                // The full lock would otherwise outlive the owner that allowed it. A screen
+                // pin is no business of the device admin's and stays.
+                if (owner) {
+                    activity?.let { Lockdown.release(it) }
+                }
+                if (!Lockdown.removeAdmin(context)) {
+                    Toast.makeText(context, R.string.toast_device_admin_failed, Toast.LENGTH_SHORT).show()
+                }
+                // Android lets go of a device admin a moment after it is asked to
+                view?.postDelayed({ updateLockdownSummaries() }, ADMIN_REMOVAL_MS)
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /** The username, with the servers it is given to. The password stays hidden. */
+    private fun updateLoginSummaries() {
+        val username = configuration.browserLoginUsername
+        findPreference<Preference>(getString(R.string.key_setting_browser_login_username))?.summary =
+            if (username.isEmpty()) {
+                getString(R.string.summary_setting_browser_login_username_off)
+            } else {
+                getString(
+                    R.string.summary_setting_browser_login_username_on, username,
+                    DashboardLogin.hostsOf(configuration.appLaunchUrl).sorted().joinToString(", ")
+                )
+            }
+        findPreference<Preference>(getString(R.string.key_setting_browser_login_password))?.setSummary(
+            if (configuration.browserLoginPassword.isEmpty()) R.string.summary_setting_browser_login_password_off
+            else R.string.summary_setting_browser_login_password_on
+        )
+    }
+
+    private fun confirmExport() {
+        val secrets = CheckBox(requireContext()).apply {
+            setText(R.string.settings_export_secrets)
+            isChecked = false
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.title_settings_export)
+            .setView(dialogContent(secrets))
+            .setPositiveButton(R.string.button_export) { _, _ ->
+                exportSecrets = secrets.isChecked
+                try {
+                    exportFile.launch(SETTINGS_FILE_NAME)
+                } catch (e: ActivityNotFoundException) {
+                    Toast.makeText(requireContext(), R.string.toast_no_file_picker, Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun writeSettingsFile(uri: Uri) {
+        val context = requireContext()
+        try {
+            val json = SettingsBackup.forApp(context).export(configuration.allSettings(), exportSecrets, BuildConfig.VERSION_NAME)
+            val stream = context.contentResolver.openOutputStream(uri, "wt") ?: throw java.io.IOException("No stream for $uri")
+            stream.use { it.write(json.toString(2).toByteArray(Charsets.UTF_8)) }
+            Toast.makeText(context, R.string.toast_settings_exported, Toast.LENGTH_SHORT).show()
+        } catch (e: Exception) {
+            Timber.e(e, "Could not export the settings")
+            Toast.makeText(context, R.string.toast_settings_export_failed, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun confirmImport() {
+        val keepIdentity = CheckBox(requireContext()).apply {
+            setText(R.string.settings_import_keep_identity)
+            isChecked = true
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.title_settings_import)
+            .setMessage(R.string.settings_import_message)
+            .setView(dialogContent(keepIdentity))
+            .setPositiveButton(R.string.button_import) { _, _ ->
+                importKeepIdentity = keepIdentity.isChecked
+                try {
+                    // Some document providers label JSON as plain text or as nothing in particular
+                    importFile.launch(arrayOf(SETTINGS_FILE_TYPE, "text/plain", "application/octet-stream"))
+                } catch (e: ActivityNotFoundException) {
+                    Toast.makeText(requireContext(), R.string.toast_no_file_picker, Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /**
+     * Writes the file's settings and restarts, which is what makes every part of the
+     * application, the service and the browser included, read them again.
+     */
+    private fun readSettingsFile(uri: Uri) {
+        val context = requireContext()
+        val values = try {
+            val text = context.contentResolver.openInputStream(uri)?.use { stream ->
+                // A settings file is a few kilobytes; anything far bigger is not one
+                String(stream.readBytes(), Charsets.UTF_8).also {
+                    require(it.length <= MAX_SETTINGS_FILE_CHARS) { "Too big for a settings file" }
+                }
+            } ?: throw java.io.IOException("No stream for $uri")
+            SettingsBackup.forApp(context).read(JSONObject(text), importKeepIdentity)
+        } catch (e: Exception) {
+            Timber.w(e, "Could not import the settings from $uri")
+            Toast.makeText(context, R.string.toast_settings_import_failed, Toast.LENGTH_LONG).show()
+            return
+        }
+        // The changes are not this screen's to react to one by one: everything starts again
+        val preferences = preferenceScreen.sharedPreferences
+        preferences?.unregisterOnSharedPreferenceChangeListener(this)
+        if (!configuration.importSettings(values)) {
+            preferences?.registerOnSharedPreferenceChangeListener(this)
+            Toast.makeText(context, R.string.toast_settings_import_write_failed, Toast.LENGTH_LONG).show()
+            return
+        }
+        Timber.i("Imported ${values.size} settings, restarting")
+        Toast.makeText(context, R.string.toast_settings_imported, Toast.LENGTH_LONG).show()
+        AppRestartHelper.restartApplication(context.applicationContext, RESTART_AFTER_IMPORT_MS)
+    }
+
+    private fun confirmShareLog() {
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.title_share_log)
+            .setMessage(R.string.message_share_log)
+            .setPositiveButton(R.string.button_share_log) { _, _ -> shareLog() }
+            .setNeutralButton(R.string.button_save_log) { _, _ ->
+                try {
+                    logFile.launch(DiagnosticLog.fileName())
+                } catch (e: ActivityNotFoundException) {
+                    Toast.makeText(requireContext(), R.string.toast_no_file_picker, Toast.LENGTH_LONG).show()
+                }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun shareLog() {
+        val activity = requireActivity()
+        DiagnosticLog.inBackground {
+            val file = try {
+                DiagnosticLog.writeShareFile()
+            } catch (e: Exception) {
+                Timber.e(e, "Could not write the log to share")
+                null
+            }
+            activity.runOnUiThread {
+                if (file == null) {
+                    Toast.makeText(activity, R.string.toast_log_failed, Toast.LENGTH_LONG).show()
+                } else if (!activity.isFinishing) {
+                    sendLogFile(activity, file)
+                }
+            }
+        }
+    }
+
+    private fun sendLogFile(activity: Activity, file: File) {
+        val uri = FileProvider.getUriForFile(activity, "${activity.packageName}$LOG_PROVIDER_SUFFIX", file)
+        val intent = ShareCompat.IntentBuilder(activity)
+            .setType(LOG_FILE_TYPE)
+            .setStream(uri)
+            .setSubject(file.name)
+            .setChooserTitle(R.string.title_share_log)
+            .createChooserIntent()
+        try {
+            activity.startActivity(intent)
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(activity, R.string.toast_log_no_app, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    private fun saveLog(uri: Uri) {
+        val context = requireContext().applicationContext
+        DiagnosticLog.inBackground {
+            val saved = try {
+                val stream = context.contentResolver.openOutputStream(uri, "wt") ?: throw java.io.IOException("No stream for $uri")
+                stream.use { DiagnosticLog.writeReport(it) }
+                true
+            } catch (e: Exception) {
+                Timber.e(e, "Could not save the log")
+                false
+            }
+            Handler(Looper.getMainLooper()).post {
+                Toast.makeText(context, if (saved) R.string.toast_log_saved else R.string.toast_log_failed, Toast.LENGTH_SHORT).show()
+            }
+        }
+    }
+
+    private fun dialogContent(view: View): View {
+        val padding = (20 * resources.displayMetrics.density).toInt()
+        return android.widget.FrameLayout(requireContext()).apply {
+            setPadding(padding, padding / 2, padding, 0)
+            addView(view)
+        }
+    }
+
+    private fun showPhotoFolder() {
+        val folder = configuration.screenSaverPhotoFolder
+        findPreference<Preference>(PREF_SCREENSAVER_PHOTO_FOLDER)?.summary = if (folder.isEmpty()) {
+            getString(R.string.summary_screensaver_photo_folder_none)
+        } else {
+            try {
+                PhotoFolder.displayName(DocumentsContract.getTreeDocumentId(Uri.parse(folder)))
+            } catch (e: IllegalArgumentException) {
+                folder
+            }
+        }
+    }
+
+    private fun onPhotoFolderClicked() {
+        if (configuration.screenSaverPhotoFolder.isEmpty()) {
+            pickPhotoFolder()
+            return
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.title_screensaver_photo_folder)
+            .setPositiveButton(R.string.button_screensaver_photo_folder_change) { _, _ -> pickPhotoFolder() }
+            .setNeutralButton(R.string.button_screensaver_photo_folder_clear) { _, _ -> setPhotoFolder(null) }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    private fun pickPhotoFolder() {
+        try {
+            photoFolderPicker.launch(null)
+        } catch (e: ActivityNotFoundException) {
+            Toast.makeText(requireContext(), R.string.toast_no_file_picker, Toast.LENGTH_LONG).show()
+        }
+    }
+
+    // Android keeps a limited number of folder grants for an application, so the old one goes
+    private fun setPhotoFolder(folder: Uri?) {
+        val resolver = requireContext().contentResolver
+        val previous = configuration.screenSaverPhotoFolder
+        try {
+            folder?.let { resolver.takePersistableUriPermission(it, Intent.FLAG_GRANT_READ_URI_PERMISSION) }
+        } catch (e: SecurityException) {
+            Timber.w(e, "Could not keep access to the photo folder")
+            Toast.makeText(requireContext(), R.string.toast_screensaver_photo_folder_failed, Toast.LENGTH_LONG).show()
+            return
+        }
+        try {
+            if (previous.isNotEmpty() && previous != folder?.toString()) {
+                resolver.releasePersistableUriPermission(Uri.parse(previous), Intent.FLAG_GRANT_READ_URI_PERMISSION)
+            }
+        } catch (e: SecurityException) {
+            Timber.w(e, "The previous photo folder had no grant to release")
+        }
+        configuration.screenSaverPhotoFolder = folder?.toString().orEmpty()
+        showPhotoFolder()
     }
 
     private fun setWebScreensaver(value: Boolean) {
@@ -661,6 +1102,26 @@ class SettingsFragment : BaseSettingsFragment() {
     }
 
     /**
+     * Leaving stops everything that lets the device be reached remotely, so it is confirmed
+     * first. The settings code was already asked for on the way in.
+     */
+    private fun confirmExit() {
+        val message = if (AppExit.isDefaultHome(requireContext())) {
+            R.string.dialog_exit_message_home
+        } else {
+            R.string.dialog_exit_message
+        }
+        AlertDialog.Builder(requireContext())
+            .setTitle(R.string.dialog_exit_title)
+            .setMessage(message)
+            .setPositiveButton(R.string.button_exit) { _, _ ->
+                activity?.let { AppExit.exit(it, it) }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .show()
+    }
+
+    /**
      * Hiding the button leaves nothing to tap on the dashboard, so it is confirmed first,
      * with the ways that are left to open the settings.
      */
@@ -691,6 +1152,15 @@ class SettingsFragment : BaseSettingsFragment() {
         const val PREF_SETTINGS_USER_AGENT = "pref_settings_user_agent"
         const val PREF_SETTINGS_SCREENSAVER_DIM = "settings_screensaver_dim"
         const val PREF_SETTINGS_WEB_SCREENSAVER = "settings_screensaver_web"
+        const val PREF_SCREENSAVER_PHOTO_FOLDER = "settings_screensaver_photo_folder"
         const val PREF_SETTINGS_WEB_SCREENSAVER_URL = "settings_screensaver_web_url"
+        private const val PREF_DEVICE_ADMIN = "button_device_admin"
+        private const val ADMIN_REMOVAL_MS = 1_000L
+        private const val LOG_FILE_TYPE = "text/plain"
+        private const val LOG_PROVIDER_SUFFIX = ".logs"
+        private const val SETTINGS_FILE_TYPE = "application/json"
+        private const val SETTINGS_FILE_NAME = "wallpanel-settings.json"
+        private const val MAX_SETTINGS_FILE_CHARS = 1_000_000
+        private const val RESTART_AFTER_IMPORT_MS = 1_500L
     }
 }

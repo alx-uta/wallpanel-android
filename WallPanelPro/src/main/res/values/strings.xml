@@ -127,7 +127,7 @@
     <string name="pref_motion_adjustments_title">Motion Adjustments</string>
     <string name="title_sensor_settings">Sensor Settings</string>
     <string name="title_enable_sensor_data">Enable Sensor Publishing</string>
-    <string name="summary_enable_sensor_data">Publishes available device sensor data over MQTT</string>
+    <string name="summary_enable_sensor_data">Reads the device sensors, for MQTT and the REST API</string>
     <string name="menu_title_help">Help</string>
     <string name="menu_title_privacy_policy">Privacy Policy</string>
     <string name="menu_title_dashboard">Dashboard</string>
@@ -147,7 +147,7 @@
     <string name="text_github_code">GitHub code</string>
     <string name="pref_about_title">About</string>
     <string name="pref_brightness_button">Capture Current Brightness Value</string>
-    <string name="pref_sensor_list_summary">Below is a list of sensor data available on this device to be published as MQTT data.</string>
+    <string name="pref_sensor_list_summary">Below is a list of sensor data available on this device, published over MQTT and served at /api/sensors.</string>
     <string name="pref_qr_code_summary">When active, will scan QR codes and publish the scanned code over MQTT.</string>
     <string name="pref_mqtt_settings_title">MQTT Settings</string>
     <string name="pref_mqtt_version_summary" formatted="false">Use MQTT %1$s to connect to broker.</string>
@@ -156,7 +156,11 @@
     <string name="pref_camera_bright_summary">Increases the screen brightness when motion or face detected.</string>
     <string name="pref_motion_leniency_description">The maximum tolerance of the difference between images. A lower tolerance means motion is more sensitive (1 – 20).</string>
     <string name="pref_motion_luma_description">Minimum brightness level to detect motion. No motion will be detected if brightness falls below this value (1 – 1000).</string>
-    <string name="pref_mjpeg_streaming_description">Use the device camera as a live MJPEG stream. Connect to the stream using the device IP address, HTTP Port, and end point: http://%s:2971/camera/stream</string>
+    <string name="pref_mjpeg_streaming_description">Use the device camera as a live MJPEG stream. Connect to the stream using the device IP address, HTTP Port, and end point: http://%1$s:%2$s/camera/stream</string>
+    <string name="pref_mjpeg_streaming_description_token">Use the device camera as a live MJPEG stream. Connect to the stream using the device IP address, HTTP Port, and end point: http://%1$s:%2$s/camera/stream?token=YOUR_TOKEN</string>
+    <string name="title_setting_http_token">Access Token</string>
+    <string name="pref_http_token_summary_off">Not set. Anyone on the network can use the REST API and watch the camera stream.</string>
+    <string name="pref_http_token_summary_on">Set. Every request needs the token, as a Bearer token, as the password in basic authentication, or as ?token= on the URL.</string>
     <string name="pref_mjpeg_streaming_title">MJPEG Streaming</string>
     <string name="pref_http_description">Control the application over HTTP using REST API calls. To find out which commands work with, review the help documentation.</string>
     <string name="pref_launchurl_summary">Enter the fully qualified URL for your home automation dashboard or path to file on the local device (requires storage access permission).</string>
@@ -205,6 +209,8 @@
     <string name="text_boot_waiting">Waiting for the network and the clock…</string>
     <string name="text_restart_notification_title">WallPanel Pro Restarting</string>
     <string name="text_restart_notification_message">Tap to reopen the dashboard.</string>
+    <string name="text_foreground_notification_title">WallPanel Pro</string>
+    <string name="text_foreground_notification_message">Tap to go back to the dashboard.</string>
     <string name="text_camera_front">Front</string>
     <string name="text_camera_back">Back</string>
     <string name="toast_camera_source_error">Could not start camera source, you may want to try again.</string>
@@ -279,7 +285,7 @@
     <string name="preference_title_screen_saver_settings">Screensaver</string>
     <string name="preference_summary_screen_saver_settings">When active, uses a built-in clock screen saver.</string>
     <string name="preference_title_screen_saver">Clock Screen Saver</string>
-    <string name="preference_summary_screen_saver_settings_wallpaper">When active, uses unsplash.it to get random wallpapers</string>
+    <string name="preference_summary_screen_saver_settings_wallpaper">When active, shows the photos in the Photo Folder, or random photos from picsum.photos without one</string>
     <string name="preference_title_screen_saver_wallpaper">Wallpaper Screen Saver</string>
     <string name="preference_summary_screen_saver_settings_blank">When active, the screensaver displays a blank screen</string>
     <string name="preference_title_screen_saver_blank">Blank Screen Saver</string>
@@ -314,6 +320,7 @@
     <string name="mqtt_sensor_charging">Charging</string>
     <string name="mqtt_sensor_temperature">Temperature</string>
     <string name="mqtt_sensor_light">Light</string>
+    <string name="mqtt_sensor_proximity">Proximity</string>
     <string name="mqtt_sensor_magnetic_field">Magnetic Field</string>
     <string name="mqtt_sensor_pressure">Pressure</string>
     <string name="mqtt_sensor_humidity">Humidity</string>
@@ -337,9 +344,19 @@
     <string name="mqtt_control_relaunch">Relaunch Dashboard</string>
     <string name="mqtt_control_restart_app">Restart App</string>
     <string name="mqtt_control_wake">Wake Screen</string>
+    <string name="mqtt_control_play_notification">Play Notification Sound</string>
+    <string name="mqtt_control_foreground">Bring to Front</string>
+    <string name="mqtt_control_notify">Notification</string>
+    <string name="mqtt_control_screensaver_mode">Screensaver Type</string>
+    <string name="mqtt_control_inactivity_time">Screensaver Timeout</string>
+    <string name="mqtt_control_screensaver_dim">Screensaver Dim Level</string>
+    <string name="mqtt_control_prevent_sleep">Prevent Sleep</string>
+    <string name="mqtt_control_dark_theme">Dark Theme</string>
+    <string name="mqtt_control_screensaver_url">Screensaver URL</string>
     <string name="mqtt_control_settings">Open Settings</string>
     <string name="mqtt_control_screen">Keep Screen Awake</string>
     <string name="mqtt_control_camera">Camera</string>
+    <string name="mqtt_control_stream">Camera Stream</string>
     <string name="mqtt_control_camera_resolution">Camera Resolution</string>
     <string name="mqtt_control_camera_fps">Camera FPS</string>
     <string name="mqtt_control_screensaver">Screensaver</string>
@@ -469,7 +486,14 @@
         <item>None</item>
         <item>Rotate Left</item>
         <item>Rotate Right</item>
-        <item>Flip Vertical</item>
+        <item>Rotate 180°</item>
+    </string-array>
+
+    <string-array name="clock_size_names">
+        <item>Normal</item>
+        <item>Large</item>
+        <item>Extra Large</item>
+        <item>Huge</item>
     </string-array>
 
     <string-array name="inactivity_times">
@@ -509,4 +533,136 @@
     </string-array>
 
 
+
+    <string name="title_setting_browser_reload_on_wake">Reload After Screensaver</string>
+    <string name="summary_setting_browser_reload_on_wake">Reloads the page when the screensaver is dismissed, so it does not show stale values.</string>
+    <string name="title_setting_browser_idle_return">Return to Dashboard</string>
+    <string name="summary_setting_browser_idle_return">Minutes without a touch after which the dashboard loads again if another page is showing. Currently %1$s. 0 turns this off.</string>
+    <string name="title_setting_browser_reload_interval">Reload Interval</string>
+    <string name="summary_setting_browser_reload_interval">Minutes between reloads of the page. Currently %1$s. 0 turns this off.</string>
+
+    <string name="title_setting_camera_mirror">Mirror Camera</string>
+    <string name="summary_setting_camera_mirror">Flips the camera stream left to right, after the rotation above.</string>
+
+    <string name="title_screensaver_clock_size">Clock Size</string>
+    <string name="title_screensaver_clock_move">Move Clock</string>
+    <string name="summary_screensaver_clock_move">Moves the clock every minute so it does not burn into the screen.</string>
+    <string name="title_screensaver_photo_folder">Photo Folder</string>
+    <string name="summary_screensaver_photo_folder_none">None chosen: random photos from the web</string>
+    <string name="button_screensaver_photo_folder_change">Choose Another</string>
+    <string name="button_screensaver_photo_folder_clear">Use Web Photos</string>
+    <string name="toast_screensaver_photo_folder_failed">Could not keep access to that folder</string>
+
+    <string name="title_setting_exit">Exit WallPanel</string>
+    <string name="summary_setting_exit">Closes WallPanel. MQTT, the HTTP server and the camera stop until it is opened again.</string>
+    <string name="dialog_exit_title">Exit WallPanel?</string>
+    <string name="dialog_exit_message">MQTT, the HTTP server and the camera stop until WallPanel is opened again, so it can\'t be controlled remotely in the meantime.</string>
+    <string name="dialog_exit_message_home">MQTT, the HTTP server and the camera stop until WallPanel is opened again, so it can\'t be controlled remotely in the meantime.\n\nWallPanel is the home app, so Android would open it again straight away. The home app setting opens next for another one to be picked.</string>
+    <string name="button_exit">Exit</string>
+
+    <string name="title_setting_app_return_minutes">Return to WallPanel</string>
+    <string name="summary_setting_app_return_minutes">Minutes after which WallPanel comes back to the front when another app was left open. Currently %1$s. 0 turns this off.</string>
+
+    <string name="title_setting_sensors_proximity_wake">Proximity Wakes Screen</string>
+    <string name="summary_setting_sensors_proximity_wake">Turns the screen on when something comes close to the proximity sensor. It stays on for Screen On After Detection in the camera settings.</string>
+    <string name="title_setting_sensors_proximity">Proximity</string>
+
+    <string name="pref_speech_category">Home Assistant</string>
+    <string name="title_setting_speech_ha_enabled">Speak Through Home Assistant</string>
+    <string name="summary_setting_speech_ha_enabled">The speak command asks Home Assistant to turn the message into audio and plays it, instead of using this device\'s text to speech. Falls back to the device if Home Assistant can\'t be reached.</string>
+    <string name="title_setting_speech_ha_url">Home Assistant Address</string>
+    <string name="summary_setting_speech_ha_url_default">Taken from the dashboard address: %1$s</string>
+    <string name="title_setting_speech_ha_token">Home Assistant Access Token</string>
+    <string name="summary_setting_speech_ha_token_off">Not set. Create a long-lived access token on your Home Assistant profile page.</string>
+    <string name="summary_setting_speech_ha_token_on">Set.</string>
+    <string name="title_setting_speech_ha_engine">Text-to-Speech Entity</string>
+    <string name="summary_setting_speech_ha_engine_default">Not set, the first one Home Assistant has is used. Example: tts.google_translate_en_com</string>
+    <string name="title_setting_speech_ha_language">Language</string>
+    <string name="summary_setting_speech_ha_language_default">Not set, the engine\'s own language is used. Example: en</string>
+
+    <string name="title_setting_voice_enabled">Voice Assistant</string>
+    <string name="summary_setting_voice_enabled">Shows a microphone button on the dashboard. Tap it and speak, and Home Assistant\'s Assist answers. Needs the address and access token above.</string>
+    <string name="title_setting_voice_pipeline">Assist Pipeline</string>
+    <string name="summary_setting_voice_pipeline_default">Not set, Home Assistant\'s preferred assistant is used. Takes a pipeline id or name.</string>
+    <string name="voice_connecting">Connecting to Home Assistant…</string>
+    <string name="voice_listening">Listening…</string>
+    <string name="voice_thinking">Working on it…</string>
+    <string name="voice_not_configured">The voice assistant needs Home Assistant\'s address and an access token, see Settings.</string>
+    <string name="voice_no_microphone">The voice assistant needs the microphone permission.</string>
+    <string name="voice_microphone_failed">The microphone could not be opened.</string>
+    <string name="voice_no_speech_to_text">No speech-to-text: Home Assistant\'s assistant has none, and this device has no speech recogniser.</string>
+    <string name="voice_not_heard">Sorry, I didn\'t catch that.</string>
+    <string name="voice_connection_failed">Could not reach Home Assistant.</string>
+    <string name="voice_auth_failed">Home Assistant refused the access token.</string>
+    <string name="voice_failed">The assistant failed: %1$s</string>
+    <string name="content_description_voice">Voice assistant</string>
+    <string name="mqtt_control_assist">Voice Assistant</string>
+
+    <string name="pref_navigation_category">Navigation</string>
+    <string name="title_setting_browser_swipe_navigation">Swipe From the Edges</string>
+    <string name="summary_setting_browser_swipe_navigation">Swipe in from the left edge to go back a page, from the right edge to go forward. Leave this off with a dashboard that uses swipes of its own near the edges.</string>
+    <string name="title_setting_browser_nav_buttons">Back and Home Buttons</string>
+    <string name="summary_setting_browser_nav_buttons">Shows a back button and a button that goes back to the dashboard.</string>
+    <string name="title_setting_browser_third_party_cookies">Third-Party Cookies</string>
+    <string name="summary_setting_browser_third_party_cookies">Lets pages embedded in the dashboard, such as an iframe card, keep cookies. Some, like a Squeezebox or Grafana panel, say cookies are not allowed without it.</string>
+    <string name="content_description_back">Back</string>
+    <string name="content_description_home">Dashboard</string>
+
+    <string name="pref_login_category">Dashboard Login</string>
+    <string name="title_setting_browser_login_username">Username</string>
+    <string name="summary_setting_browser_login_username_off">Not set. For a dashboard behind a username and password (HTTP basic authentication). The browser asks instead.</string>
+    <string name="title_setting_browser_login_password">Password</string>
+    <string name="summary_setting_browser_login_password_off">Not set.</string>
+    <string name="summary_setting_browser_login_password_on">Set.</string>
+    <string name="summary_setting_browser_login_username_on">%1$s, given to the dashboard\'s own server only: %2$s</string>
+    <string name="dialog_title_login">Log in to %1$s</string>
+
+    <string name="pref_lockdown_category">Lockdown</string>
+    <string name="title_setting_app_lockdown">Lockdown</string>
+    <string name="summary_setting_app_lockdown">Keeps WallPanel on screen: Home, Recents and the notification shade stop working. Android pins the screen and shows how to unpin it. As the device owner, WallPanel locks without asking and cannot be unpinned.</string>
+    <string name="summary_setting_app_lockdown_owner">Keeps WallPanel on screen: Home, Recents and the notification shade stop working, and there is no way out other than these settings or a command.</string>
+    <string name="title_setting_app_lockdown_apps">Apps Allowed in Lockdown</string>
+    <string name="summary_setting_app_lockdown_apps_off">None. Package names, separated by commas, of apps the dashboard may open while locked down. Device owner only.</string>
+    <string name="summary_setting_app_lockdown_apps_on">%1$s. Device owner only.</string>
+    <string name="title_setting_device_admin">Device Admin</string>
+    <string name="summary_device_admin_off">Off. Tap to let WallPanel turn the screen off. Device owner, set once over adb, adds full lockdown and reboot: adb shell dpm set-device-owner %1$s</string>
+    <string name="summary_device_admin_on">WallPanel may turn the screen off. Tap to take that back. Device owner, set once over adb, adds full lockdown and reboot: adb shell dpm set-device-owner %1$s</string>
+    <string name="summary_device_admin_owner">WallPanel is the device owner: full lockdown, screen off and reboot. Tap to give it up.</string>
+    <string name="device_admin_explanation">Lets WallPanel turn the screen off when Home Assistant or a command asks.</string>
+    <string name="dialog_device_admin_remove_title">Stop being device admin?</string>
+    <string name="dialog_device_admin_remove_message">WallPanel will no longer be able to turn the screen off.</string>
+    <string name="dialog_device_owner_remove_title">Give up device owner?</string>
+    <string name="dialog_device_owner_remove_message">Lockdown falls back to screen pinning, and the screen off and reboot commands stop working. Making WallPanel the device owner again needs adb, and Android only allows it on a device with no accounts added.</string>
+    <string name="button_remove">Remove</string>
+    <string name="toast_device_admin_failed">Could not change device admin</string>
+    <string name="toast_lockdown_app_blocked">Lockdown does not allow that app</string>
+    <string name="toast_lockdown_failed">Could not lock down: %1$s</string>
+    <string name="mqtt_control_lockdown">Lockdown</string>
+    <string name="mqtt_control_screen_off">Screen Off</string>
+    <string name="mqtt_control_reboot">Reboot</string>
+
+    <string name="pref_backup_category">Backup</string>
+    <string name="title_settings_export">Export Settings</string>
+    <string name="summary_settings_export">Saves these settings to a file, to set up another device or this one again.</string>
+    <string name="title_settings_import">Import Settings</string>
+    <string name="summary_settings_import">Loads settings from an exported file and restarts WallPanel.</string>
+    <string name="settings_export_secrets">Include passwords, access tokens and the settings code</string>
+    <string name="settings_import_keep_identity">Keep this device\'s MQTT client ID, base topic and device name</string>
+    <string name="settings_import_message">Settings in the file replace this device\'s. Settings the file does not have are left as they are. WallPanel restarts afterwards.</string>
+    <string name="button_export">Export</string>
+    <string name="button_import">Import</string>
+    <string name="toast_settings_exported">Settings exported</string>
+    <string name="toast_settings_export_failed">Could not save the settings file</string>
+    <string name="title_share_log">Share Log</string>
+    <string name="summary_share_log">Sends what WallPanel has been doing to someone who can help, or saves it to a file.</string>
+    <string name="message_share_log">Passwords and tokens are taken out, but the log still names your servers and the pages this device opened.</string>
+    <string name="button_share_log">Share</string>
+    <string name="button_save_log">Save</string>
+    <string name="toast_log_saved">Log saved</string>
+    <string name="toast_log_failed">Could not read the log</string>
+    <string name="toast_log_no_app">No app here can share a file, use Save instead</string>
+    <string name="toast_settings_import_failed">Not a WallPanel settings file</string>
+    <string name="toast_settings_import_write_failed">Could not save the imported settings</string>
+    <string name="toast_settings_imported">Settings imported, restarting</string>
+    <string name="toast_no_file_picker">This device has no file picker</string>
 </resources>

@@ -22,20 +22,31 @@ import android.content.Context
 import android.content.Intent
 import android.content.IntentFilter
 import android.graphics.Color
+import android.graphics.Typeface
+import android.graphics.drawable.GradientDrawable
 import android.os.Build
 import android.os.Bundle
 import android.os.Handler
 import android.os.Looper
+import android.text.SpannableStringBuilder
+import android.text.Spanned
+import android.text.style.StyleSpan
+import android.util.TypedValue
+import android.view.Gravity
 import android.view.View
 import android.view.ViewGroup
 import android.view.ViewTreeObserver
 import android.view.WindowManager
+import android.widget.FrameLayout
+import android.widget.LinearLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.appcompat.app.AppCompatDelegate
 import androidx.localbroadcastmanager.content.LocalBroadcastManager
 import dagger.android.support.DaggerAppCompatActivity
 import timber.log.Timber
 import xyz.wallpanel.pro.AppExceptionHandler
+import xyz.wallpanel.pro.R
 import xyz.wallpanel.pro.network.MQTTOptions
 import xyz.wallpanel.pro.network.WallPanelService
 import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_ALERT_MESSAGE
@@ -50,7 +61,12 @@ import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_SCREEN_WAK
 import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_SERVICE_STARTED
 import xyz.wallpanel.pro.network.WallPanelService.Companion.BROADCAST_TOAST_MESSAGE
 import xyz.wallpanel.pro.persistence.Configuration
+import xyz.wallpanel.pro.persistence.RemoteConfig
+import xyz.wallpanel.pro.utils.AppExit
+import xyz.wallpanel.pro.utils.DashboardLogin
 import xyz.wallpanel.pro.utils.DialogUtils
+import xyz.wallpanel.pro.utils.Lockdown
+import xyz.wallpanel.pro.utils.MqttUtils
 import xyz.wallpanel.pro.utils.ScreenUtils
 import javax.inject.Inject
 
@@ -79,6 +95,13 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     // Shades the page for the dim screensaver when the brightness on screen is not known
     private var dimShade: View? = null
     private var inForeground = false
+    // Set while lockdown waits for the window to have focus, see applyLockdown()
+    private var lockdownPending = false
+    // Set while a config command puts the screensaver up again, which is not a dismissal
+    private var reshowingScreenSaver = false
+    // Messages from the notification command, newest at the bottom
+    private var notificationViews: LinearLayout? = null
+    private val notificationHandler = Handler(Looper.getMainLooper())
     var displayProgress = true
     var zoomLevel = 1.0f
 
@@ -95,9 +118,14 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
             if (BROADCAST_ACTION_LOAD_URL == intent.action) {
                 val url = intent.getStringExtra(BROADCAST_ACTION_LOAD_URL)
                 url?.let {
+                    onUrlCommand()
                     loadWebViewUrl(url)
                     stopDisconnectTimer()
                 }
+            } else if (AppExit.BROADCAST_EXIT == intent.action) {
+                // A locked task stays on screen with its activities gone
+                Lockdown.release(this@BaseBrowserActivity)
+                finishAffinity()
             } else if (BROADCAST_ACTION_JS_EXEC == intent.action) {
                 val js = intent.getStringExtra(BROADCAST_ACTION_JS_EXEC)
                 js?.let {
@@ -145,15 +173,30 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
                 resetInactivityTimer()
                 window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             } else if (BROADCAST_BROWSER_ENGINE_PAUSE == intent.action) {
-                Timber.d("Screen off, pausing the browser engine")
+                Timber.i("Screen off, pausing the browser engine")
                 pauseBrowserEngine()
             } else if (BROADCAST_BROWSER_ENGINE_RESUME == intent.action && inFront) {
-                Timber.d("Screen on, resuming the browser engine")
+                Timber.i("Screen on, resuming the browser engine")
                 resumeBrowserEngine()
             } else if (BROADCAST_ACTION_RELOAD_PAGE == intent.action && !isFinishing) {
                 hideScreenSaver()
             } else if (BROADCAST_SERVICE_STARTED == intent.action && !isFinishing) {
                 //firstLoadUrl() // load the url after service started
+            } else if (BROADCAST_ACTION_CONFIG_CHANGED == intent.action && !isFinishing) {
+                val keys = intent.getStringArrayExtra(BROADCAST_ACTION_CONFIG_CHANGED)
+                keys?.let { onConfigChanged(it.toSet()) }
+            } else if (BROADCAST_ACTION_ASSIST == intent.action && !isFinishing) {
+                onAssistCommand(intent.getBooleanExtra(BROADCAST_ACTION_ASSIST, true))
+            } else if (BROADCAST_ACTION_NOTIFICATION == intent.action && !isFinishing) {
+                val message = intent.getStringExtra(WallPanelService.NOTIFICATION_MESSAGE)
+                message?.let {
+                    stopDisconnectTimer()
+                    showNotification(
+                        intent.getStringExtra(WallPanelService.NOTIFICATION_TITLE),
+                        it,
+                        intent.getLongExtra(WallPanelService.NOTIFICATION_TIMEOUT, 0L)
+                    )
+                }
             }
         }
     }
@@ -161,6 +204,11 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     @SuppressLint("SetJavaScriptEnabled")
     override fun onCreate(savedInstanceState: Bundle?) {
         super.onCreate(savedInstanceState)
+        // Before anything here touches the screen, the brightness or the commands, which
+        // belong to the browser that is already up
+        if (handOverToRunningBrowser()) {
+            return
+        }
 
         displayProgress = configuration.appShowActivity
         zoomLevel = configuration.testZoomLevel
@@ -187,11 +235,34 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         // engine is running again before anything else touches the page.
         resumeBrowserEngine()
         resetInactivityTimer()
+        applyLockdown()
+    }
+
+    /**
+     * Locks the task down, or lets it go, to match the setting. Only the activity in front
+     * can lock its task, so a change made while it is not waits for the next onResume().
+     * Locking waits for the window to have focus as well: asked while the lock screen or the
+     * notification shade still has it, Android drops the screen pinning prompt without a word.
+     */
+    private fun applyLockdown() {
+        if (AppExit.exiting || isFinishing) {
+            return
+        }
+        if (configuration.appLockdown && !hasWindowFocus()) {
+            lockdownPending = true
+            return
+        }
+        lockdownPending = false
+        val error = Lockdown.apply(this, configuration.appLockdown, configuration.appLockdownApps)
+        if (error != null && configuration.appLockdown) {
+            Toast.makeText(this, getString(R.string.toast_lockdown_failed, error), Toast.LENGTH_LONG).show()
+        }
     }
 
     override fun onPause() {
         super.onPause()
         inForeground = false
+        lockdownPending = false
         // The screensaver belongs to the page: counting down while the settings screen or
         // another app is in front would bring it up, and dim the screen, over them.
         inactivityHandler.removeCallbacks(inactivityCallback)
@@ -223,6 +294,10 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         filter.addAction(BROADCAST_BROWSER_ENGINE_PAUSE)
         filter.addAction(BROADCAST_BROWSER_ENGINE_RESUME)
         filter.addAction(BROADCAST_SERVICE_STARTED)
+        filter.addAction(AppExit.BROADCAST_EXIT)
+        filter.addAction(BROADCAST_ACTION_CONFIG_CHANGED)
+        filter.addAction(BROADCAST_ACTION_NOTIFICATION)
+        filter.addAction(BROADCAST_ACTION_ASSIST)
         LocalBroadcastManager.getInstance(this).registerReceiver(mBroadcastReceiver, filter)
     }
 
@@ -237,26 +312,158 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
                 WindowManager.LayoutParams.FLAG_HARDWARE_ACCELERATED
             )
         }
+        applyKeepScreenOn()
+        wallPanelService = Intent(this, WallPanelService::class.java)
+        // Started again while the application exits, the service would come back after the
+        // process has gone
+        if (!AppExit.exiting) {
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+                startForegroundService(wallPanelService)
+            } else {
+                startService(wallPanelService)
+            }
+        }
+        resetScreenBrightness(false)
+        LocalBroadcastManager.getInstance(this).sendBroadcast(Intent(WallPanelService.BROADCAST_BROWSER_SHOWN))
+    }
+
+    override fun onStop() {
+        super.onStop()
+        LocalBroadcastManager.getInstance(this).sendBroadcast(Intent(WallPanelService.BROADCAST_BROWSER_HIDDEN))
+    }
+
+    /** Keeps the screen on for the Prevent Sleep setting, without undoing a wake command. */
+    private fun applyKeepScreenOn() {
         if (configuration.appPreventSleep) {
             window.addFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
             decorView?.keepScreenOn = true
         } else {
-            window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            if (!hasWakeScreen) {
+                window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
+            }
             decorView?.keepScreenOn = false
         }
-        wallPanelService = Intent(this, WallPanelService::class.java)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            startForegroundService(wallPanelService)
-        } else {
-            startService(wallPanelService)
+    }
+
+    /**
+     * Brings what is on screen in line with settings the config command changed. Nothing
+     * else needs telling: the screensaver reads its settings each time it comes up.
+     */
+    private fun onConfigChanged(keys: Set<String>) {
+        if (MqttUtils.STATE_PREVENT_SLEEP in keys) {
+            applyKeepScreenOn()
         }
-        resetScreenBrightness(false)
+        if (MqttUtils.STATE_SCREENSAVER_DIM in keys) {
+            screenUtils.updateScreenSaverBrightness()
+            if (screenSaverActive) {
+                resetScreenBrightness(true)
+            }
+        }
+        if (MqttUtils.STATE_DARK_THEME in keys) {
+            applyDarkTheme()
+        }
+        if (MqttUtils.STATE_LOCKDOWN in keys && isInForeground()) {
+            applyLockdown()
+        }
+        if (screenSaverActive && keys.any { it in RemoteConfig.SCREENSAVER_KEYS }) {
+            reshowingScreenSaver = true
+            try {
+                hideScreenSaver()
+            } finally {
+                reshowingScreenSaver = false
+            }
+            if (isInForeground()) {
+                showScreenSaver()
+            }
+            if (!screenSaverActive) {
+                restartInactivityCountdown()
+            }
+        } else if (MqttUtils.STATE_INACTIVITY_TIME in keys && !screenSaverActive) {
+            restartInactivityCountdown()
+        }
+    }
+
+    /** Starts the countdown to the screensaver again, at the inactivity time as it is now. */
+    private fun restartInactivityCountdown() {
+        inactivityHandler.removeCallbacks(inactivityCallback)
+        if (isInForeground() && !hasWakeScreen) {
+            inactivityHandler.postDelayed(inactivityCallback, configuration.inactivityTime)
+        }
+    }
+
+    /**
+     * Returns true when another browser is already up and this one has handed over to it
+     * and is finishing.
+     */
+    protected open fun handOverToRunningBrowser(): Boolean = false
+
+    /** The dark theme setting changed while the page is up. */
+    protected open fun applyDarkTheme() {}
+
+    /** The assist command: start listening, or stop. */
+    protected open fun onAssistCommand(start: Boolean) {}
+
+    /** Says [text] the way the speak command would. */
+    protected fun speakThroughService(text: String) {
+        val intent = Intent(WallPanelService.BROADCAST_ACTION_SPEAK)
+        intent.putExtra(WallPanelService.BROADCAST_ACTION_SPEAK, text)
+        LocalBroadcastManager.getInstance(applicationContext).sendBroadcast(intent)
+    }
+
+    /**
+     * Puts a message over the page until it is touched, or for [timeoutSeconds] when that
+     * is above 0. Messages stack, the oldest going once there are [MAX_NOTIFICATIONS].
+     */
+    private fun showNotification(title: String?, message: String, timeoutSeconds: Long) {
+        val container = notificationViews ?: LinearLayout(this).also {
+            it.orientation = LinearLayout.VERTICAL
+            val params = FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP)
+            addContentView(it, params)
+            notificationViews = it
+        }
+        while (container.childCount >= MAX_NOTIFICATIONS) {
+            container.removeViewAt(0)
+        }
+        val text = SpannableStringBuilder()
+        if (!title.isNullOrBlank()) {
+            text.append(title, StyleSpan(Typeface.BOLD), Spanned.SPAN_EXCLUSIVE_EXCLUSIVE)
+            text.append("\n")
+        }
+        text.append(message)
+        val margin = dp(12)
+        val view = TextView(this).apply {
+            this.text = text
+            setTextColor(Color.WHITE)
+            setTextSize(TypedValue.COMPLEX_UNIT_SP, 22f)
+            setPadding(dp(20), dp(16), dp(20), dp(16))
+            background = GradientDrawable().apply {
+                setColor(NOTIFICATION_BACKGROUND)
+                cornerRadius = dp(12).toFloat()
+            }
+            layoutParams = LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT).apply {
+                setMargins(margin, margin, margin, 0)
+            }
+        }
+        val remove = Runnable { container.removeView(view) }
+        view.setOnClickListener {
+            notificationHandler.removeCallbacks(remove)
+            remove.run()
+        }
+        container.addView(view)
+        if (timeoutSeconds > 0) {
+            notificationHandler.postDelayed(remove, timeoutSeconds * 1000)
+        }
+    }
+
+    private fun dp(value: Int): Int {
+        return TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, value.toFloat(), resources.displayMetrics).toInt()
     }
 
     override fun onDestroy() {
         super.onDestroy()
         LocalBroadcastManager.getInstance(this).unregisterReceiver(mBroadcastReceiver)
         inactivityHandler.removeCallbacks(inactivityCallback)
+        notificationHandler.removeCallbacksAndMessages(null)
         // The screensaver goes with the activity. Left unreported, the service keeps
         // publishing it as on and the Home Assistant switch never comes back down.
         setScreenSaverActive(false)
@@ -316,6 +523,10 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
 
     override fun onWindowFocusChanged(hasFocus: Boolean) {
         super.onWindowFocusChanged(hasFocus)
+        // Also called from onUserInteraction(), so the window is asked rather than trusted
+        if (hasFocus && lockdownPending && isInForeground() && hasWindowFocus()) {
+            applyLockdown()
+        }
         val visibility: Int
         if (hasFocus && configuration.fullScreen) {
             visibility = (View.SYSTEM_UI_FLAG_LAYOUT_STABLE
@@ -339,8 +550,10 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     }
 
     fun pageLoadComplete(url: String) {
+        onPageLocation(url)
         val intent = Intent(WallPanelService.BROADCAST_EVENT_URL_CHANGE)
-        intent.putExtra(WallPanelService.BROADCAST_EVENT_URL_CHANGE, url)
+        // Published as the Current URL, where a password in it would be on show
+        intent.putExtra(WallPanelService.BROADCAST_EVENT_URL_CHANGE, DashboardLogin.withoutCredentials(url))
         val bm = LocalBroadcastManager.getInstance(applicationContext)
         bm.sendBroadcast(intent)
         complete()
@@ -372,6 +585,7 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
     }
 
     open fun hideScreenSaver() {
+        val wasActive = screenSaverActive
         val dialogDismissed = dialogUtils.hideScreenSaverDialog()
         window.clearFlags(WindowManager.LayoutParams.FLAG_KEEP_SCREEN_ON)
         // The dim screensaver has no dialog to dismiss, so the tracked flag rather than
@@ -381,7 +595,24 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         }
         setScreenSaverActive(false)
         onScreenSaverCovering(false)
+        if ((wasActive || dialogDismissed) && configuration.browserReloadOnWake && !reshowingScreenSaver) {
+            reloadAfterScreenSaver()
+        }
     }
+
+    /**
+     * The screensaver was dismissed with reloading after it switched on. Every way it goes
+     * counts: a touch, a wake command, motion or a face, the screen coming back on.
+     */
+    protected open fun reloadAfterScreenSaver() {
+        reload()
+    }
+
+    /** A url command is about to load its page. */
+    protected open fun onUrlCommand() {}
+
+    /** The address on view changed, by a load or by in-page navigation. */
+    protected open fun onPageLocation(url: String) {}
 
     /**
      * Show the screen saver only if the alarm isn't triggered. This shouldn't be an issue
@@ -411,7 +642,11 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
                 configuration.hasScreenSaverWallpaper,
                 configuration.hasClockScreenSaver,
                 configuration.imageRotation.toLong(),
-                configuration.appPreventSleep
+                configuration.appPreventSleep,
+                configuration.clockScreenSaverScale,
+                configuration.clockScreenSaverMoves,
+                configuration.browserThirdPartyCookies,
+                configuration.screenSaverPhotoFolder
             )
             resetScreenBrightness(true)
             setScreenSaverActive(true)
@@ -515,6 +750,11 @@ abstract class BaseBrowserActivity : DaggerAppCompatActivity() {
         const val BROADCAST_ACTION_OPEN_SETTINGS = "BROADCAST_ACTION_OPEN_SETTINGS"
         const val BROADCAST_ACTION_SHOW_SCREENSAVER = "BROADCAST_ACTION_SHOW_SCREENSAVER"
         const val BROADCAST_ACTION_HIDE_SCREENSAVER = "BROADCAST_ACTION_HIDE_SCREENSAVER"
+        const val BROADCAST_ACTION_CONFIG_CHANGED = "BROADCAST_ACTION_CONFIG_CHANGED"
+        const val BROADCAST_ACTION_NOTIFICATION = "BROADCAST_ACTION_NOTIFICATION"
+        const val BROADCAST_ACTION_ASSIST = "BROADCAST_ACTION_ASSIST"
+        private const val MAX_NOTIFICATIONS = 5
+        private const val NOTIFICATION_BACKGROUND = 0xE6303030.toInt()
         const val REQUEST_CODE_PERMISSION_AUDIO = 12
         const val REQUEST_CODE_PERMISSION_CAMERA = 13
     }

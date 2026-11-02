@@ -94,6 +94,12 @@
             android:entries="@array/flip_directions"
             android:entryValues="@array/flip_values"/>
 
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_camera_mirror"
+            android:key="@string/key_setting_camera_mirror"
+            android:title="@string/title_setting_camera_mirror"
+            android:summary="@string/summary_setting_camera_mirror"/>
+
     </PreferenceCategory>
 
     <PreferenceCategory android:title="Advanced Camera Features">

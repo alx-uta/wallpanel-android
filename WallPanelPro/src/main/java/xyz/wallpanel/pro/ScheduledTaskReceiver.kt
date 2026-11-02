@@ -28,6 +28,7 @@ import xyz.wallpanel.pro.persistence.Configuration
 import xyz.wallpanel.pro.persistence.Schedule
 import xyz.wallpanel.pro.persistence.ScheduleAction
 import xyz.wallpanel.pro.persistence.ScheduleRepository
+import xyz.wallpanel.pro.utils.LogRedactor
 import xyz.wallpanel.pro.utils.ScheduledTaskAlarmScheduler
 
 /**
@@ -88,9 +89,9 @@ class ScheduledTaskReceiver : BroadcastReceiver() {
         intent.putExtra(WallPanelService.EXTRA_COMMAND_JSON, command.toString())
         try {
             ContextCompat.startForegroundService(context, intent)
-            Timber.i("Dispatched scheduled command $command")
+            Timber.i("Dispatched scheduled command: ${LogRedactor.commandNames(command)}")
         } catch (e: Exception) {
-            Timber.e(e, "Could not dispatch the scheduled command $command")
+            Timber.e(e, "Could not dispatch the scheduled command: ${LogRedactor.commandNames(command)}")
         }
     }
 }

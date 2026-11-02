@@ -150,7 +150,11 @@ makes needs the API; the builds themselves do not care.
 - **MQTT is HiveMQ**, with `MQTT3Service`/`MQTT5Service` behind `MQTTModule`, selected
   by `mqttOptions.getVersion()`. The `android-retrofix` plugin backports
   `CompletableFuture`/Streams so HiveMQ works below API 24.
-- **Logging is Timber** (`Timber.d/i/e`), never `android.util.Log`.
+- **Logging is Timber** (`Timber.d/i/e`), never `android.util.Log`. Info and above also go
+  to a file on the device that users share with their bug reports (`DiagnosticLog`,
+  `website/docs/troubleshooting.md`). `LogRedactor` hides known secrets and patterns, so
+  it is a safety net: log a command's name, not its value, and keep spoken text, scripts
+  and shell output at `Timber.d`.
 
 ## Conventions
 

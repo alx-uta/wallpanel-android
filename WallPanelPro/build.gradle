@@ -247,6 +247,8 @@ dependencies {
     // Real org.json instead of the android.jar stub, so JSON parsing can be tested
     // without Robolectric.
     testImplementation 'org.json:json:20231013'
+    // A websocket server for the Assist client's conversation with Home Assistant
+    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
 
     // Instrumented tests (emulator/device)
     androidTestImplementation 'androidx.test.ext:junit:1.1.3'

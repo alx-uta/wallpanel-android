@@ -31,6 +31,13 @@
             android:singleLine="true"
             android:title="@string/title_setting_mqtt_sensorfrequency" />
 
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_sensors_proximity_wake"
+            android:dependency="@string/key_setting_sensors_enabled"
+            android:key="@string/key_setting_sensors_proximity_wake"
+            android:title="@string/title_setting_sensors_proximity_wake"
+            android:summary="@string/summary_setting_sensors_proximity_wake"/>
+
     </PreferenceCategory>
 
     <PreferenceCategory android:title="Sensor List">
@@ -82,6 +89,13 @@
             android:summary="@string/summary_setting_sensors_default"
             android:selectable="false"
             android:title="@string/title_setting_sensors_humidity"
+            android:dependency="@string/key_setting_sensors_enabled"/>
+
+        <Preference
+            android:key="@string/key_settings_sensors_proximity"
+            android:selectable="false"
+            android:summary="@string/summary_setting_sensors_default"
+            android:title="@string/title_setting_sensors_proximity"
             android:dependency="@string/key_setting_sensors_enabled"/>
 
         <Preference

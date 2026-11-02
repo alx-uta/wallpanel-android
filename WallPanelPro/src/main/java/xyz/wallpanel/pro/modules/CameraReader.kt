@@ -331,7 +331,7 @@ constructor(private val context: Context) {
                                 }
                             })
                             streamFrameStartedAt = SystemClock.elapsedRealtime()
-                            byteArrayCreateTask?.execute(stream.byteArray, stream.width, stream.height, cameraOrientation, configuration.cameraRotate)
+                            byteArrayCreateTask?.execute(stream.byteArray, stream.width, stream.height, cameraOrientation, configuration.cameraRotate, configuration.cameraMirror)
                             bitmapComplete = false
                         }
                     }
@@ -460,6 +460,7 @@ constructor(private val context: Context) {
             val height = params[2] as Int
             val orientation = params[3] as Int
             val rotation = params[4] as Float
+            val mirror = params[5] as Boolean
 
             val windowService = contextRef.get()!!.getSystemService(Context.WINDOW_SERVICE) as WindowManager
             val currentRotation = windowService.defaultDisplay.rotation
@@ -486,6 +487,10 @@ constructor(private val context: Context) {
 
             val matrix = Matrix()
             matrix.postRotate(rotate.toFloat())
+            // After the rotation, so it flips the picture as it is seen
+            if (mirror) {
+                matrix.postScale(-1f, 1f)
+            }
             val bitmap = Bitmap.createBitmap(nv21Bitmap, 0, 0, width, height, matrix, true)
             val stream = ByteArrayOutputStream()
             bitmap.compress(Bitmap.CompressFormat.JPEG, 80, stream)

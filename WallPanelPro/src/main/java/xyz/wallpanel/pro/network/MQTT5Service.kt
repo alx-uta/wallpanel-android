@@ -269,7 +269,8 @@ class MQTT5Service(
                         listener?.subscriptionMessage(
                             it.config.clientIdentifier.get().toString(),
                             publish.topic.toString(),
-                            Charsets.UTF_8.decode(publish.payload.get()).toString()
+                            // Empty for a message with no payload, such as a retained one being cleared
+                            String(publish.payloadAsBytes, Charsets.UTF_8)
                         )
                     }
                 } catch (e: NullPointerException) {

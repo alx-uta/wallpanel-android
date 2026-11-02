@@ -18,6 +18,7 @@ package xyz.wallpanel.pro.ui.activities
 
 import android.Manifest
 import android.annotation.SuppressLint
+import android.app.ActivityManager
 import android.app.KeyguardManager
 import android.content.ActivityNotFoundException
 import android.content.Context
@@ -48,6 +49,10 @@ import xyz.wallpanel.pro.databinding.ActivityBrowserBinding
 import xyz.wallpanel.pro.network.ConnectionLiveData
 import xyz.wallpanel.pro.utils.AppRestartHelper
 import xyz.wallpanel.pro.utils.BootReadinessGate
+import xyz.wallpanel.pro.utils.DashboardLogin
+import xyz.wallpanel.pro.utils.Lockdown
+import xyz.wallpanel.pro.utils.DashboardTracker
+import xyz.wallpanel.pro.utils.EdgeSwipe
 import xyz.wallpanel.pro.utils.InternalWebChromeClient
 import xyz.wallpanel.pro.ui.views.WebClientCallback
 import xyz.wallpanel.pro.utils.InternalWebClient
@@ -57,11 +62,13 @@ import xyz.wallpanel.pro.utils.GeckoWebChromeClientAdapter
 import xyz.wallpanel.pro.ui.views.GeckoViewWrapper
 import xyz.wallpanel.pro.BuildConfig
 import xyz.wallpanel.pro.R
+import xyz.wallpanel.pro.modules.VoiceAssistant
 import org.mozilla.geckoview.GeckoSession
 import timber.log.Timber
 import java.net.URISyntaxException
 import java.util.*
 import java.util.concurrent.TimeUnit
+import java.lang.ref.WeakReference
 
 
 class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClientCallback {
@@ -86,8 +93,18 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     private var screenSaverCovering = false
     // How far the GeckoView page is scrolled down, for the pull-to-refresh gesture
     private var geckoScrollY = 0
+    // Set when another browser was already up, see handOverToRunningBrowser()
+    private var handedOver = false
     // A page element, a video for instance, is showing fullscreen
     private var pageFullScreen = false
+    // The WebView's fullscreen element, and how to tell the WebView it was left
+    private var customView: View? = null
+    private var customViewCallback: WebChromeClient.CustomViewCallback? = null
+    // Swiping in from the edges goes back and forward, when that is switched on
+    private var edgeSwipe: EdgeSwipe? = null
+    private var voiceAssistant: VoiceAssistant? = null
+    // When an assist command came in while the dashboard was not on screen
+    private var assistRequestedAt = 0L
     // The page's upload field waiting on the file picker
     private var pendingFilePick: ((Array<Uri>?) -> Unit)? = null
 
@@ -113,6 +130,38 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
 
     private val reloadPageRunnable = Runnable {
         initWebPageLoad()
+    }
+
+    // The return to the dashboard after the device is left alone, and the reload interval
+    private val browserTimerHandler = Handler(Looper.getMainLooper())
+    private val dashboardTracker = DashboardTracker()
+    private val idleReturnRunnable = Runnable { returnToDashboardIfAway() }
+    // The interval the reload timer runs at, 0 while it is off
+    private var reloadIntervalMinutes = 0
+    // An interval reload fell due while the screen was off, so it is done when it comes back
+    private var intervalReloadDue = false
+    private var lastUserInteraction = 0L
+    // When the page was last asked to load or reload, so a second request right behind it
+    // does not start the load over
+    private var lastLoadRequested = 0L
+    private val intervalReloadRunnable = object : Runnable {
+        override fun run() {
+            val interval = TimeUnit.MINUTES.toMillis(reloadIntervalMinutes.toLong())
+            if (interval <= 0) {
+                return
+            }
+            val sinceTouch = SystemClock.elapsedRealtime() - lastUserInteraction
+            when {
+                // Not under somebody's fingers: a form being filled in would be lost
+                sinceTouch < RELOAD_TOUCH_GRACE_MS -> {
+                    browserTimerHandler.postDelayed(this, RELOAD_TOUCH_GRACE_MS - sinceTouch)
+                    return
+                }
+                browserEnginePaused -> intervalReloadDue = true
+                else -> requestReload()
+            }
+            browserTimerHandler.postDelayed(this, interval)
+        }
     }
 
     // Set while the first load after a reboot waits for the clock and the network
@@ -214,6 +263,11 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
 
         super.onCreate(savedInstanceState)
 
+        if (handedOver) {
+            return
+        }
+        runningBrowser = WeakReference(this)
+
         if (BuildConfig.DEBUG && configuration.isFirstTime) {
             // Only set debug defaults on first run, don't overwrite user settings
             configuration.mqttBroker = BuildConfig.BROKER
@@ -246,6 +300,9 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         binding.launchSettingsFab.setOnClickListener {
             openSettings()
         }
+        binding.navBackFab.setOnClickListener { goBack() }
+        binding.navHomeFab.setOnClickListener { goHome() }
+        binding.voiceFab.setOnClickListener { voice().toggle() }
 
         configureConnection()
         configureWebView(binding.root)
@@ -272,9 +329,117 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
                 pageFullScreen -> session?.exitFullScreen()
                 geckoClientAdapter?.canGoBack == true -> session?.goBack()
             }
+        } else if (customView != null) {
+            customViewCallback?.onCustomViewHidden()
+            hideCustomView()
         } else if (webView?.canGoBack() == true) {
             webView?.goBack()
         }
+    }
+
+    private fun goForward() {
+        if (pageFullScreen) {
+            return
+        }
+        if (usingGeckoView) {
+            if (geckoClientAdapter?.canGoForward == true) {
+                geckoViewWrapper?.geckoSession?.goForward()
+            }
+        } else if (webView?.canGoForward() == true) {
+            webView?.goForward()
+        }
+    }
+
+    /** The home button: the dashboard as it loads at start, the playlist included. */
+    private fun goHome() {
+        initWebPageLoad()
+    }
+
+    /**
+     * Takes a swipe in from the edge of the screen before the page sees it, see [EdgeSwipe].
+     * Off while a page element is fullscreen, where a swipe belongs to the video.
+     */
+    override fun dispatchTouchEvent(ev: MotionEvent): Boolean {
+        val swipe = edgeSwipe
+        if (swipe == null || (pageFullScreen && ev.actionMasked == MotionEvent.ACTION_DOWN)) {
+            return super.dispatchTouchEvent(ev)
+        }
+        val outcome = when (ev.actionMasked) {
+            MotionEvent.ACTION_DOWN -> swipe.onDown(ev.x, ev.y, window.decorView.width)
+            MotionEvent.ACTION_MOVE -> swipe.onMove(ev.x, ev.y)
+            MotionEvent.ACTION_POINTER_DOWN -> swipe.onPointerDown()
+            MotionEvent.ACTION_UP -> swipe.onUp(ev.x)
+            MotionEvent.ACTION_CANCEL -> swipe.onCancel()
+            else -> EdgeSwipe.Outcome.PASS
+        }
+        when (outcome) {
+            EdgeSwipe.Outcome.PASS -> return super.dispatchTouchEvent(ev)
+            EdgeSwipe.Outcome.CLAIMED -> {
+                val cancel = MotionEvent.obtain(ev)
+                cancel.action = MotionEvent.ACTION_CANCEL
+                super.dispatchTouchEvent(cancel)
+                cancel.recycle()
+            }
+            EdgeSwipe.Outcome.BACK -> goBack()
+            EdgeSwipe.Outcome.FORWARD -> goForward()
+            EdgeSwipe.Outcome.CONSUMED -> {}
+        }
+        return true
+    }
+
+    private fun voice(): VoiceAssistant {
+        return voiceAssistant ?: VoiceAssistant(this, configuration, voiceHost).also { voiceAssistant = it }
+    }
+
+    private val voiceHost = object : VoiceAssistant.Host {
+        override fun onVoiceState(state: VoiceAssistant.State, text: String?) {
+            val active = state != VoiceAssistant.State.IDLE
+            binding.voiceFab.backgroundTintList = ContextCompat.getColorStateList(
+                this@BrowserActivityNative,
+                if (state == VoiceAssistant.State.LISTENING) R.color.red_light_up else R.color.colorAccent
+            )
+            binding.voicePanel.text = text
+            binding.voicePanel.visibility = if (text.isNullOrEmpty()) View.GONE else View.VISIBLE
+            if (active) {
+                // Somebody is talking to the device: no screensaver over the answer
+                stopDisconnectTimer()
+            }
+        }
+
+        override fun requestMicrophone(onResult: (Boolean) -> Unit) {
+            requestAndroidPermissions(arrayOf(Manifest.permission.RECORD_AUDIO), onResult)
+        }
+
+        override fun speak(text: String) {
+            speakThroughService(text)
+        }
+    }
+
+    /**
+     * The assist command. It only listens while the dashboard is what is on screen and the
+     * voice assistant is switched on: a microphone opened remotely behind another app, or on
+     * a device where nobody asked for one, is not something to do. Sent with a wake command,
+     * it arrives before the dashboard is back on screen, so it waits a few seconds for that.
+     */
+    override fun onAssistCommand(start: Boolean) {
+        assistRequestedAt = 0L
+        if (!start) {
+            voiceAssistant?.cancel()
+            return
+        }
+        if (!configuration.voiceEnabled) {
+            Timber.w("Ignoring the assist command, the voice assistant is switched off")
+            return
+        }
+        if (isFinishing) {
+            return
+        }
+        if (!isInForeground()) {
+            Timber.i("Holding the assist command until the dashboard is on screen")
+            assistRequestedAt = SystemClock.elapsedRealtime()
+            return
+        }
+        voice().start()
     }
 
     /**
@@ -299,6 +464,11 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         super.onResume()
         // The browser is back, so the notification offering to reopen it has served its purpose
         AppRestartHelper.cancelRestartNotification(this)
+        val assistRequested = assistRequestedAt
+        assistRequestedAt = 0L
+        if (assistRequested != 0L && SystemClock.elapsedRealtime() - assistRequested < ASSIST_WAIT_MS) {
+            onAssistCommand(true)
+        }
     }
 
     /**
@@ -370,6 +540,9 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         if (usingGeckoView) {
             GeckoViewWrapper.setDarkTheme(configuration.useDarkTheme)
         }
+        // Here as well as with the other settings, since leaving the settings screen only
+        // reloads the page when one of them changed
+        applyThirdPartyCookies()
 
         if (configuration.browserRefresh) {
             binding.swipeContainer.isEnabled = true
@@ -391,10 +564,111 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
 
         setupSettingsButton()
+        setupNavigation()
+        scheduleIntervalReload()
 
         if (configuration.hasSettingsUpdates()) {
             initWebPageLoad()
         }
+    }
+
+    /**
+     * Starts the reload timer, or moves it to a new interval. An interval that has not
+     * changed keeps its countdown: the activity starts again each time the screen comes on.
+     */
+    private fun scheduleIntervalReload() {
+        val minutes = configuration.browserReloadIntervalMinutes
+        if (minutes == reloadIntervalMinutes) {
+            return
+        }
+        reloadIntervalMinutes = minutes
+        intervalReloadDue = false
+        browserTimerHandler.removeCallbacks(intervalReloadRunnable)
+        if (minutes > 0) {
+            browserTimerHandler.postDelayed(intervalReloadRunnable, TimeUnit.MINUTES.toMillis(minutes.toLong()))
+        }
+    }
+
+    /**
+     * Reloads the page on view for the reload interval or the screensaver going. Nothing
+     * happens while a load is already on its way: the first one after a reboot, a retry
+     * after an error, a GeckoView session waiting for the screen, or a load just asked for.
+     */
+    private fun requestReload() {
+        if (bootGate != null || awaitingReconnect || pendingGeckoReloadOnResume) {
+            return
+        }
+        if (SystemClock.elapsedRealtime() - lastLoadRequested < RECENT_LOAD_MS) {
+            return
+        }
+        Timber.i("Reloading the page")
+        reload()
+    }
+
+    override fun reloadAfterScreenSaver() {
+        requestReload()
+    }
+
+    /**
+     * GeckoView takes the colour scheme from its runtime, so a reload is enough. The WebView
+     * takes it from the theme it was created under and never looks again, so the activity is
+     * created anew, which loads the dashboard.
+     */
+    override fun applyDarkTheme() {
+        val dark = configuration.useDarkTheme
+        AppCompatDelegate.setDefaultNightMode(if (dark) AppCompatDelegate.MODE_NIGHT_YES else AppCompatDelegate.MODE_NIGHT_NO)
+        if (usingGeckoView) {
+            GeckoViewWrapper.setDarkTheme(dark)
+            reload()
+        } else {
+            recreate()
+        }
+    }
+
+    override fun onUserInteraction() {
+        super.onUserInteraction()
+        lastUserInteraction = SystemClock.elapsedRealtime()
+        dashboardTracker.onNavigationRequested()
+        restartIdleReturn()
+    }
+
+    override fun onUrlCommand() {
+        dashboardTracker.onNavigationRequested()
+        restartIdleReturn()
+    }
+
+    override fun onPageLocation(url: String) {
+        dashboardTracker.onLocation(url)
+    }
+
+    /**
+     * Counts down to going back to the dashboard from the last touch, or from the last page a
+     * command loaded. It keeps running with the screen off, so a device that went dark on
+     * another page is back on the dashboard when it wakes.
+     */
+    private fun restartIdleReturn() {
+        browserTimerHandler.removeCallbacks(idleReturnRunnable)
+        val minutes = configuration.browserIdleReturnMinutes
+        if (minutes > 0) {
+            browserTimerHandler.postDelayed(idleReturnRunnable, TimeUnit.MINUTES.toMillis(minutes.toLong()))
+        }
+    }
+
+    // A playlist moves between pages by itself, so it has no one page to come back to
+    private fun returnToDashboardIfAway() {
+        if (isFinishing || bootGate != null || awaitingReconnect || playlistUrls().size > 1) {
+            return
+        }
+        if (dashboardTracker.isAway()) {
+            Timber.i("Left on ${dashboardTracker.currentUrl}, going back to the dashboard")
+            initWebPageLoad()
+        }
+    }
+
+    override fun onPause() {
+        super.onPause()
+        // The microphone stays closed while the dashboard is not on view
+        voiceAssistant?.onHidden()
     }
 
     override fun onStop() {
@@ -404,14 +678,48 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
     }
 
+    /**
+     * WallPanel as the home app has its browser in the home task, and one started another way,
+     * on boot or from adb, in a task of its own, so either way round a second dashboard can
+     * come up beside the first. That happens most with lockdown as the device owner, where
+     * WallPanel is the fixed home app and Home leaves an allowed app. The browser already
+     * running is brought forward instead. A start that clears its task is a deliberate new
+     * browser, such as a restart, and goes ahead.
+     */
+    override fun handOverToRunningBrowser(): Boolean {
+        val running = runningBrowser?.get()
+        if (running == null || running === this || running.isFinishing || running.isDestroyed
+            || running.taskId == taskId
+            || (intent?.flags ?: 0) and Intent.FLAG_ACTIVITY_CLEAR_TASK != 0) {
+            return false
+        }
+        Timber.i("A second browser was opened, bringing the running one forward")
+        try {
+            val activityManager = getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager
+            activityManager.moveTaskToFront(running.taskId, 0)
+        } catch (e: Exception) {
+            Timber.w(e, "Could not bring the running browser forward")
+            return false
+        }
+        handedOver = true
+        finish()
+        return true
+    }
+
     override fun onDestroy() {
         super.onDestroy()
+        if (runningBrowser?.get() === this) {
+            runningBrowser = null
+        }
         reconnectionHandler.removeCallbacks(bootGateRunnable)
         playlistHandler.removeCallbacksAndMessages(null)
+        browserTimerHandler.removeCallbacksAndMessages(null)
         // Closing the session lets Gecko drop its references to this activity's view, which
         // otherwise outlive it.
         geckoViewWrapper?.destroy()
         geckoViewWrapper = null
+        voiceAssistant?.cancel()
+        voiceAssistant = null
         // Answered as refused, so the page is not left waiting on a request that is gone
         val unanswered = pagePermissionRequests.values.toList()
         pagePermissionRequests.clear()
@@ -453,6 +761,10 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         } else {
             webView?.onResume()
             webView?.resumeTimers()
+        }
+        if (intervalReloadDue) {
+            intervalReloadDue = false
+            requestReload()
         }
     }
 
@@ -527,6 +839,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
             Timber.i("Holding $url until the screen wakes")
             urlDeferredBySuspend = url
         } else {
+            lastLoadRequested = SystemClock.elapsedRealtime()
             if (usingGeckoView) {
                 geckoViewWrapper?.loadUrl(url)
             } else {
@@ -566,6 +879,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     }
 
     override fun reload() {
+        lastLoadRequested = SystemClock.elapsedRealtime()
         if (usingGeckoView) {
             geckoViewWrapper?.reload()
         } else {
@@ -579,6 +893,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         if (usingGeckoView) {
             // GeckoView settings are handled in GeckoViewWrapper
             geckoViewWrapper?.setUserAgent(userAgent)
+            applyThirdPartyCookies()
         } else {
             if (webSettings == null) {
                 webSettings = webView?.settings
@@ -617,6 +932,8 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
                 webSettings?.userAgentString = userAgent
             }
 
+            applyThirdPartyCookies()
+
             if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
                 webSettings?.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
             }
@@ -631,6 +948,15 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
                     webSettings?.forceDark = WebSettings.FORCE_DARK_OFF
                 }
             }
+        }
+    }
+
+    private fun applyThirdPartyCookies() {
+        val allow = configuration.browserThirdPartyCookies
+        if (usingGeckoView) {
+            GeckoViewWrapper.setThirdPartyCookies(allow)
+        } else {
+            webView?.let { CookieManager.getInstance().setAcceptThirdPartyCookies(it, allow) }
         }
     }
 
@@ -666,6 +992,8 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
     }
 
     override fun replaceDeadWebView(deadView: WebView) {
+        // A fullscreen element belonged to the renderer that died
+        hideCustomView()
         val parent = deadView.parent as? ViewGroup
         val index = parent?.indexOfChild(deadView) ?: -1
         val layoutParams = deadView.layoutParams
@@ -783,6 +1111,11 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
             Intent(Intent.ACTION_VIEW, Uri.parse(url))
         }
         launchIntent.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK)
+        if (!Lockdown.mayOpen(this, launchIntent, configuration.appLockdownApps)) {
+            Timber.w("Not opening $url: lockdown does not allow the app")
+            Toast.makeText(this, R.string.toast_lockdown_app_blocked, Toast.LENGTH_SHORT).show()
+            return false
+        }
         return try {
             startActivity(launchIntent)
             true
@@ -826,12 +1159,57 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         pageFullScreen = fullScreen
         if (fullScreen) {
             binding.launchSettingsFab.visibility = View.GONE
+            binding.navButtons.visibility = View.GONE
+            binding.voiceFab.visibility = View.GONE
             binding.swipeContainer.isEnabled = false
         } else {
             setupSettingsButton()
+            setupNavigation()
             binding.swipeContainer.isEnabled = configuration.browserRefresh
         }
         onWindowFocusChanged(hasWindowFocus())
+    }
+
+    /**
+     * The WebView hands over the fullscreen element as a view of its own, which goes over
+     * the page and its buttons. The page itself stays where it is underneath.
+     */
+    override fun showCustomView(view: View, onHidden: WebChromeClient.CustomViewCallback) {
+        if (customView != null) {
+            onHidden.onCustomViewHidden()
+            return
+        }
+        customView = view
+        customViewCallback = onHidden
+        binding.fullscreenContainer.addView(
+            view,
+            ViewGroup.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT)
+        )
+        binding.fullscreenContainer.visibility = View.VISIBLE
+        onPageFullScreen(true)
+    }
+
+    override fun hideCustomView() {
+        if (customView == null) {
+            return
+        }
+        customView = null
+        customViewCallback = null
+        binding.fullscreenContainer.removeAllViews()
+        binding.fullscreenContainer.visibility = View.GONE
+        onPageFullScreen(false)
+    }
+
+    override fun storedLogin(host: String?): Pair<String, String>? {
+        return dashboardLogin().credentialsFor(host)
+    }
+
+    override fun storedLoginForUrl(url: String?): Pair<String, String>? {
+        return dashboardLogin().credentialsForUrl(url)
+    }
+
+    private fun dashboardLogin(): DashboardLogin {
+        return DashboardLogin(configuration.appLaunchUrl, configuration.browserLoginUsername, configuration.browserLoginPassword)
     }
 
     override fun geckoPageStarted() {
@@ -1008,7 +1386,9 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
             startPlaylist()
         } else {
             playlistHandler.removeCallbacksAndMessages(null)
-            loadWebViewUrl(playlistUrls().firstOrNull() ?: configuration.appLaunchUrl)
+            val url = playlistUrls().firstOrNull() ?: configuration.appLaunchUrl
+            dashboardTracker.onDashboardLoad(url)
+            loadWebViewUrl(url)
         }
     }
 
@@ -1114,7 +1494,37 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         }
     }
 
+    /**
+     * The back and dashboard buttons sit in the bottom corner the settings button leaves
+     * free, and the voice button in the middle.
+     */
+    private fun setupNavigation() {
+        val density = resources.displayMetrics.density
+        edgeSwipe = if (configuration.browserSwipeNavigation) {
+            EdgeSwipe(EDGE_SWIPE_EDGE_DP * density, EDGE_SWIPE_DISTANCE_DP * density, ViewConfiguration.get(this).scaledTouchSlop.toFloat())
+        } else {
+            null
+        }
+        if (pageFullScreen) {
+            return
+        }
+        val buttons = binding.navButtons
+        buttons.visibility = if (configuration.browserNavButtons) View.VISIBLE else View.GONE
+        val params = buttons.layoutParams as CoordinatorLayout.LayoutParams
+        val settingsBottomStart = !configuration.settingsDisabled && configuration.settingsLocation == 1
+        params.gravity = Gravity.BOTTOM or if (settingsBottomStart) Gravity.END else Gravity.START
+        buttons.layoutParams = params
+        if (configuration.voiceEnabled) {
+            binding.voiceFab.visibility = View.VISIBLE
+        } else {
+            voiceAssistant?.cancel()
+            binding.voiceFab.visibility = View.GONE
+        }
+    }
+
     companion object {
+        // The browser that is up, see handOverToRunningBrowser()
+        private var runningBrowser: WeakReference<BrowserActivityNative>? = null
         const val PERMISSIONS_REQUEST_NOTIFICATIONS = 220
         // Request codes for permissions a page asks for, taken in turn
         private const val PERMISSIONS_REQUEST_PAGE_FIRST = 300
@@ -1122,5 +1532,10 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         private const val BOOT_GATE_POLL_MS = 1000L
         private const val RENDERER_DEATH_WINDOW_MS = 60_000L
         private const val PLAYLIST_MIN_PAGE_TIME = 10_000L
+        private const val RECENT_LOAD_MS = 5_000L
+        private const val RELOAD_TOUCH_GRACE_MS = 60_000L
+        private const val EDGE_SWIPE_EDGE_DP = 24
+        private const val ASSIST_WAIT_MS = 5_000L
+        private const val EDGE_SWIPE_DISTANCE_DP = 72
     }
 }

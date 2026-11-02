@@ -33,9 +33,19 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         get() = this.sharedPreferences.getBoolean(PREF_FIRST_TIME, true)
         set(value) = this.sharedPreferences.edit().putBoolean(PREF_FIRST_TIME, value).apply()
 
-    val appPreventSleep: Boolean
+    var appPreventSleep: Boolean
         get() = getBoolPref(R.string.key_setting_app_preventsleep,
                 R.string.default_setting_app_preventsleep)
+        set(value) {
+            sharedPreferences.edit().putBoolean(context.getString(R.string.key_setting_app_preventsleep), value).apply()
+        }
+
+    /**
+     * Minutes another app may stay in front before WallPanel brings itself back. 0 is off.
+     */
+    val appReturnMinutes: Int
+        get() = getIntPref(R.string.key_setting_app_return_minutes, R.string.default_setting_app_return_minutes)
+            .coerceAtLeast(0)
 
     // TODO we have to migrate this due to an error when entering codes with leading 0 value
     var settingsCode: String
@@ -102,6 +112,10 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     var cameraRotate: Float
         get() = this.sharedPreferences.getString(PREF_CAMERA_ROTATE, "0f")?.trim()?.toFloatOrNull() ?: 0f
         set(value) = this.sharedPreferences.edit().putString(PREF_CAMERA_ROTATE, value.toString()).apply()
+
+    /** Flips the streamed picture left to right, after it has been rotated. */
+    val cameraMirror: Boolean
+        get() = getBoolPref(R.string.key_setting_camera_mirror, R.string.default_setting_camera_mirror)
 
     var appLaunchUrl: String
         get() = getStringPref(R.string.key_setting_app_launchurl,
@@ -199,6 +213,17 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     val httpMJPEGEnabled: Boolean
         get() = getBoolPref(R.string.key_setting_http_mjpegenabled,
                 R.string.default_setting_http_mjpegenabled)
+
+    /**
+     * The access token every HTTP request has to carry, the stream as well as the REST API.
+     * Empty leaves the server open, which is how it has always behaved. Surrounding spaces
+     * are dropped: they are easy to paste in and impossible to see in the settings.
+     */
+    var httpToken: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_http_token), null)?.trim().orEmpty()
+        set(value) {
+            sharedPreferences.edit().putString(context.getString(R.string.key_setting_http_token), value).apply()
+        }
 
     fun setHttpMJPEGEnabled(value: Boolean?) {
         sharedPreferences.edit().putBoolean(context.getString(R.string.key_setting_http_mjpegenabled), value!!).apply()
@@ -352,6 +377,72 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         get() = getBoolPref(R.string.key_setting_sensors_enabled,
                 R.string.default_setting_sensors_value)
 
+    /** Something coming close to the proximity sensor turns the screen on. */
+    val sensorsProximityWake: Boolean
+        get() = getBoolPref(R.string.key_setting_sensors_proximity_wake, R.string.default_setting_sensors_proximity_wake)
+
+    /** The speak command goes through Home Assistant's text to speech. */
+    val speechHaEnabled: Boolean
+        get() = getBoolPref(R.string.key_setting_speech_ha_enabled, R.string.default_setting_speech_ha_enabled)
+
+    /** Where Home Assistant is, as typed. Empty means the dashboard's own address. */
+    val speechHaUrl: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_speech_ha_url), null)?.trim().orEmpty()
+
+    /** A long-lived access token. Surrounding spaces are dropped, see [httpToken]. */
+    val speechHaToken: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_speech_ha_token), null)?.trim().orEmpty()
+
+    /** The `tts.` entity to speak with. Empty picks the first one Home Assistant has. */
+    val speechHaEngine: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_speech_ha_engine), null)?.trim().orEmpty()
+
+    /** The language to ask the engine for. Empty leaves it to the engine. */
+    val speechHaLanguage: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_speech_ha_language), null)?.trim().orEmpty()
+
+    /** A microphone button on the dashboard talks to Home Assistant's Assist. */
+    val voiceEnabled: Boolean
+        get() = getBoolPref(R.string.key_setting_voice_enabled, R.string.default_setting_voice_enabled)
+
+    /** The Assist pipeline, by id or name. Empty means Home Assistant's preferred one. */
+    val voicePipeline: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_voice_pipeline), null)?.trim().orEmpty()
+
+    /** Swiping in from the left edge goes back a page, from the right edge forward. */
+    val browserSwipeNavigation: Boolean
+        get() = getBoolPref(R.string.key_setting_browser_swipe_navigation, R.string.default_setting_browser_swipe_navigation)
+
+    /**
+     * WallPanel holds the screen as a locked task: screen pinning, or the full lock task mode
+     * when it is the device owner. See [xyz.wallpanel.pro.utils.Lockdown].
+     */
+    var appLockdown: Boolean
+        get() = getBoolPref(R.string.key_setting_app_lockdown, R.string.default_setting_app_lockdown)
+        set(value) {
+            sharedPreferences.edit().putBoolean(context.getString(R.string.key_setting_app_lockdown), value).apply()
+        }
+
+    /** Package names of apps that may be opened while locked down, as the setting holds them. */
+    val appLockdownApps: String
+        get() = getStringPref(R.string.key_setting_app_lockdown_apps, R.string.default_setting_app_lockdown_apps).trim()
+
+    /** On-screen back and dashboard buttons. */
+    val browserNavButtons: Boolean
+        get() = getBoolPref(R.string.key_setting_browser_nav_buttons, R.string.default_setting_browser_nav_buttons)
+
+    /** Pages embedded in the dashboard, such as an iframe card, may keep cookies. */
+    val browserThirdPartyCookies: Boolean
+        get() = getBoolPref(R.string.key_setting_browser_third_party_cookies, R.string.default_setting_browser_third_party_cookies)
+
+    /** The username given to the dashboard's server when it asks for one. Empty is none. */
+    val browserLoginUsername: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_browser_login_username), null)?.trim().orEmpty()
+
+    /** Kept as typed: spaces can be part of a password. */
+    val browserLoginPassword: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_browser_login_password), null).orEmpty()
+
     val hardwareAccelerated: Boolean
         get() = getBoolPref(R.string.key_hadware_accelerated_enabled,
                 R.string.default_hardware_accelerated_value)
@@ -375,6 +466,23 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         set(value) {
             sharedPreferences.edit().putBoolean(context.getString(R.string.key_pref_browser_refresh), value).apply()
         }
+
+    /** Reload the page when a screensaver is dismissed, so it does not show stale values. */
+    val browserReloadOnWake: Boolean
+        get() = getBoolPref(R.string.key_setting_browser_reload_on_wake, R.string.default_setting_browser_reload_on_wake)
+
+    /**
+     * Minutes without a touch after which the dashboard is loaded again if another page is
+     * showing. 0 is off.
+     */
+    val browserIdleReturnMinutes: Int
+        get() = getIntPref(R.string.key_setting_browser_idle_return, R.string.default_setting_browser_idle_return)
+            .coerceAtLeast(0)
+
+    /** Minutes between reloads of the page on view. 0 is off. */
+    val browserReloadIntervalMinutes: Int
+        get() = getIntPref(R.string.key_setting_browser_reload_interval, R.string.default_setting_browser_reload_interval)
+            .coerceAtLeast(0)
 
     var useGeckoView: Boolean
         get() = getBoolPref(R.string.key_use_geckoview, R.string.default_use_geckoview)
@@ -517,10 +625,24 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         set(value) =
             sharedPreferences.edit().putBoolean(context.getString(R.string.key_screensaver), value).apply()
 
+    /** How many times its normal size the screensaver clock is drawn, as far as it fits. */
+    val clockScreenSaverScale: Float
+        get() = getStringPref(R.string.key_screensaver_clock_size, R.string.default_screensaver_clock_size)
+            .trim().toFloatOrNull()?.takeIf { it > 0f } ?: 1f
+
+    /** Whether the screensaver clock moves around every minute, against burn-in. */
+    val clockScreenSaverMoves: Boolean
+        get() = getBoolPref(R.string.key_screensaver_clock_move, R.string.default_screensaver_clock_move)
+
     var hasScreenSaverWallpaper: Boolean
         get() = getBoolPref(R.string.key_screensaver_wallpaper, R.string.default_screensaver_wallpaper)
         set(value) =
             sharedPreferences.edit().putBoolean(context.getString(R.string.key_screensaver_wallpaper), value).apply()
+
+    /** The folder the wallpaper screensaver shows, a document tree. Empty shows web photos. */
+    var screenSaverPhotoFolder: String
+        get() = sharedPreferences.getString(PREF_SCREENSAVER_PHOTO_FOLDER, "").orEmpty()
+        set(value) = sharedPreferences.edit().putString(PREF_SCREENSAVER_PHOTO_FOLDER, value).apply()
 
     var webScreenSaver: Boolean
         get() = this.sharedPreferences.getBoolean(PREF_WEB_SCREENSAVER, false)
@@ -605,6 +727,35 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         sharedPreferences.edit().putStringSet(context.getString(keyRes), excluded.toSet()).apply()
     }
 
+    /** Every stored setting, by key, for an export. See [SettingsBackup]. */
+    /** What [xyz.wallpanel.pro.utils.LogRedactor] takes out of the log wherever it turns up. */
+    fun logHiddenValues(): List<String> = listOf(
+        mqttPassword, httpToken, speechHaToken, browserLoginPassword
+    ).filter { it.isNotEmpty() }
+
+    fun allSettings(): Map<String, *> = sharedPreferences.all.filterKeys { it !in BACKUP_INTERNAL_KEYS }
+
+    /**
+     * Writes settings read from an export over the stored ones, all at once, before
+     * returning. An entry whose type differs from the one stored under its key is left
+     * out: every read of that setting would throw. False when they could not be written.
+     */
+    fun importSettings(values: Map<String, Any>): Boolean {
+        val editor = sharedPreferences.edit()
+        SettingsBackup.compatible(values.filterKeys { it !in BACKUP_INTERNAL_KEYS }, sharedPreferences.all).forEach { (key, value) ->
+            @Suppress("UNCHECKED_CAST")
+            when (value) {
+                is String -> editor.putString(key, value)
+                is Boolean -> editor.putBoolean(key, value)
+                is Int -> editor.putInt(key, value)
+                is Long -> editor.putLong(key, value)
+                is Float -> editor.putFloat(key, value)
+                is Set<*> -> editor.putStringSet(key, value as Set<String>)
+            }
+        }
+        return editor.commit()
+    }
+
     fun hasSettingsUpdates(): Boolean {
         val updates = sharedPreferences.getBoolean(PREF_BROWSER_SETTINGS_UPDATED, false)
         sharedPreferences.edit().putBoolean(PREF_BROWSER_SETTINGS_UPDATED, false).apply()
@@ -621,6 +772,27 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     }
 
     companion object {
+        /**
+         * The application's own bookkeeping, which never goes into an export or comes out of
+         * an import. The legacy dim flag "c" is migrated into the current setting when it is
+         * read, so one brought back by an import would overwrite the setting it came with.
+         */
+        private val BACKUP_INTERNAL_KEYS: Set<String> by lazy {
+            setOf(
+                PREF_FIRST_TIME,
+                PREF_CAMERA_PERMISSIONS,
+                PREF_SHELL_PERMISSIONS,
+                PREF_NOTIFICATION_PERMISSIONS,
+                PREF_OVERLAY_PERMISSION,
+                PREF_MQTT_DISCOVERY_ADVERTISED_TOPICS,
+                PREF_BROWSER_SETTINGS_UPDATED,
+                PREF_DEVICE_BRIGHTNESS_WAS_AUTOMATIC,
+                PREF_SETTINGS_CODE,
+                PREF_SCREENSAVER_DIM_LEGACY,
+                PREF_SCREENSAVER_PHOTO_FOLDER,
+            )
+        }
+
         /** See [mqttBaseTopic]. Surrounding spaces are dropped, an empty topic stays empty. */
         fun normalizeBaseTopic(topic: String): String {
             val trimmed = topic.trim()
@@ -632,7 +804,7 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         private const val PREF_DARK_THEME = "pref_dark_theme"
         private const val PREF_FULL_SCREEN = "pref_full_screen"
         private const val PREF_SETTINGS_CODE = "pref_settings_code"
-        private const val PREF_SETTINGS_CODE_STRING = "pref_settings_code_string"
+        const val PREF_SETTINGS_CODE_STRING = "pref_settings_code_string"
         private const val PREF_SETTINGS_TRANSPARENT = "pref_settings_transparent"
         private const val PREF_SETTINGS_DISABLE = "pref_settings_disable"
         private const val PREF_SETTINGS_LOCATION = "pref_settings_location"
@@ -651,6 +823,8 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         const val PREF_IMAGE_ROTATION = "pref_image_rotation"
         private val PREF_CAMERA_FACE_SIZE = "pref_camera_face_size"
         private val PREF_CAMERA_MOTION_LATENCY = "pref_camera_motion_latency"
+        // A grant on this device alone, so it means nothing in an export
+        private const val PREF_SCREENSAVER_PHOTO_FOLDER = "pref_screensaver_photo_folder"
         private val PREF_WEB_SCREENSAVER_URL = "pref_web_screensaver_url"
         private val PREF_WEB_SCREENSAVER = "pref_web_screensaver"
         const val WEB_SCREEN_SAVER = "https://wallpanel.xyz"

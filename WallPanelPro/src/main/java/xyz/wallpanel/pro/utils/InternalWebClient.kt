@@ -4,6 +4,7 @@ import android.content.res.Resources
 import android.graphics.Bitmap
 import android.net.http.SslError
 import android.os.Build
+import android.webkit.HttpAuthHandler
 import android.webkit.RenderProcessGoneDetail
 import android.webkit.SslErrorHandler
 import android.webkit.WebResourceRequest
@@ -28,6 +29,10 @@ open class InternalWebClient(val resources: Resources, private val callback: Web
     // The certificate warning on screen, and every load waiting on its answer
     private var sslDialog: AlertDialog? = null
     private val pendingSslErrors = mutableListOf<SslErrorHandler>()
+    // The login prompt on screen, and the requests waiting on it. They are dropped when
+    // another page starts.
+    private var loginDialog: AlertDialog? = null
+    private val pendingLogins = mutableListOf<PendingLogin>()
 
     /**
      * Anything the WebView cannot show, an `intent:` or an app's own scheme such as `tel:`,
@@ -86,6 +91,7 @@ open class InternalWebClient(val resources: Resources, private val callback: Web
         if (!isPlaceholderPage(url)) {
             loadFailed = false
         }
+        cancelLogins()
     }
 
     /**
@@ -169,6 +175,85 @@ open class InternalWebClient(val resources: Resources, private val callback: Web
         handlers.forEach { if (proceed) it.proceed() else it.cancel() }
     }
 
+    /**
+     * A page behind HTTP authentication, basic auth for instance. Without an answer the
+     * WebView cancels and shows the server's 401 page. The dashboard's own server gets the
+     * username and password from the settings, until it turns them down, and then the user
+     * is asked. A page asks once for each resource behind the login, so the requests for the
+     * same server and realm wait on the one prompt and share its answer.
+     */
+    override fun onReceivedHttpAuthRequest(view: WebView, handler: HttpAuthHandler, host: String?, realm: String?) {
+        val stored = callback.storedLogin(host)
+        if (stored != null && handler.useHttpAuthUsernamePassword()) {
+            handler.proceed(stored.first, stored.second)
+            return
+        }
+        if (callback.isFinishing()) {
+            handler.cancel()
+            return
+        }
+        pendingLogins += PendingLogin(handler, host.orEmpty(), realm.orEmpty())
+        if (loginDialog == null) {
+            showNextLogin(view, stored?.first)
+        }
+    }
+
+    private class PendingLogin(val handler: HttpAuthHandler, val host: String, val realm: String)
+
+    private fun showNextLogin(view: WebView, username: String?) {
+        val next = pendingLogins.firstOrNull() ?: return
+        val fields = LoginFields(view.context, username ?: callback.storedLogin(next.host)?.first, passwordOnly = false)
+        var answered = false
+        val dialog = AlertDialog.Builder(view.context)
+            .setTitle(resources.getString(R.string.dialog_title_login, next.host))
+            .setMessage(next.realm)
+            .setView(fields.view)
+            .setPositiveButton(android.R.string.ok) { _, _ ->
+                answered = true
+                answerLogins(next) { it.proceed(fields.username, fields.password) }
+            }
+            .setNegativeButton(android.R.string.cancel, null)
+            .create()
+        // Back, a tap outside, Cancel, or another page starting
+        dialog.setOnDismissListener {
+            if (loginDialog !== dialog) {
+                return@setOnDismissListener
+            }
+            loginDialog = null
+            if (!answered) {
+                answerLogins(next) { it.cancel() }
+            }
+            if (!callback.isFinishing()) {
+                showNextLogin(view, null)
+            }
+        }
+        loginDialog = dialog
+        try {
+            dialog.show()
+        } catch (e: Exception) {
+            Timber.e(e, "Unable to show the login prompt")
+            loginDialog = null
+            cancelLogins()
+        }
+    }
+
+    /** Answers every waiting request for the same server and realm as [first]. */
+    private fun answerLogins(first: PendingLogin, answer: (HttpAuthHandler) -> Unit) {
+        val same = pendingLogins.filter { it.host == first.host && it.realm == first.realm }
+        pendingLogins.removeAll(same)
+        same.forEach { answer(it.handler) }
+    }
+
+    /** The page they belong to has gone, or is going. */
+    private fun cancelLogins() {
+        val waiting = pendingLogins.toList()
+        pendingLogins.clear()
+        val dialog = loginDialog
+        loginDialog = null
+        dialog?.dismiss()
+        waiting.forEach { it.handler.cancel() }
+    }
+
     override fun doUpdateVisitedHistory(view: WebView, url: String, isReload: Boolean) {
         callback.pageLoadComplete(view.url.toString())
         super.doUpdateVisitedHistory(view, url, isReload)
@@ -201,6 +286,7 @@ open class InternalWebClient(val resources: Resources, private val callback: Web
             if (detail.didCrash()) "crashed" else "was killed by the system"
         )
         sslDialog?.dismiss()
+        cancelLogins()
         callback.replaceDeadWebView(view)
         return true
     }

@@ -1,8 +1,8 @@
 ---
-title: MQTT Sensors
+title: Sensors
 ---
 
-If MQTT is enabled in the settings and properly configured, the application can publish data and states for various device sensors. The application will post device sensors data per the API description and Sensor Reading Frequency.
+With **Settings &rarr; Sensors &rarr; Enable Sensor Publishing** on, the application reads the device sensors. If MQTT is enabled in the settings and properly configured it publishes them per the API description and Sensor Reading Frequency, and if the REST API is on it [serves the latest of each over HTTP](#reading-sensors-over-http). Either one is enough; neither needs the other.
 
 ## Sensor Data
 
@@ -18,8 +18,30 @@ magneticField | unit, value | ```{"unit":"uT", "value":"-1780.699951171875"}``` 
 pressure | unit, value | ```{"unit":"hPa", "value":"1011.584716796875"}``` |
 temperature | unit, value | ```{"unit":"°C", "value":"24"}``` |
 humidity | unit, value | ```{"unit":"%", "value":"48"}``` |
+proximity | unit, value, near, id | ```{"unit":"cm", "value":0, "near":true, "id":"TMx490x PROX"}``` | See [Proximity](#proximity)
 
 *NOTE:* Sensor values are device specific. Not all devices will publish all sensor values.
+
+### Proximity
+
+Tablets and wall panels with a proximity or presence sensor report it as `proximity`.
+`near` is what to go by: most of these sensors only tell near from far, reporting `0` and
+their maximum range, so `value` is rarely a real distance. `near` is true under 5 cm, or
+under the sensor's range if that is shorter.
+
+A change of `near` is published at once, whatever the Sensor Reading Frequency, and the
+last reading goes out again on every cycle. In Home Assistant it is the **Proximity**
+binary sensor, with the `occupancy` device class. Devices without the sensor get no entity.
+
+**Settings &rarr; Sensors &rarr; Proximity Wakes Screen** turns the screen on when something
+comes close, and dismisses the screensaver the way motion does. The screen stays on for
+**Screen On After Detection** in the camera settings, and the camera does not have to be
+on. Proximity is read for this even when it is unticked in **Sensors to publish**, and is
+then published too, though Home Assistant has no entity for it.
+
+Sensors like these are built to read a hand or a face a few centimetres away. Whether one
+sees someone walking up depends on the panel; a wall panel's presence sensor does, a
+phone's generally does not.
 
 ### System and device sensors
 
@@ -62,10 +84,35 @@ on every supported device. `wifiSignal` needs no such permission and is unaffect
 :::
 
 * Sensor values are constructed as JSON per the above table
+* For REST
+  * GET the latest of each from URL ```http://[mywallpanel]:2971/api/sensors```, see [Reading sensors over HTTP](#reading-sensors-over-http)
 * For MQTT
   * WallPanel publishes all sensors to MQTT under ```[baseTopic]sensor```
   * Each sensor publishes to a subtopic based on the type of sensor
     * Example: basetopic: ```wallpanel/mywallpanel/``` battery sensor data is published to: ```wallpanel/mywallpanel/sensor/battery```
+
+### Reading sensors over HTTP
+
+`GET /api/sensors` answers with the last reading of each sensor, keyed by name, in the
+same form as the tables above:
+
+```json
+{
+  "battery": {"value": 87, "unit": "%", "charging": true, "acPlugged": true, "usbPlugged": false},
+  "uptime": {"value": 307800, "unit": "s", "days": 3, "hours": 13, "minutes": 30, "formatted": "3d 13h 30m"},
+  "motion": {"value": false}
+}
+```
+
+It needs the REST API and **Enable Sensor Publishing** on, and takes the
+[access token](./commands.md#access-token) if one is set. No broker is needed. Readings are
+as fresh as the Sensor Reading Frequency, or the last change for sensors that only report
+when something changes. A sensor with nothing to report yet is left out, so the answer is
+`{}` with sensors switched off. `motion` and `face` are there while those detections are on,
+even with sensors off.
+
+With MQTT Discovery in use, sensors unticked in **Sensors to publish** are not read, so they
+are missing here too.
 
 ### Home Assistant Examples
 
@@ -161,12 +208,19 @@ brightness | 0-255 | ```{"brightness":100}``` | Brightness the screen is showing
 brightnessSetpoint | 0-255 | ```{"brightnessSetpoint":150}``` | Brightness the application is configured to use, i.e. what the last `brightness` command set.
 volume | 0-100 | ```{"volume":60}``` | Current media volume, as a percentage.
 camera | true/false | ```{"camera":false}``` | Whether the camera is enabled.
+stream | true/false | ```{"stream":true}``` | Whether video streaming is on. See [Stopping the stream](../video-streaming.md#stopping-the-stream).
 screenSaverOn | true/false | ```{"screenSaverOn":false}``` | Whether the screensaver is currently showing.
 cameraResolution | size or auto | ```{"cameraResolution":"auto"}``` | The resolution the last `cameraResolution` command pinned, or `auto`.
 cameraFps | 1-30 or auto | ```{"cameraFps":"auto"}``` | The frame rate the last `cameraFps` command pinned, as text, or `auto`.
 cameraResolutionActive | size or null | ```{"cameraResolutionActive":"640x480"}``` | The resolution the camera is running at, which a boost or a camera without the size asked for can make different from the settings. `null` while the camera is off or could not be opened, for instance without the camera permission.
 cameraFpsActive | number or null | ```{"cameraFpsActive":15}``` | The frame rate the running camera was asked for, `null` while it is not running.
 cameraBoosted | true/false | ```{"cameraBoosted":false}``` | Whether motion has the camera on its [boost](../video-streaming.md#motion-boost) resolution and frame rate.
+screenSaverMode | off, clock, dim, wallpaper, web | ```{"screenSaverMode":"clock"}``` | Which screensaver is set up. See [Changing settings](./commands.md#changing-settings).
+inactivityTime | seconds | ```{"inactivityTime":30}``` | How long without a touch before the screensaver comes up.
+screenSaverDim | 0-99 | ```{"screenSaverDim":25}``` | How far the dim screensaver dims, in %.
+preventSleep | true/false | ```{"preventSleep":true}``` | Whether **Prevent Sleep** is on.
+darkTheme | true/false | ```{"darkTheme":false}``` | Whether the dark theme is on.
+lockdown | true/false | ```{"lockdown":false}``` | Whether [Lockdown](../lockdown.md) is switched on in the settings. A pin someone declined or undid on the device still reads true.
 
 * State values are presented together as a JSON block
   * eg, ```{"currentUrl":"http://hasbian:8123/states","screenOn":true}```
@@ -194,10 +248,16 @@ Reload Page | button | `{"reload": true}`
 Clear Cache | button | `{"clearCache": true}`
 Relaunch Dashboard | button | `{"relaunch": true}`
 Wake Screen | button | `{"wake": true}`
+Play Notification Sound | button | `{"playNotification": true}`
+Bring to Front | button | `{"foreground": true}`
+Voice Assistant | button | `{"assist": true}`, only with the [voice assistant](../voice-assistant.md) switched on
 Restart App | button | `{"restartApp": true}`
 Open Settings | button | `{"settings": true}`
+Screen Off | button | `{"screenOff": true}`, only while WallPanel is a [device admin](../lockdown.md#turning-the-screen-off)
+Reboot | button | `{"reboot": true}`, only while WallPanel is the [device owner](../lockdown.md#device-owner)
 Keep Screen Awake | switch | `{"wake": true / false}`
 Camera | switch | `{"camera": true / false}`
+Camera Stream | switch | `{"stream": true / false}`, only while the camera is on
 Camera Resolution | select (auto, 320x240, 640x480, 1280x720) | `{"cameraResolution": "<value>"}`
 Camera FPS | select (auto, 5, 10 ... 30) | `{"cameraFps": "<value>"}`
 Screensaver | switch | `{"screensaver": true / false}`
@@ -206,6 +266,14 @@ Volume | number (0-100) | `{"volume": <value>}`
 Navigate URL | text | `{"url": "<value>"}`
 Text to Speech | text | `{"speak": "<value>"}`
 Toast Message | text | `{"toast": "<value>"}`
+Notification | notify | `{"notification": "<message>"}`
+Screensaver Type | select (off, clock, dim, wallpaper, web) | `{"config": {"screenSaverMode": "<value>"}}`
+Screensaver Timeout | number (seconds) | `{"config": {"inactivityTime": <value>}}`
+Screensaver Dim Level | number (0-99) | `{"config": {"screenSaverDim": <value>}}`
+Screensaver URL | text | `{"config": {"screenSaverUrl": "<value>"}}`
+Prevent Sleep | switch | `{"config": {"preventSleep": true / false}}`
+Dark Theme | switch | `{"config": {"darkTheme": true / false}}`
+Lockdown | switch | `{"config": {"lockdown": true / false}}`
 Shell Command | text | `{"shell": "<value>"}`
 
 The switches read their state back from the application state topic, so they follow the
@@ -218,8 +286,8 @@ inactivity timeout (30 seconds by default) and then releases it -- so the switch
 to off by itself. Turning it **off** releases that lock, which does not blank the screen;
 Android's own display timeout does that whenever it gets there.
 
-An app without root or device-owner rights cannot force a display off, so this is as far
-as it goes. The switch shows whether that wake lock is held (`screenAwake`), not whether
+Without device admin rights WallPanel cannot force a display off, so this is as far as it
+goes. With them, the **Screen Off** button does, see [Lockdown](../lockdown.md#turning-the-screen-off). The switch shows whether that wake lock is held (`screenAwake`), not whether
 the display is lit; `screenOn` in the application state reports the display.
 :::
 
@@ -244,6 +312,9 @@ Assistant marks a device that is temporarily offline.
 back `cameraResolution` and `cameraFps` from the application state. A frame rate set by
 hand to a value the select does not list, such as 12, still applies; Home Assistant just
 logs that the select holds an option it does not know.
+
+**Notification** is a `notify` entity, so it takes `notify.send_message` like a phone
+does. See [Notifications](./commands.md#notifications).
 
 **Shell Command** and its **Shell Result** sensor only appear once shell commands are
 enabled in **Settings &rarr; HTTP** -- see [Shell Command](./commands.md#shell-command)
@@ -270,7 +341,7 @@ switched off the pickers are greyed out and every sensor is published. This is t
 don't want on a shared dashboard -- **Restart App** and **Shell Command**, say -- or to cut
 down sensor noise across a fleet.
 
-**Publish Controls** is still there as a single switch for all fifteen controls at once,
+**Publish Controls** is still there as a single switch for all the controls at once,
 which is quicker than unticking them one by one if you only want the sensors. Turning it
 off also greys out **Controls to publish** -- there's nothing to pick from a list of
 controls that aren't being published at all.
