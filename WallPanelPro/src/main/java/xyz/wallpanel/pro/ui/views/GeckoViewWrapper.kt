@@ -54,7 +54,7 @@ class GeckoViewWrapper(
         /**
          * Initialize the GeckoRuntime (should be called once per app lifecycle)
          */
-        fun initializeRuntime(context: Context, zoomLevel: Float, darkTheme: Boolean) {
+        fun initializeRuntime(context: Context, zoomLevel: Float, darkTheme: Boolean, remoteDebugging: Boolean) {
             if (runtime == null) {
                 // Configure GeckoRuntime with optimal settings
                 val builder = GeckoRuntimeSettings.Builder()
@@ -73,8 +73,8 @@ class GeckoViewWrapper(
                 // Enable web fonts
                 builder.webFontsEnabled(true)
                 
-                // Enable remote debugging in debug builds
-                builder.remoteDebuggingEnabled(android.os.Build.TYPE == "userdebug")
+                // Firefox's about:debugging over ADB, see RemoteDebugging
+                builder.remoteDebuggingEnabled(remoteDebugging)
                 
                 // Configure console output for debugging
                 builder.consoleOutput(true)
@@ -115,6 +115,14 @@ class GeckoViewWrapper(
                 if (allow) ContentBlocking.CookieBehavior.ACCEPT_ALL
                 else ContentBlocking.CookieBehavior.ACCEPT_FIRST_PARTY
             )
+        }
+
+        /** Takes effect at once; a runtime not started yet takes it from initializeRuntime(). */
+        fun setRemoteDebugging(enabled: Boolean) {
+            val settings = runtime?.settings ?: return
+            if (settings.remoteDebuggingEnabled != enabled) {
+                settings.setRemoteDebuggingEnabled(enabled)
+            }
         }
 
         private fun colorScheme(darkTheme: Boolean): Int {

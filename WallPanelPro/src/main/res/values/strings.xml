@@ -605,6 +605,10 @@
     <string name="summary_setting_browser_nav_buttons">Shows a back button and a button that goes back to the dashboard.</string>
     <string name="title_setting_browser_third_party_cookies">Third-Party Cookies</string>
     <string name="summary_setting_browser_third_party_cookies">Lets pages embedded in the dashboard, such as an iframe card, keep cookies. Some, like a Squeezebox or Grafana panel, say cookies are not allowed without it.</string>
+    <string name="title_setting_browser_remote_debugging">Remote Debugging</string>
+    <string name="summary_setting_browser_remote_debugging">Lets a computer connected over USB or Wi-Fi ADB see the dashboard\'s console and network errors: chrome://inspect in Chrome for the WebView, about:debugging in Firefox for GeckoView. Leave it off in normal use.</string>
+    <string name="toast_remote_debugging_on">Remote debugging on. Open chrome://inspect in Chrome.</string>
+    <string name="toast_remote_debugging_on_gecko">Remote debugging on. Open about:debugging in Firefox.</string>
     <string name="content_description_back">Back</string>
     <string name="content_description_home">Dashboard</string>
 

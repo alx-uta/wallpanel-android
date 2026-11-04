@@ -140,6 +140,12 @@
             android:summary="@string/summary_setting_browser_third_party_cookies"/>
 
         <SwitchPreference
+            android:defaultValue="@string/default_setting_browser_remote_debugging"
+            android:key="@string/key_setting_browser_remote_debugging"
+            android:title="@string/title_setting_browser_remote_debugging"
+            android:summary="@string/summary_setting_browser_remote_debugging"/>
+
+        <SwitchPreference
             android:defaultValue="false"
             android:key="pref_dark_theme"
             android:summary="Use dark theme"

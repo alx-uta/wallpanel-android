@@ -201,6 +201,8 @@
     <string name="default_setting_browser_nav_buttons">false</string>
     <string name="key_setting_browser_third_party_cookies">setting_browser_third_party_cookies</string>
     <string name="default_setting_browser_third_party_cookies">true</string>
+    <string name="key_setting_browser_remote_debugging">setting_browser_remote_debugging</string>
+    <string name="default_setting_browser_remote_debugging">false</string>
     <string name="key_setting_browser_login_username">setting_browser_login_username</string>
     <string name="key_setting_browser_login_password">setting_browser_login_password</string>
 

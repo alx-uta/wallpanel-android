@@ -47,6 +47,7 @@ import androidx.core.content.ContextCompat
 import androidx.lifecycle.LifecycleObserver
 import xyz.wallpanel.pro.databinding.ActivityBrowserBinding
 import xyz.wallpanel.pro.network.ConnectionLiveData
+import xyz.wallpanel.pro.utils.RemoteDebugging
 import xyz.wallpanel.pro.utils.AppRestartHelper
 import xyz.wallpanel.pro.utils.BootReadinessGate
 import xyz.wallpanel.pro.utils.DashboardLogin
@@ -543,6 +544,7 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
         // Here as well as with the other settings, since leaving the settings screen only
         // reloads the page when one of them changed
         applyThirdPartyCookies()
+        RemoteDebugging.apply(configuration.browserRemoteDebugging)
 
         if (configuration.browserRefresh) {
             binding.swipeContainer.isEnabled = true
@@ -1277,7 +1279,8 @@ class BrowserActivityNative : BaseBrowserActivity(), LifecycleObserver, WebClien
                 binding.activityBrowserGeckoview.visibility = View.VISIBLE
 
                 // Initialize GeckoRuntime (if not already initialized)
-                GeckoViewWrapper.initializeRuntime(this, zoomLevel, configuration.useDarkTheme)
+                GeckoViewWrapper.initializeRuntime(this, zoomLevel, configuration.useDarkTheme,
+                    RemoteDebugging.isEnabled(configuration.browserRemoteDebugging))
 
                 // Initialize GeckoView wrapper
                 geckoViewWrapper = GeckoViewWrapper(this, binding.activityBrowserGeckoview)

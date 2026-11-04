@@ -38,3 +38,17 @@ Before anything is written to the log, WallPanel removes:
 Commands are logged by name only, so `speak` appears but not what was said, and `eval` and `shell` appear without their scripts and output.
 
 What stays is the addresses of your MQTT broker and Home Assistant, the paths of the pages the device opened, and the topic names. Read through the log before posting it somewhere public if those matter to you.
+
+## Inspecting the dashboard
+
+When a dashboard card stays blank or a page will not load, the browser's console and network errors usually say why. **Settings &rarr; Remote Debugging**, off by default, lets a computer look at them while the dashboard runs on the device.
+
+1. Connect the computer to the device with [ADB](https://developer.android.com/tools/adb), over USB or over Wi-Fi.
+2. Switch on **Remote Debugging**. It takes effect straight away, without a restart.
+3. On the computer:
+   - with the standard WebView, open `chrome://inspect` in Chrome and pick the dashboard under the device's name;
+   - with GeckoView, open `about:debugging` in Firefox, enable USB devices, and pick the device.
+
+On a device running a custom Android build such as LineageOS (a `userdebug` build), the WebView can always be inspected, whatever the setting says; the setting still controls GeckoView there.
+
+Switch it off again when you are done. While it is on, anything with ADB access to the device can read and change the open page, including the Home Assistant login it holds.

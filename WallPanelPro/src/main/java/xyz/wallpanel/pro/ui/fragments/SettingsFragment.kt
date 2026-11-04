@@ -71,6 +71,7 @@ import xyz.wallpanel.pro.utils.DateUtils
 import xyz.wallpanel.pro.utils.DateUtils.SECONDS_VALUE
 import xyz.wallpanel.pro.utils.OverlayPermission
 import xyz.wallpanel.pro.utils.PhotoFolder
+import xyz.wallpanel.pro.utils.RemoteDebugging
 import xyz.wallpanel.pro.utils.ScreenUtils
 import dagger.android.support.AndroidSupportInjection
 import timber.log.Timber
@@ -495,6 +496,18 @@ class SettingsFragment : BaseSettingsFragment() {
                     dimPreference?.summary = getString(R.string.preference_summary_dim_screensaver, dim.toString())
                 } else {
                     Toast.makeText(requireContext(), getString(R.string.toast_error_face_size), Toast.LENGTH_SHORT).show()
+                }
+            }
+            getString(R.string.key_setting_browser_remote_debugging) -> {
+                val enabled = configuration.browserRemoteDebugging
+                RemoteDebugging.apply(enabled)
+                if (enabled) {
+                    val message = if (configuration.useGeckoView) {
+                        R.string.toast_remote_debugging_on_gecko
+                    } else {
+                        R.string.toast_remote_debugging_on
+                    }
+                    Toast.makeText(requireContext(), message, Toast.LENGTH_LONG).show()
                 }
             }
             PREF_SETTINGS_FULL_SCREEN -> {
@@ -1071,7 +1084,8 @@ class SettingsFragment : BaseSettingsFragment() {
                         // Through Gecko itself: its cache lives under the application's cache
                         // directory, and deleting that under a running Gecko leaves it without one.
                         GeckoViewWrapper.initializeRuntime(
-                            requireContext(), configuration.testZoomLevel, configuration.useDarkTheme
+                            requireContext(), configuration.testZoomLevel, configuration.useDarkTheme,
+                            RemoteDebugging.isEnabled(configuration.browserRemoteDebugging)
                         )
                         GeckoViewWrapper.clearRuntimeCaches()
                     } else {

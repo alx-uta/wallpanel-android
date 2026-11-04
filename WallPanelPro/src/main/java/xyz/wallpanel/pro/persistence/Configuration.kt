@@ -435,6 +435,10 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     val browserThirdPartyCookies: Boolean
         get() = getBoolPref(R.string.key_setting_browser_third_party_cookies, R.string.default_setting_browser_third_party_cookies)
 
+    /** Lets Chrome or Firefox on a computer connected over ADB inspect the dashboard. */
+    val browserRemoteDebugging: Boolean
+        get() = getBoolPref(R.string.key_setting_browser_remote_debugging, R.string.default_setting_browser_remote_debugging)
+
     /** The username given to the dashboard's server when it asks for one. Empty is none. */
     val browserLoginUsername: String
         get() = sharedPreferences.getString(context.getString(R.string.key_setting_browser_login_username), null)?.trim().orEmpty()
