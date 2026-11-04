@@ -133,7 +133,9 @@ makes needs the API; the builds themselves do not care.
   forgetting the binding gives a runtime crash, not a compile error.
 - **`Configuration.kt` owns all settings.** Never touch `SharedPreferences` directly. A
   new setting means: a property there, `key_setting_*` and `default_setting_*` strings,
-  and an entry in the right `res/xml/pref_*.xml`.
+  and an entry in the right `res/xml/pref_*.xml`. A setting kept under a key no
+  preference XML declares, or as a type other than its preference's, also goes in
+  `Configuration.settingTypes()`; a settings import leaves out any key that is not there.
 - **`WallPanelService.kt` is the control plane.** MQTT and HTTP both funnel into
   `processCommand(JSONObject)`. HTTP server listens on port 2971; MQTT topic base is
   `wallpanel/[baseTopic]/command`. New commands need a constant in `MqttUtils.kt`, a

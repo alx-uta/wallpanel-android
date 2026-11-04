@@ -76,3 +76,6 @@ button does, so opening the settings afterwards asks for it.
 With [MQTT Discovery](./remote-control/sensors.md#home-assistant-discovery), **Lockdown** is
 a switch, so a routine can let the tablet go for someone to use it and lock it again
 later. With screen pinning, someone has to confirm on the tablet when it locks.
+
+Over HTTP, `lockdown` in a `config` command, `screenOff` and `reboot` need an
+[access token](./remote-control/commands.md#access-token) to be set.

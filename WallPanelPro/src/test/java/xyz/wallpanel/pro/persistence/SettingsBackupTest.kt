@@ -95,11 +95,55 @@ class SettingsBackupTest {
     @Test
     fun `a stored setting keeps its type`() {
         val stored = mapOf("dark" to false, "url" to "http://a/", "sensors" to setOf("x"))
-        val values = mapOf("dark" to "true", "url" to "http://b/", "sensors" to setOf("y"), "new" to 3)
-        assertEquals(
-            mapOf("url" to "http://b/", "sensors" to setOf("y"), "new" to 3),
-            SettingsBackup.compatible(values, stored)
+        val values = mapOf("dark" to "true", "url" to "http://b/", "sensors" to setOf("y"))
+        val imported = SettingsBackup.compatible(values, stored, emptyMap())
+        assertEquals(mapOf("url" to "http://b/", "sensors" to setOf("y")), imported.values)
+        assertEquals(listOf("dark"), imported.skipped)
+    }
+
+    @Test
+    fun `a setting not stored yet has to be of the type it is read as`() {
+        // A fresh device, where nothing is stored: a hand-edited file with text for a switch
+        // would otherwise throw on every read of it
+        val expected = mapOf(
+            "prevent_sleep" to SettingType.BOOLEAN,
+            "port" to SettingType.STRING,
+            "dim" to SettingType.INT,
+            "inactivity" to SettingType.LONG,
         )
+        val values = mapOf("prevent_sleep" to "true", "port" to "2971", "dim" to 25L, "inactivity" to 60000L)
+        val imported = SettingsBackup.compatible(values, emptyMap<String, Any>(), expected)
+        assertEquals(mapOf("port" to "2971", "inactivity" to 60000L), imported.values)
+        assertEquals(listOf("dim", "prevent_sleep"), imported.skipped)
+    }
+
+    @Test
+    fun `what is stored decides over what is expected`() {
+        val imported = SettingsBackup.compatible(
+            mapOf("level" to 3), mapOf("level" to 1), mapOf("level" to SettingType.STRING)
+        )
+        assertEquals(mapOf("level" to 3), imported.values)
+        assertTrue(imported.skipped.isEmpty())
+    }
+
+    @Test
+    fun `a key this version does not keep is left out`() {
+        val imported = SettingsBackup.compatible(mapOf("gone" to true), emptyMap<String, Any>(), emptyMap())
+        assertTrue(imported.values.isEmpty())
+        assertEquals(listOf("gone"), imported.skipped)
+    }
+
+    @Test
+    fun `settings screen elements keep the types AndroidX gives them`() {
+        assertEquals(SettingType.BOOLEAN, SettingType.ofPreference("SwitchPreference"))
+        assertEquals(SettingType.BOOLEAN, SettingType.ofPreference("CheckBoxPreference"))
+        assertEquals(SettingType.STRING, SettingType.ofPreference("EditTextPreference"))
+        assertEquals(SettingType.STRING, SettingType.ofPreference("ListPreference"))
+        assertEquals(SettingType.STRING, SettingType.ofPreference("xyz.wallpanel.pro.ui.views.NumberEditTextPreference"))
+        assertEquals(SettingType.STRING_SET, SettingType.ofPreference("MultiSelectListPreference"))
+        assertEquals(SettingType.INT, SettingType.ofPreference("SeekBarPreference"))
+        assertEquals(null, SettingType.ofPreference("Preference"))
+        assertEquals(null, SettingType.ofPreference("PreferenceCategory"))
     }
 
     @Test(expected = IllegalArgumentException::class)

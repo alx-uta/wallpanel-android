@@ -43,6 +43,10 @@ restarts. In Home Assistant it is the **Camera Stream** switch, and `stream` in 
 If the stream was the only thing the HTTP server was on for, with the REST API off, the
 server stops with it. `{"stream": true}` then has to come over MQTT.
 
+Over HTTP the command needs an [access token](./remote-control/commands.md#access-token)
+to be set, either way round, so that nobody else on the network can stop the stream or
+start it.
+
 ## Rotation and mirror
 
 **Settings &rarr; Camera &rarr; Rotate Camera** turns the picture a quarter turn either way

@@ -992,11 +992,19 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
             Timber.i("POST Arrived (command)")
             val command = CommandJson.fromBody(request.body)
             val j = JSONObject()
+            // Read once, so the answer names the part that was turned down
+            val tokenOnly = command?.takeIf { configuration.httpToken.isEmpty() }?.let { HttpAuth.tokenOnlyPart(it) }
             if (command == null) {
                 Timber.w("Turned down a command that is not a JSON object")
                 j.put("result", false)
                 j.put("error", "The body must be a JSON object")
                 response.code(400)
+            } else if (tokenOnly != null) {
+                // The whole command, rather than the rest of it without this part
+                Timber.w("Turned down $tokenOnly over HTTP without an access token")
+                j.put("result", false)
+                j.put("error", "Set an access token to use $tokenOnly over HTTP")
+                response.code(403)
             } else {
                 j.put("result", processCommand(command))
             }
@@ -1038,6 +1046,13 @@ class WallPanelService : LifecycleService(), MQTTModule.MQTTListener {
                 return@addAction
             }
             Timber.i("GET Arrived (/api/log)")
+            // 403 rather than authorize()'s 401, which would have a browser ask for a token
+            // that does not exist
+            if (configuration.httpToken.isEmpty()) {
+                response.code(403)
+                response.send("Set an access token to read the log over HTTP")
+                return@addAction
+            }
             sendLog(response)
         }
         Timber.i("Registered REST endpoints")

@@ -20,10 +20,10 @@ Open **Settings &rarr; Share Log**, at the end of the section with Export Settin
 With the [REST API](remote-control/commands.md) switched on, the same log is at:
 
 ```sh
-curl http://192.168.1.1:2971/api/log
+curl --header 'Authorization: Bearer <token>' http://192.168.1.1:2971/api/log
 ```
 
-It needs the [access token](remote-control/commands.md#access-token) when one is set. Without a token, anyone on your network can read it, the same as the rest of the REST API.
+It needs an [access token](remote-control/commands.md#access-token) to be set: without one it answers `403 Forbidden`, since anyone on your network could otherwise read it.
 
 ### What is in it
 

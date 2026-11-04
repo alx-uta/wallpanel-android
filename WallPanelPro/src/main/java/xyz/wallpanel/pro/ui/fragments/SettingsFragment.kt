@@ -806,13 +806,19 @@ class SettingsFragment : BaseSettingsFragment() {
         // The changes are not this screen's to react to one by one: everything starts again
         val preferences = preferenceScreen.sharedPreferences
         preferences?.unregisterOnSharedPreferenceChangeListener(this)
-        if (!configuration.importSettings(values)) {
+        val skipped = configuration.importSettings(values)
+        if (skipped == null) {
             preferences?.registerOnSharedPreferenceChangeListener(this)
             Toast.makeText(context, R.string.toast_settings_import_write_failed, Toast.LENGTH_LONG).show()
             return
         }
-        Timber.i("Imported ${values.size} settings, restarting")
-        Toast.makeText(context, R.string.toast_settings_imported, Toast.LENGTH_LONG).show()
+        Timber.i("Imported the settings, left out ${skipped.size}, restarting")
+        val message = if (skipped.isEmpty()) {
+            getString(R.string.toast_settings_imported)
+        } else {
+            resources.getQuantityString(R.plurals.toast_settings_imported_skipped, skipped.size, skipped.size)
+        }
+        Toast.makeText(context, message, Toast.LENGTH_LONG).show()
         AppRestartHelper.restartApplication(context.applicationContext, RESTART_AFTER_IMPORT_MS)
     }
 

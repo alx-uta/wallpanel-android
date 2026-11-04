@@ -14,13 +14,13 @@ audio | URL | ```{"audio": "http://<url>"}``` | Play the audio specified by the 
 relaunch | true | ```{"relaunch": true}``` | Relaunches the dashboard from configured launchUrl
 reload | true | ```{"reload": true}``` | Reloads the current page immediately
 restartApp | true | ```{"restartApp": true}``` | Restarts the WallPanel app (kills and relaunches the process) -- this is not a device reboot
-exit | true | ```{"exit": true}``` | Closes WallPanel. MQTT and HTTP go with it, so it can't be brought back remotely. See [Exit](#exit).
+exit | true | ```{"exit": true}``` | Closes WallPanel. MQTT and HTTP go with it, so it can't be brought back remotely. Over HTTP it needs an [access token](#access-token). See [Exit](#exit).
 playNotification | true | ```{"playNotification": true}``` | Plays the device's notification sound, at the notification volume. Send it ahead of `speak` to get attention first.
 url | URL | ```{"url": "http://<url>"}``` | Browse to a new URL immediately
 wake | true | ```{"wake": true, "wakeTime": 180}``` | Wakes the screen if it is asleep. Optional wakeTime (in seconds). If no wake time provided, screen will wake but return to screensaver mode on user inactivity.  Sending false value will return app to normal screensaver mode and display screensaver on user inactivity.
 wake | false | ```{"wake": false}``` | Release screen wake (Note: screen will not turn off before Androids Display Timeout finished)
-screenOff | true | ```{"screenOff": true}``` | Turns the screen off straight away, the way the power button does. Needs WallPanel to be a device admin, see [Lockdown](../lockdown.md#turning-the-screen-off).
-reboot | true | ```{"reboot": true}``` | Reboots the device. Needs WallPanel to be the device owner and Android 7.0 or later, see [Lockdown](../lockdown.md#device-owner).
+screenOff | true | ```{"screenOff": true}``` | Turns the screen off straight away, the way the power button does. Needs WallPanel to be a device admin, see [Lockdown](../lockdown.md#turning-the-screen-off). Over HTTP it needs an [access token](#access-token).
+reboot | true | ```{"reboot": true}``` | Reboots the device. Needs WallPanel to be the device owner and Android 7.0 or later, see [Lockdown](../lockdown.md#device-owner). Over HTTP it needs an [access token](#access-token).
 speak | data | ```{"speak": "Hello!"}``` | Uses the devices TTS to speak the message, or [Home Assistant's](#speaking-through-home-assistant) when that is set up
 notification | text or object | ```{"notification": "The washing is done"}``` | Puts a message on the dashboard that stays until it is touched. See [Notifications](#notifications).
 config | object | ```{"config": {"screenSaverMode": "dim", "preventSleep": false}}``` | Changes screensaver and display settings. See [Changing settings](#changing-settings).
@@ -29,7 +29,7 @@ assist | true/false | ```{"assist": true}``` | Starts the [voice assistant](../v
 settings | data | ```{"settings": true}``` | Opens the settings screen remotely. With **Require Security Code** on, the settings still ask for the code on the device before they show.
 brightness | data | ```{"brightness": 1}``` | Changes the screens brightness, value 0-255 (0 turns the backlight off).
 camera | data | ```{"camera": true}``` | Turns on/off camera, this will also disable streaming, motion, QRCode, and face detection. The REST API stays up; the stream endpoint answers 503 while the camera is off. Turning it on without the camera permission granted shows a "Camera permission not granted" message and the camera does not start.
-stream | true/false | ```{"stream": false}``` | Stops or starts the [video stream](../video-streaming.md#stopping-the-stream) on its own. The camera keeps running for motion, face and QR detection. Stays set across restarts, like **MJPEG Camera Streaming** in the settings, which it changes.
+stream | true/false | ```{"stream": false}``` | Stops or starts the [video stream](../video-streaming.md#stopping-the-stream) on its own. The camera keeps running for motion, face and QR detection. Stays set across restarts, like **MJPEG Camera Streaming** in the settings, which it changes. Over HTTP it needs an [access token](#access-token).
 cameraResolution | size or auto | ```{"cameraResolution": "1280x720"}``` | Runs the camera at `320x240`, `640x480` or `1280x720` until told otherwise; `auto` goes back to the configured resolution. See [Camera resolution and frame rate](#camera-resolution-and-frame-rate).
 cameraFps | 1-30 or auto | ```{"cameraFps": 20}``` | Runs the camera at this frame rate until told otherwise; `auto` goes back to the configured one. See [Camera resolution and frame rate](#camera-resolution-and-frame-rate).
 volume | data | ```{"volume": 100}``` | Sets the device's media volume, value 0-100 (in %). Applies to audio playback and Text-To-Speech alike.
@@ -124,7 +124,7 @@ data:
 
 ## Reading the log
 
-`GET /api/log` answers with the device's log as plain text, the same one **Settings &rarr; Share Log** sends. See [Troubleshooting](../troubleshooting.md).
+`GET /api/log` answers with the device's log as plain text, the same one **Settings &rarr; Share Log** sends. It needs an [access token](#access-token) to be set. See [Troubleshooting](../troubleshooting.md).
 
 ## Access token
 
@@ -150,6 +150,18 @@ three ways, so every kind of client has one it can use:
 A token in a URL ends up in logs and browser history, so prefer the header or basic
 authentication where the client allows it. The token does not protect MQTT, which has the
 broker's own authentication. Leave the field empty to switch the check off.
+
+Some commands are only taken over HTTP once a token is set, because they leave nobody
+able to use or see the device: `exit`, `reboot`, `screenOff`, `stream` (on or off) and
+`lockdown` in a `config` command (on or off), as well as reading `/api/log`. Without a
+token they answer `403 Forbidden`, and a command holding one of them is refused as a
+whole, with the part that needs the token named:
+
+```json
+{"result": false, "error": "Set an access token to use stream over HTTP"}
+```
+
+Over MQTT, the Home Assistant entities included, they work with or without a token.
 
 ## Exit
 
@@ -180,7 +192,7 @@ screenSaverDim | 0 to 99 | How far the dim screensaver dims, in %
 screenSaverUrl | URL | The page the `web` screensaver shows
 preventSleep | true/false | **Prevent Sleep**: keep the screen on while WallPanel is in front
 darkTheme | true/false | The dark theme. The page reloads to pick it up; with the WebView engine the dashboard loads again from the start.
-lockdown | true/false | [Lockdown](../lockdown.md). Takes effect when the dashboard is next in front with nothing over it; with screen pinning, someone has to confirm on the device.
+lockdown | true/false | [Lockdown](../lockdown.md). Takes effect when the dashboard is next in front with nothing over it; with screen pinning, someone has to confirm on the device. Over HTTP it needs an [access token](#access-token).
 
 - A key that isn't listed, or a value that doesn't fit, is ignored and logged to
   `adb logcat`, and the rest of the command still applies.
