@@ -139,21 +139,63 @@ class SettingsBackup(
         }
 
         /**
-         * The [values] that can go over [stored]: a key already stored keeps its type, since
-         * the application reads it as that type and anything else would throw on every read.
+         * The [values] that can be written, and the keys left out. The application reads each
+         * setting as one type and anything else throws on every read, which on a setting read
+         * at start takes the kiosk down until its data is cleared. So a value has to be of the
+         * type already [stored] under its key, or, for a key not stored yet, of the type
+         * [expected] for it. A key neither knows is not a setting this version keeps.
          */
-        fun compatible(values: Map<String, Any>, stored: Map<String, *>): Map<String, Any> {
-            return values.filter { (key, value) ->
-                val current = stored[key] ?: return@filter true
-                val fits = when (current) {
-                    is Set<*> -> value is Set<*>
-                    else -> current.javaClass == value.javaClass
+        fun compatible(values: Map<String, Any>, stored: Map<String, *>, expected: Map<String, SettingType>): Imported {
+            val accepted = mutableMapOf<String, Any>()
+            val skipped = mutableListOf<String>()
+            values.forEach { (key, value) ->
+                val wanted = SettingType.of(stored[key]) ?: expected[key]
+                val actual = SettingType.of(value)
+                when {
+                    wanted == null -> {
+                        Timber.w("Not importing $key: not a setting this version keeps")
+                        skipped += key
+                    }
+                    actual != wanted -> {
+                        Timber.w("Not importing $key: a $actual where a $wanted is kept")
+                        skipped += key
+                    }
+                    else -> accepted[key] = value
                 }
-                if (!fits) {
-                    Timber.w("Not importing $key: a ${value.javaClass.simpleName} where a ${current.javaClass.simpleName} is kept")
-                }
-                fits
             }
+            return Imported(accepted, skipped.sorted())
+        }
+    }
+
+    /** What [compatible] lets through, and the keys it left out. */
+    class Imported(val values: Map<String, Any>, val skipped: List<String>)
+}
+
+/** The kinds of value a setting is kept as. */
+enum class SettingType {
+    STRING, BOOLEAN, INT, LONG, FLOAT, STRING_SET;
+
+    companion object {
+        fun of(value: Any?): SettingType? = when (value) {
+            is String -> STRING
+            is Boolean -> BOOLEAN
+            is Int -> INT
+            is Long -> LONG
+            is Float -> FLOAT
+            is Set<*> -> STRING_SET
+            else -> null
+        }
+
+        /**
+         * The type a settings screen element keeps its value as, by its tag in the preference
+         * XML, or null for one that keeps none, such as a button or a category.
+         */
+        fun ofPreference(tag: String): SettingType? = when (tag.substringAfterLast('.')) {
+            "SwitchPreference", "SwitchPreferenceCompat", "CheckBoxPreference" -> BOOLEAN
+            "EditTextPreference", "NumberEditTextPreference", "ListPreference", "DropDownPreference" -> STRING
+            "MultiSelectListPreference" -> STRING_SET
+            "SeekBarPreference" -> INT
+            else -> null
         }
     }
 }

@@ -668,5 +668,9 @@
     <string name="toast_settings_import_failed">Not a WallPanel settings file</string>
     <string name="toast_settings_import_write_failed">Could not save the imported settings</string>
     <string name="toast_settings_imported">Settings imported, restarting</string>
+    <plurals name="toast_settings_imported_skipped">
+        <item quantity="one">Settings imported, restarting. %d setting was left out because it does not fit this version.</item>
+        <item quantity="other">Settings imported, restarting. %d settings were left out because they do not fit this version.</item>
+    </plurals>
     <string name="toast_no_file_picker">This device has no file picker</string>
 </resources>

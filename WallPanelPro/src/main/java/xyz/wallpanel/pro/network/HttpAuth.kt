@@ -17,6 +17,13 @@
 package xyz.wallpanel.pro.network
 
 import okio.ByteString.Companion.decodeBase64
+import org.json.JSONObject
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_CONFIG
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_EXIT
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_REBOOT
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_SCREEN_OFF
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.COMMAND_STREAM
+import xyz.wallpanel.pro.utils.MqttUtils.Companion.STATE_LOCKDOWN
 import java.security.MessageDigest
 
 /**
@@ -33,6 +40,24 @@ object HttpAuth {
 
     const val QUERY_PARAMETER = "token"
     const val REALM = "WallPanel"
+
+    /**
+     * Commands that take the device out of anyone's hands, or hide what it is doing, either
+     * way round. Over HTTP they need a token to be set; MQTT has the broker's login.
+     */
+    private val TOKEN_ONLY_COMMANDS = listOf(COMMAND_EXIT, COMMAND_REBOOT, COMMAND_SCREEN_OFF, COMMAND_STREAM)
+
+    /**
+     * The first part of [command] that HTTP only takes with a token set, as it would be named
+     * to the caller, or null when there is none. `config` counts for its lockdown key alone.
+     */
+    fun tokenOnlyPart(command: JSONObject): String? {
+        TOKEN_ONLY_COMMANDS.firstOrNull { command.has(it) }?.let { return it }
+        if (command.optJSONObject(COMMAND_CONFIG)?.has(STATE_LOCKDOWN) == true) {
+            return "$COMMAND_CONFIG.$STATE_LOCKDOWN"
+        }
+        return null
+    }
 
     /**
      * Whether a request carrying this Authorization header and token parameter may go

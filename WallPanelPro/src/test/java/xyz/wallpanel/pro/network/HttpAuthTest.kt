@@ -20,6 +20,7 @@ import org.junit.Assert.assertEquals
 import org.junit.Assert.assertFalse
 import org.junit.Assert.assertNull
 import org.junit.Assert.assertTrue
+import org.json.JSONObject
 import org.junit.Test
 import java.util.Base64
 
@@ -90,5 +91,33 @@ class HttpAuthTest {
         assertNull(HttpAuth.credentialFrom("Basic " + Base64.getEncoder().encodeToString("nocolon".toByteArray())))
         assertNull(HttpAuth.credentialFrom("Bearer"))
         assertNull(HttpAuth.credentialFrom(null))
+    }
+
+    @Test
+    fun `commands that take the device away need a token either way round`() {
+        assertEquals("exit", HttpAuth.tokenOnlyPart(JSONObject("""{"exit": true}""")))
+        assertEquals("reboot", HttpAuth.tokenOnlyPart(JSONObject("""{"reboot": true}""")))
+        assertEquals("screenOff", HttpAuth.tokenOnlyPart(JSONObject("""{"screenOff": true}""")))
+        assertEquals("stream", HttpAuth.tokenOnlyPart(JSONObject("""{"stream": true}""")))
+        assertEquals("stream", HttpAuth.tokenOnlyPart(JSONObject("""{"stream": false}""")))
+        assertEquals("config.lockdown", HttpAuth.tokenOnlyPart(JSONObject("""{"config": {"lockdown": true}}""")))
+        assertEquals("config.lockdown", HttpAuth.tokenOnlyPart(JSONObject("""{"config": {"lockdown": false}}""")))
+    }
+
+    @Test
+    fun `one such part is enough to name, whatever else the command holds`() {
+        assertEquals("stream", HttpAuth.tokenOnlyPart(JSONObject("""{"reload": true, "stream": false}""")))
+        assertEquals(
+            "config.lockdown",
+            HttpAuth.tokenOnlyPart(JSONObject("""{"config": {"screenSaverMode": "dim", "lockdown": true}}"""))
+        )
+    }
+
+    @Test
+    fun `the other commands and settings need no token`() {
+        assertNull(HttpAuth.tokenOnlyPart(JSONObject("""{"reload": true, "wake": true}""")))
+        assertNull(HttpAuth.tokenOnlyPart(JSONObject("""{"config": {"screenSaverMode": "dim", "preventSleep": false}}""")))
+        assertNull(HttpAuth.tokenOnlyPart(JSONObject("""{"config": "lockdown"}""")))
+        assertNull(HttpAuth.tokenOnlyPart(JSONObject("{}")))
     }
 }

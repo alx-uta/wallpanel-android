@@ -336,4 +336,66 @@ class ConfigurationTest {
         assertFalse(configuration.hasDimScreenSaver)
         assertFalse(Configuration(context, preferences).hasDimScreenSaver)
     }
+
+    @Test
+    fun `an import onto a fresh device leaves out values of the wrong type`() {
+        val preventSleep = context.getString(R.string.key_setting_app_preventsleep)
+        val launchUrl = context.getString(R.string.key_setting_app_launchurl)
+        val inactivity = context.getString(R.string.key_screensaver_inactivity_time)
+
+        val skipped = configuration.importSettings(
+            mapOf(preventSleep to "true", launchUrl to "http://ha.local:8123", inactivity to 60000L, "no_such_setting" to 1)
+        )
+
+        assertEquals(listOf("no_such_setting", preventSleep), skipped)
+        assertFalse(preferences.contains(preventSleep))
+        // Read as it would be on the next start, without throwing
+        assertFalse(configuration.appPreventSleep)
+        assertEquals("http://ha.local:8123", configuration.appLaunchUrl)
+        assertEquals(60000L, configuration.inactivityTime)
+    }
+
+    @Test
+    fun `the types come from the settings screens as well as from Configuration`() {
+        val types = configuration.settingTypes()
+        // Only declared in the preference XML
+        assertEquals(SettingType.BOOLEAN, types[context.getString(R.string.key_setting_android_startonboot)])
+        // Kept by Configuration under a key of its own
+        assertEquals(SettingType.LONG, types[context.getString(R.string.key_screensaver_inactivity_time)])
+        assertEquals(SettingType.STRING_SET, types[context.getString(R.string.key_setting_mqtt_discovery_control_ids_excluded)])
+        // persistent="false" keeps nothing
+        assertFalse(types.containsKey(context.getString(R.string.key_setting_mqtt_discovery_control_ids)))
+    }
+
+    @Test
+    fun `an export from this version imports without anything left out`() {
+        configuration.appPreventSleep = true
+        configuration.appLaunchUrl = "http://ha.local:8123"
+        configuration.fullScreen = false
+        configuration.useDarkTheme = true
+        configuration.cameraId = 1
+        configuration.cameraMotionLeniency = 30
+        configuration.inactivityTime = 120000L
+        configuration.screenSaverDimValue = 50
+        configuration.settingsLocation = 2
+        configuration.imageRotation = 10
+        configuration.screenBrightness = 200
+        configuration.cameraRotate = 90f
+        configuration.mqttServerPort = 8883
+        configuration.httpMJPEGFps = 5
+        configuration.cameraResolution = CameraResolution.HD
+        configuration.webScreenSaverUrl = "https://example.com"
+        configuration.mqttDiscoveryControlIds = emptySet()
+        configuration.settingsCode = "4321"
+        preferences.edit()
+            .putBoolean(context.getString(R.string.key_setting_android_startonboot), true)
+            .putString(context.getString(R.string.key_setting_schedules), "[]")
+            .commit()
+        val exported = configuration.allSettings().mapNotNull { (key, value) -> value?.let { key to it } }.toMap()
+
+        preferences.edit().clear().commit()
+
+        assertEquals(emptyList<String>(), Configuration(context, preferences).importSettings(exported))
+        assertEquals(exported, configuration.allSettings())
+    }
 }

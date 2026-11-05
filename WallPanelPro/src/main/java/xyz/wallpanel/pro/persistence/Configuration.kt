@@ -23,6 +23,7 @@ import xyz.wallpanel.pro.R
 import xyz.wallpanel.pro.modules.CameraProfile
 import xyz.wallpanel.pro.modules.CameraResolution
 import xyz.wallpanel.pro.network.DiscoveryCatalog
+import org.xmlpull.v1.XmlPullParser
 import javax.inject.Inject
 
 class Configuration @Inject
@@ -741,12 +742,16 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
 
     /**
      * Writes settings read from an export over the stored ones, all at once, before
-     * returning. An entry whose type differs from the one stored under its key is left
-     * out: every read of that setting would throw. False when they could not be written.
+     * returning. An entry whose type is not the one the setting is read as is left out, see
+     * [SettingsBackup.compatible]. Returns the keys left out, or null when nothing could be
+     * written.
      */
-    fun importSettings(values: Map<String, Any>): Boolean {
+    fun importSettings(values: Map<String, Any>): List<String>? {
+        val imported = SettingsBackup.compatible(
+            values.filterKeys { it !in BACKUP_INTERNAL_KEYS }, sharedPreferences.all, settingTypes()
+        )
         val editor = sharedPreferences.edit()
-        SettingsBackup.compatible(values.filterKeys { it !in BACKUP_INTERNAL_KEYS }, sharedPreferences.all).forEach { (key, value) ->
+        imported.values.forEach { (key, value) ->
             @Suppress("UNCHECKED_CAST")
             when (value) {
                 is String -> editor.putString(key, value)
@@ -757,7 +762,110 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
                 is Set<*> -> editor.putStringSet(key, value as Set<String>)
             }
         }
-        return editor.commit()
+        return if (editor.commit()) imported.skipped else null
+    }
+
+    /**
+     * The type each setting is read as, for checking an import: what the settings screens
+     * keep, and over that what this class reads, since a few settings are kept by this class
+     * under keys of their own. A setting read here and not listed is left out of an import.
+     */
+    fun settingTypes(): Map<String, SettingType> {
+        val types = preferenceScreenTypes().toMutableMap()
+        fun put(type: SettingType, vararg keys: String) = keys.forEach { types[it] = type }
+        fun key(resId: Int) = context.getString(resId)
+        put(
+            SettingType.BOOLEAN,
+            PREF_FULL_SCREEN, PREF_DARK_THEME, PREF_SETTINGS_TRANSPARENT, PREF_SETTINGS_DISABLE,
+            PREF_BROWSER_REFRESH_DISCONNECT, PREF_SCREEN_BRIGHTNESS, PREF_WEB_SCREENSAVER,
+            key(R.string.key_setting_app_preventsleep), key(R.string.key_setting_settings_code_required),
+            key(R.string.key_setting_camera_mirror), key(R.string.key_setting_app_showactivity),
+            key(R.string.key_setting_camera_enabled), key(R.string.key_setting_camera_motionenabled),
+            key(R.string.key_setting_camera_motionwake), key(R.string.key_setting_camera_motionbright),
+            key(R.string.key_setting_camera_faceenabled), key(R.string.key_setting_camera_facewake),
+            key(R.string.key_setting_camera_facerotation), key(R.string.key_setting_camera_qrcodeenabled),
+            key(R.string.key_setting_http_restenabled), key(R.string.key_setting_http_shellenabled),
+            key(R.string.key_setting_http_mjpegenabled), key(R.string.key_setting_mqtt_enabled),
+            key(R.string.key_setting_mqtt_tls_enabled), key(R.string.key_setting_mqtt_discovery),
+            key(R.string.key_setting_mqtt_discovery_legacy_entities), key(R.string.key_setting_mqtt_discovery_controls),
+            key(R.string.key_setting_sensors_enabled), key(R.string.key_setting_sensors_proximity_wake),
+            key(R.string.key_setting_speech_ha_enabled), key(R.string.key_setting_voice_enabled),
+            key(R.string.key_setting_browser_swipe_navigation), key(R.string.key_setting_app_lockdown),
+            key(R.string.key_setting_browser_nav_buttons), key(R.string.key_setting_browser_third_party_cookies),
+            key(R.string.key_setting_browser_remote_debugging), key(R.string.key_hadware_accelerated_enabled),
+            key(R.string.key_pref_browser_refresh), key(R.string.key_setting_browser_reload_on_wake),
+            key(R.string.key_use_geckoview), key(R.string.key_setting_camera_only_screensaver),
+            key(R.string.key_setting_camera_low_resolution), key(R.string.key_setting_camera_boost_enabled),
+            key(R.string.key_screensaver_blank), key(R.string.key_screensaver_dim), key(R.string.key_screensaver),
+            key(R.string.key_screensaver_clock_move), key(R.string.key_screensaver_wallpaper),
+            key(R.string.key_setting_ignore_ssl_errors),
+        )
+        put(
+            SettingType.STRING,
+            PREF_SETTINGS_CODE_STRING, PREF_CAMERA_ROTATE, PREF_WEB_SCREENSAVER_URL,
+            key(R.string.key_setting_app_launchurl), key(R.string.key_setting_app_return_minutes),
+            key(R.string.key_setting_camera_motionminluma), key(R.string.key_setting_motion_clear),
+            key(R.string.key_setting_http_port), key(R.string.key_setting_http_token),
+            key(R.string.key_setting_http_mjpegmaxstreams), key(R.string.key_setting_http_mjpegfps),
+            key(R.string.key_setting_mqtt_version), key(R.string.key_setting_mqtt_servername),
+            key(R.string.key_setting_mqtt_serverport), key(R.string.key_setting_mqtt_basetopic),
+            key(R.string.key_setting_mqtt_clientid), key(R.string.key_setting_mqtt_username),
+            key(R.string.key_setting_mqtt_password), key(R.string.key_setting_mqtt_sensorfrequency),
+            key(R.string.key_setting_mqtt_discovery_topic), key(R.string.key_setting_mqtt_discovery_name),
+            key(R.string.key_setting_speech_ha_url), key(R.string.key_setting_speech_ha_token),
+            key(R.string.key_setting_speech_ha_engine), key(R.string.key_setting_speech_ha_language),
+            key(R.string.key_setting_voice_pipeline), key(R.string.key_setting_app_lockdown_apps),
+            key(R.string.key_setting_browser_login_username), key(R.string.key_setting_browser_login_password),
+            key(R.string.key_setting_browser_user_agent), key(R.string.key_setting_browser_idle_return),
+            key(R.string.key_setting_browser_reload_interval), key(R.string.key_use_geckoview_suspend_seconds),
+            key(R.string.key_setting_camera_fps), key(R.string.key_setting_camera_motionframeskip),
+            key(R.string.key_setting_camera_wake_time), key(R.string.key_setting_camera_resolution),
+            key(R.string.key_setting_camera_boost_resolution), key(R.string.key_setting_camera_boost_fps),
+            key(R.string.key_setting_camera_boost_hold), key(R.string.key_setting_test_zoomlevel),
+            key(R.string.key_screensaver_clock_size),
+            // ScheduleRepository's, the one setting kept outside this class
+            key(R.string.key_setting_schedules),
+        )
+        put(
+            SettingType.INT,
+            PREF_CAMERA_MOTION_LATENCY, PREF_CAMERA_FACE_SIZE, PREF_SETTINGS_LOCATION, PREF_IMAGE_ROTATION,
+            key(R.string.setting_camera_cameraid), key(R.string.key_screensaver_dim_value),
+            key(R.string.key_setting_screen_brightness), key(R.string.key_setting_screensaver_brightness),
+        )
+        put(SettingType.LONG, key(R.string.key_screensaver_inactivity_time))
+        put(
+            SettingType.STRING_SET,
+            key(R.string.key_setting_mqtt_discovery_control_ids_excluded),
+            key(R.string.key_setting_mqtt_discovery_sensor_ids_excluded),
+        )
+        return types
+    }
+
+    /** The settings the preference screens keep, by key, as their XML declares them. */
+    private fun preferenceScreenTypes(): Map<String, SettingType> {
+        val types = mutableMapOf<String, SettingType>()
+        for (screen in PREFERENCE_SCREENS) {
+            val parser = context.resources.getXml(screen)
+            try {
+                while (parser.next() != XmlPullParser.END_DOCUMENT) {
+                    if (parser.eventType != XmlPullParser.START_TAG) {
+                        continue
+                    }
+                    val type = SettingType.ofPreference(parser.name) ?: continue
+                    if (!parser.getAttributeBooleanValue(ANDROID_NAMESPACE, "persistent", true)) {
+                        continue
+                    }
+                    val keyRes = parser.getAttributeResourceValue(ANDROID_NAMESPACE, "key", 0)
+                    val key = if (keyRes != 0) context.getString(keyRes) else parser.getAttributeValue(ANDROID_NAMESPACE, "key")
+                    key?.let { types[it] = type }
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Could not read the settings a preference screen keeps")
+            } finally {
+                parser.close()
+            }
+        }
+        return types
     }
 
     fun hasSettingsUpdates(): Boolean {
@@ -802,6 +910,12 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
             val trimmed = topic.trim()
             return if (trimmed.isEmpty() || trimmed.endsWith("/")) trimmed else "$trimmed/"
         }
+
+        private const val ANDROID_NAMESPACE = "http://schemas.android.com/apk/res/android"
+        private val PREFERENCE_SCREENS = intArrayOf(
+            R.xml.pref_general, R.xml.pref_camera, R.xml.pref_face, R.xml.pref_http,
+            R.xml.pref_motion, R.xml.pref_mqtt, R.xml.pref_qrcode, R.xml.pref_sensors,
+        )
 
         private const val PREF_SCREENSAVER_DIM_LEGACY = "c"
         private const val PREF_BROWSER_SETTINGS_UPDATED = "pref_browser_settings_updated"
