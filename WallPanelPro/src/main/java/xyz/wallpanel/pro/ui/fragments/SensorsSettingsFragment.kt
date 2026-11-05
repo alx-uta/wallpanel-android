@@ -90,6 +90,9 @@ class SensorsSettingsFragment : BaseSettingsFragment() {
         setSensorPreferenceSummary(findPreference<Preference>(getString(R.string.key_settings_sensors_magneticField)) as Preference, mSensorManager.getSensorList(Sensor.TYPE_MAGNETIC_FIELD));
         setSensorPreferenceSummary(findPreference<Preference>(getString(R.string.key_settings_sensors_pressure)) as Preference, mSensorManager.getSensorList(Sensor.TYPE_PRESSURE));
         setSensorPreferenceSummary(findPreference<Preference>(getString(R.string.key_settings_sensors_humidity)) as Preference, mSensorManager.getSensorList(Sensor.TYPE_RELATIVE_HUMIDITY));
+        val proximity = mSensorManager.getSensorList(Sensor.TYPE_PROXIMITY)
+        setSensorPreferenceSummary(findPreference<Preference>(getString(R.string.key_settings_sensors_proximity)) as Preference, proximity)
+        findPreference<Preference>(getString(R.string.key_setting_sensors_proximity_wake))?.isVisible = proximity.isNotEmpty()
     }
 
     private fun setSensorPreferenceSummary(preference: Preference, sensorList: List<Sensor>) {

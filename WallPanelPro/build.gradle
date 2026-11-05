@@ -24,7 +24,7 @@ plugins {
 
 def versionMajor = 1
 def versionMinor = 1
-def versionPatch = 12
+def versionPatch = 13
 def versionBuild = 0 // bump for dog food builds, public betas, etc.
 
 // HA/MQTT test credentials for dev-flavor builds live in local.testconfig.properties
@@ -247,6 +247,8 @@ dependencies {
     // Real org.json instead of the android.jar stub, so JSON parsing can be tested
     // without Robolectric.
     testImplementation 'org.json:json:20231013'
+    // A websocket server for the Assist client's conversation with Home Assistant
+    testImplementation 'com.squareup.okhttp3:mockwebserver:4.12.0'
 
     // Instrumented tests (emulator/device)
     androidTestImplementation 'androidx.test.ext:junit:1.1.3'

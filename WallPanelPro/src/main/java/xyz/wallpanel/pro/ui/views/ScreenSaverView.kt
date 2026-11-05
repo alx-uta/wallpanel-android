@@ -19,10 +19,13 @@ package xyz.wallpanel.pro.ui.views
 import android.annotation.SuppressLint
 import android.content.Context
 import android.content.DialogInterface
+import android.graphics.drawable.Drawable
+import android.net.Uri
 import android.net.http.SslError
 import android.os.Build
 import android.os.Handler
 import android.os.Looper
+import android.text.TextPaint
 import android.text.TextUtils
 import android.text.format.DateUtils
 import android.util.AttributeSet
@@ -32,16 +35,24 @@ import android.view.View
 import android.view.ViewGroup
 import android.webkit.*
 import android.widget.RelativeLayout
+import android.widget.TextView
 import android.widget.Toast
 import androidx.annotation.RequiresApi
 import androidx.appcompat.app.AlertDialog
 import com.bumptech.glide.Glide
+import com.bumptech.glide.load.DataSource
 import com.bumptech.glide.load.engine.DiskCacheStrategy
+import com.bumptech.glide.load.engine.GlideException
+import com.bumptech.glide.request.RequestListener
+import com.bumptech.glide.request.target.Target
 import xyz.wallpanel.pro.R
 import xyz.wallpanel.pro.persistence.Configuration.Companion.WEB_SCREEN_SAVER
 import timber.log.Timber
 import xyz.wallpanel.pro.databinding.DialogScreenSaverBinding
+import xyz.wallpanel.pro.utils.PhotoFolder
+import xyz.wallpanel.pro.utils.PhotoRotation
 import java.util.*
+import java.util.concurrent.Executors
 import java.util.concurrent.TimeUnit
 
 class ScreenSaverView : RelativeLayout {
@@ -55,9 +66,20 @@ class ScreenSaverView : RelativeLayout {
     private var showWebPage: Boolean = false
     private var showWallpaper: Boolean = false
     private var showClock: Boolean = false
+    private var clockScale = 1f
+    private var clockMoves = true
+    // The text sizes the clock asks for, before they are made to fit the screen
+    private var clockTextSize = 0f
+    private var dayTextSize = 0f
     private var rotationInterval = 900L
     private var webUrl = WEB_SCREEN_SAVER
+    private var thirdPartyCookies = true
     private var certPermissionsShown = false
+    private var photoFolder = ""
+    private val photos = PhotoRotation<Uri>()
+    // The size of the last listing, and how many photos have failed since one last opened
+    private var photoCount = 0
+    private var photoFailures = 0
 
     val calendar: Calendar = Calendar.getInstance()
 
@@ -69,6 +91,7 @@ class ScreenSaverView : RelativeLayout {
             val currentDayString = DateUtils.formatDateTime(context, date.time, DateUtils.FORMAT_SHOW_WEEKDAY or DateUtils.FORMAT_SHOW_DATE)
             binding.screenSaverClock.text = currentTimeString
             binding.screenSaverDay.text = currentDayString
+            fitClock()
 
             val width = binding.screenSaverClockLayout.width
             val height = binding.screenSaverClockLayout.height
@@ -76,9 +99,10 @@ class ScreenSaverView : RelativeLayout {
             parentWidth = binding.screenSaverView.width
             parentHeight = binding.screenSaverView.height
 
+            // Left still, the clock stays in the middle where the layout puts it
             try {
-                if (width > 0 && height > 0 && parentWidth > 0 && parentHeight > 0) {
-                    if (parentHeight - width > 0) {
+                if (clockMoves && width > 0 && height > 0 && parentWidth > 0 && parentHeight > 0) {
+                    if (parentWidth - width > 0) {
                         val newX = Random().nextInt(parentWidth - width)
                         binding.screenSaverClockLayout.x = newX.toFloat()
                     }
@@ -98,8 +122,19 @@ class ScreenSaverView : RelativeLayout {
 
     private val wallPaperRunnable = object : Runnable {
         override fun run() {
-            setScreenSaverView()
-            wallPaperHandler?.postDelayed(this, TimeUnit.MINUTES.toMillis(rotationInterval))
+            // The size goes into the address of a web photo, and the dialog may not be up yet
+            if (binding.screenSaverView.width <= 0) {
+                wallPaperHandler?.postDelayed(this, WALLPAPER_LAYOUT_WAIT_MS)
+                return
+            }
+            if (photoFolder.isEmpty()) {
+                setScreenSaverView()
+            } else {
+                // Each rotation gets the whole folder to find a photo that opens
+                photoFailures = 0
+                showNextPhoto()
+            }
+            wallPaperHandler?.postDelayed(this, TimeUnit.MINUTES.toMillis(rotationInterval.coerceAtLeast(1)))
         }
     }
 
@@ -127,6 +162,8 @@ class ScreenSaverView : RelativeLayout {
         super.onDetachedFromWindow()
         timeHandler?.removeCallbacks(timeRunnable)
         wallPaperHandler?.removeCallbacks(wallPaperRunnable)
+        // A listing or a photo still on its way finds nothing left to do
+        wallPaperHandler = null
         // A new screensaver brings its own view, and this WebView would otherwise linger
         // until garbage collected, still tied to the renderer
         binding.screenSaverWebView.destroy()
@@ -147,12 +184,26 @@ class ScreenSaverView : RelativeLayout {
         return true
     }
 
-    fun init(hasWeb: Boolean, urlWeb: String, hasWallpaper: Boolean, hasClock: Boolean, rotationDelay: Long) {
+    fun init(
+        hasWeb: Boolean,
+        urlWeb: String,
+        hasWallpaper: Boolean,
+        hasClock: Boolean,
+        rotationDelay: Long,
+        clockScale: Float = 1f,
+        clockMoves: Boolean = true,
+        thirdPartyCookies: Boolean = true,
+        photoFolder: String = ""
+    ) {
         rotationInterval = rotationDelay
         showWebPage = hasWeb
         webUrl = urlWeb
         showWallpaper = hasWallpaper
         showClock = hasClock
+        this.clockScale = clockScale
+        this.clockMoves = clockMoves
+        this.thirdPartyCookies = thirdPartyCookies
+        this.photoFolder = photoFolder
 
         // always allow the clock screensaver to be displayed
         if(showClock) {
@@ -181,17 +232,114 @@ class ScreenSaverView : RelativeLayout {
 
     // setup clock size based on screen and weather settings
     private fun setClockViews() {
-        val initialRegular = binding.screenSaverClock.textSize
-        binding.screenSaverClock.setTextSize(TypedValue.COMPLEX_UNIT_PX, initialRegular + 100)
+        clockTextSize = (binding.screenSaverClock.textSize + CLOCK_EXTRA_SIZE_PX) * clockScale
+        dayTextSize = binding.screenSaverDay.textSize * clockScale
+        binding.screenSaverClock.setTextSize(TypedValue.COMPLEX_UNIT_PX, clockTextSize)
+        binding.screenSaverDay.setTextSize(TypedValue.COMPLEX_UNIT_PX, dayTextSize)
+        // The screen size is known once the dialog is laid out, which is after this
+        binding.screenSaverView.addOnLayoutChangeListener { _, left, top, right, bottom, oldLeft, oldTop, oldRight, oldBottom ->
+            // After this layout pass: resizing the text inside it would be put off anyway
+            if (right - left != oldRight - oldLeft || bottom - top != oldBottom - oldTop) {
+                post { fitClock() }
+            }
+        }
+    }
+
+    /**
+     * Shrinks the clock and the date from the size asked for until they fit the screen, so a
+     * large clock on a small or portrait screen is not cut off. Done each minute, since the
+     * width of the time and the date changes with them.
+     */
+    private fun fitClock() {
+        val width = binding.screenSaverView.width
+        val height = binding.screenSaverView.height
+        if (!showClock || width <= 0 || height <= 0) {
+            return
+        }
+        val maxWidth = width * CLOCK_MAX_WIDTH_FRACTION
+        fitText(binding.screenSaverClock, clockTextSize, maxWidth, height * CLOCK_MAX_HEIGHT_FRACTION)
+        fitText(binding.screenSaverDay, dayTextSize, maxWidth, height * DAY_MAX_HEIGHT_FRACTION)
+    }
+
+    private fun fitText(view: TextView, size: Float, maxWidth: Float, maxSize: Float) {
+        val paint = TextPaint(view.paint)
+        paint.textSize = size
+        val textWidth = paint.measureText(view.text.toString())
+        var fitted = if (textWidth > maxWidth) size * maxWidth / textWidth else size
+        fitted = fitted.coerceAtMost(maxSize)
+        if (fitted != view.textSize) {
+            view.setTextSize(TypedValue.COMPLEX_UNIT_PX, fitted)
+        }
     }
 
     private fun setScreenSaverView() {
         Glide.with(this.context.applicationContext)
-                .load(String.format(UNSPLASH_IT_URL, binding.screenSaverView.width, binding.screenSaverView.height))
+                .load(String.format(WEB_PHOTO_URL, binding.screenSaverView.width, binding.screenSaverView.height))
                 .diskCacheStrategy(DiskCacheStrategy.NONE)
                 .centerCrop()
                 .skipMemoryCache(true)
                 .into(binding.screenSaverImageLayout);
+    }
+
+    private fun showNextPhoto() {
+        val photo = photos.next()
+        if (photo != null) {
+            setPhoto(photo)
+        } else {
+            listPhotos()
+        }
+    }
+
+    // The folder sits behind a content provider, which can take a while on a slow card
+    private fun listPhotos() {
+        val appContext = context.applicationContext
+        val folder = photoFolder
+        listExecutor.execute {
+            val listed = PhotoFolder.list(appContext, folder)
+            wallPaperHandler?.post { onPhotosListed(listed) }
+        }
+    }
+
+    private fun onPhotosListed(listed: List<Uri>) {
+        photoCount = listed.size
+        photos.start(listed)
+        if (photos.isEmpty) {
+            Timber.w("No photos in the screensaver's folder, using web photos")
+            setScreenSaverView()
+        } else {
+            showNextPhoto()
+        }
+    }
+
+    private fun setPhoto(photo: Uri) {
+        Glide.with(this.context.applicationContext)
+                .load(photo)
+                .diskCacheStrategy(DiskCacheStrategy.NONE)
+                .centerCrop()
+                .skipMemoryCache(true)
+                .listener(object : RequestListener<Drawable> {
+                    override fun onLoadFailed(e: GlideException?, model: Any?, target: Target<Drawable>?, isFirstResource: Boolean): Boolean {
+                        Timber.w("Could not load screensaver photo %s", photo)
+                        wallPaperHandler?.post { onPhotoFailed() }
+                        return false
+                    }
+
+                    override fun onResourceReady(resource: Drawable?, model: Any?, target: Target<Drawable>?, dataSource: DataSource?, isFirstResource: Boolean): Boolean {
+                        photoFailures = 0
+                        return false
+                    }
+                })
+                .into(binding.screenSaverImageLayout)
+    }
+
+    // A file that cannot be shown does not leave the screen black until the next rotation
+    private fun onPhotoFailed() {
+        photoFailures++
+        if (photoFailures < photoCount) {
+            showNextPhoto()
+        } else {
+            setScreenSaverView()
+        }
     }
 
     private fun closeView() {
@@ -284,16 +432,23 @@ class ScreenSaverView : RelativeLayout {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
             webSettings.mixedContentMode = WebSettings.MIXED_CONTENT_ALWAYS_ALLOW
         }
+        CookieManager.getInstance().setAcceptThirdPartyCookies(binding.screenSaverWebView, thirdPartyCookies)
     }
 
+    // Cookies stay: the cookie store is the dashboard's as well
     private fun clearCache() {
         binding.screenSaverWebView.clearCache(true)
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.LOLLIPOP) {
-            CookieManager.getInstance().removeAllCookies(null)
-        }
     }
 
     companion object {
-        const val UNSPLASH_IT_URL = "http://unsplash.it/%s/%s?random"
+        const val WEB_PHOTO_URL = "https://picsum.photos/%s/%s"
+        private const val WALLPAPER_LAYOUT_WAIT_MS = 100L
+        // Shared, since a view is gone long before the next one needs it
+        private val listExecutor = Executors.newSingleThreadExecutor()
+        // Added to the clock's size from the layout, which is its normal size
+        private const val CLOCK_EXTRA_SIZE_PX = 100
+        private const val CLOCK_MAX_WIDTH_FRACTION = 0.9f
+        private const val CLOCK_MAX_HEIGHT_FRACTION = 0.5f
+        private const val DAY_MAX_HEIGHT_FRACTION = 0.12f
     }
 }

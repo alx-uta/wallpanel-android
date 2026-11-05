@@ -2,7 +2,7 @@
 title: Screensaver and Brightness Control
 ---
 
-On some older devices, there is no screensaver support such as Google Daydream that automatically dims the screen.  Therefore the application provides a screensaver feature.  This feature along with the screen brightness option, allows the screen to dim when the screensaver is active.  With the Camera and Motion feature, the device can be automatically awaken when motion is detected.  Optionally, you can send an MQTT command to wake the screen or just touch the screen to deactivate the screensaver.
+The application has a screensaver of its own, because Android's never starts while the application is on screen.  This feature along with the screen brightness option, allows the screen to dim when the screensaver is active.  With the Camera and Motion feature, the device can be automatically awaken when motion is detected.  Optionally, you can send an MQTT command to wake the screen or just touch the screen to deactivate the screensaver.
 
 There is a setting to dim the screen by a set percentage when the screensaver is active. When set to a value above 0%, the screen dims by that percentage, so at 75% it is left at a quarter of its usual brightness.
 
@@ -18,3 +18,49 @@ Using the screen brightness option requires some extra permissions.  This is bec
 
 - If you have brightness enabled, you can at any time manually set a new brightness level using the MQTT commands (see commands section above).  The device will then use the new setting as the default brightness level of the device.
 
+## Clock
+
+**Clock Size** makes the clock screensaver larger, up to three times its normal size. The
+clock and the date shrink back as far as they need to fit the screen, so a large clock on
+a small or portrait screen is not cut off.
+
+The clock moves to a new place every minute so it does not burn into the screen. That
+matters on AMOLED screens and less on LCD ones, which is where **Move Clock** can be
+switched off to keep it in the middle.
+
+## Wallpaper
+
+**Wallpaper Screen Saver** shows photos, changing every **Image Rotation Interval** minutes.
+
+**Photo Folder** chooses a folder on the device to show. Its photos come up in a random
+order, each once before any repeats, and photos added to the folder are picked up on the
+next pass. Folders inside it are left out, as are files that are not images, and a file
+that cannot be opened is skipped. Android's folder picker does not offer the top of the
+internal storage or the Download folder from Android 11, so keep them in a folder of their
+own, such as one in Pictures. Nothing leaves the device, and no storage permission is
+needed: Android gives access to that folder alone.
+
+Without a folder, or if the folder is empty or has gone, for instance with its SD card,
+the screensaver shows random photos from [picsum.photos](https://picsum.photos). Clicking
+**Photo Folder** again offers another folder or a return to those. The folder is left out
+of [exported settings](./getting-started.md), because access to it belongs to this device.
+
+## Web screensaver
+
+**Web Screensaver** shows a web page of your choice, set in **Web Screensaver Url**. A
+touch anywhere on it ends the screensaver, so the page is for looking at rather than using.
+The screensaver always uses the WebView, whichever engine the dashboard uses.
+
+## Reloading after the screensaver
+
+**Settings &rarr; Reload After Screensaver** reloads the page whenever a screensaver goes
+away: on a touch, a `wake` command, motion or a face, or the screen coming back on. A
+dashboard that has been in the background for hours, or whose connection dropped while
+the screen was off, then shows current values. See
+[Reloading the dashboard](./dashboard-refresh.md) for the other ways to keep a page fresh.
+
+## Changing the screensaver remotely
+
+The screensaver type, its timeout, the dim level, the web screensaver's page and
+**Prevent Sleep** can all be changed by the [`config` command](./remote-control/commands.md#changing-settings),
+or from the matching Home Assistant entities, to dim at night and stay bright by day.

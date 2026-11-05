@@ -27,9 +27,7 @@ import android.os.Handler
 import android.os.Looper
 import android.provider.OpenableColumns
 import android.text.format.DateFormat
-import android.text.InputType
 import android.widget.EditText
-import android.widget.LinearLayout
 import androidx.annotation.UiThread
 import androidx.appcompat.app.AlertDialog
 import androidx.core.content.ContextCompat
@@ -317,7 +315,9 @@ class GeckoWebChromeClientAdapter(
     }
 
     /**
-     * A page or resource behind HTTP authentication, basic auth for instance.
+     * A page or resource behind HTTP authentication, basic auth for instance. The dashboard's
+     * own server gets the username and password from the settings, once: when it turns them
+     * down, the user is asked.
      */
     @UiThread
     override fun onAuthPrompt(
@@ -326,33 +326,25 @@ class GeckoWebChromeClientAdapter(
     ): GeckoResult<PromptResponse>? {
         val options = prompt.authOptions
         val passwordOnly = options.flags and AuthPrompt.AuthOptions.Flags.ONLY_PASSWORD != 0
-        val username = EditText(context).apply {
-            hint = context.getString(R.string.hint_username)
-            setText(options.username.orEmpty())
-            inputType = InputType.TYPE_CLASS_TEXT
+        val previousFailed = options.flags and AuthPrompt.AuthOptions.Flags.PREVIOUS_FAILED != 0
+        val proxy = options.flags and AuthPrompt.AuthOptions.Flags.PROXY != 0
+        val stored = if (proxy) null else callback.storedLoginForUrl(options.uri)
+        if (stored != null && !previousFailed && !callback.isFinishing()) {
+            val (username, password) = stored
+            return GeckoResult.fromValue(
+                if (passwordOnly) prompt.confirm(password) else prompt.confirm(username, password)
+            )
         }
-        val password = EditText(context).apply {
-            hint = context.getString(R.string.hint_password)
-            inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_PASSWORD
-        }
-        val fields = LinearLayout(context).apply {
-            orientation = LinearLayout.VERTICAL
-            val padding = (20 * context.resources.displayMetrics.density).toInt()
-            setPadding(padding, 0, padding, 0)
-            if (!passwordOnly) {
-                addView(username)
-            }
-            addView(password)
-        }
+        val fields = LoginFields(context, options.username?.takeIf { it.isNotEmpty() } ?: stored?.first, passwordOnly)
         return showPrompt(prompt) { builder, answer ->
             builder.setMessage(prompt.message)
-                .setView(fields)
+                .setView(fields.view)
                 .setPositiveButton(android.R.string.ok) { _, _ ->
                     answer {
                         if (passwordOnly) {
-                            prompt.confirm(password.text.toString())
+                            prompt.confirm(fields.password)
                         } else {
-                            prompt.confirm(username.text.toString(), password.text.toString())
+                            prompt.confirm(fields.username, fields.password)
                         }
                     }
                 }

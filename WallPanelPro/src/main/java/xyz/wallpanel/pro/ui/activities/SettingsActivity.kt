@@ -28,6 +28,7 @@ import xyz.wallpanel.pro.R
 import xyz.wallpanel.pro.network.WallPanelService
 import xyz.wallpanel.pro.persistence.Configuration
 import xyz.wallpanel.pro.ui.fragments.CodeBottomSheetFragment
+import xyz.wallpanel.pro.utils.AppExit
 import xyz.wallpanel.pro.utils.DialogUtils
 import dagger.android.support.DaggerAppCompatActivity
 import timber.log.Timber
@@ -167,6 +168,10 @@ class SettingsActivity : DaggerAppCompatActivity(), CodeBottomSheetFragment.OnAl
          * is what Android requires to start a service.
          */
         private fun notifySettingsShown(context: Context, shown: Boolean) {
+            // Started again now, the service would come back after the process has gone
+            if (AppExit.exiting) {
+                return
+            }
             val action = if (shown) WallPanelService.ACTION_SETTINGS_OPENED else WallPanelService.ACTION_SETTINGS_CLOSED
             try {
                 context.startService(Intent(context, WallPanelService::class.java).setAction(action))

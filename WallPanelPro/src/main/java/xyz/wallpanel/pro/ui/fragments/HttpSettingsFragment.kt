@@ -27,6 +27,7 @@ import android.os.Bundle
 import androidx.preference.SwitchPreference
 import androidx.preference.EditTextPreference
 import androidx.preference.Preference
+import android.text.InputType
 import android.text.format.Formatter
 import android.view.Menu
 import android.view.MenuInflater
@@ -112,11 +113,31 @@ class HttpSettingsFragment : BaseSettingsFragment() {
         }
         bindPreferenceSummaryToValue(httpPortPreference!!)
 
+        findPreference<EditTextPreference>(getString(R.string.key_setting_http_token))?.let {
+            it.setOnBindEditTextListener { editText ->
+                editText.inputType = InputType.TYPE_CLASS_TEXT or InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD
+                editText.setSelection(editText.text.length)
+            }
+        }
+        updateTokenSummaries()
+    }
+
+    /**
+     * Whether a token is set, never the token, and the stream address with the token
+     * parameter in it when one is needed.
+     */
+    private fun updateTokenSummaries() {
+        val tokenSet = configuration.httpToken.isNotEmpty()
+        findPreference<Preference>(getString(R.string.key_setting_http_token))?.setSummary(
+            if (tokenSet) R.string.pref_http_token_summary_on else R.string.pref_http_token_summary_off
+        )
         val wm = requireActivity().applicationContext.getSystemService(WIFI_SERVICE) as WifiManager
         val ip = Formatter.formatIpAddress(wm.connectionInfo.ipAddress)
-
         val description = findPreference<Preference>(getString(R.string.key_setting_directions)) as Preference
-        description.summary = getString(R.string.pref_mjpeg_streaming_description, ip )
+        description.summary = getString(
+            if (tokenSet) R.string.pref_mjpeg_streaming_description_token else R.string.pref_mjpeg_streaming_description,
+            ip, configuration.httpPort.toString()
+        )
     }
 
     /**
@@ -155,6 +176,9 @@ class HttpSettingsFragment : BaseSettingsFragment() {
 
     override fun onSharedPreferenceChanged(sharedPreferences: SharedPreferences?, key: String?) {
         when (key) {
+            getString(R.string.key_setting_http_token), getString(R.string.key_setting_http_port) -> {
+                updateTokenSummaries()
+            }
             getString(R.string.key_setting_http_shellenabled) -> {
                 if (httpShellPreference?.isChecked == true) {
                     requestShellPermissions()

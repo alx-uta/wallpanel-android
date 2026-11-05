@@ -68,6 +68,33 @@
             android:summary="Refreshes the dashboard on network disconnect."
             android:title="Network Disconnect" />
 
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_browser_reload_on_wake"
+            android:key="@string/key_setting_browser_reload_on_wake"
+            android:title="@string/title_setting_browser_reload_on_wake"
+            android:summary="@string/summary_setting_browser_reload_on_wake"/>
+
+        <xyz.wallpanel.pro.ui.views.NumberEditTextPreference
+            android:defaultValue="@string/default_setting_browser_idle_return"
+            android:key="@string/key_setting_browser_idle_return"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_browser_idle_return"/>
+
+        <xyz.wallpanel.pro.ui.views.NumberEditTextPreference
+            android:defaultValue="@string/default_setting_browser_reload_interval"
+            android:key="@string/key_setting_browser_reload_interval"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_browser_reload_interval"/>
+
+        <xyz.wallpanel.pro.ui.views.NumberEditTextPreference
+            android:defaultValue="@string/default_setting_app_return_minutes"
+            android:key="@string/key_setting_app_return_minutes"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_app_return_minutes"/>
+
         <EditTextPreference
             android:defaultValue="@string/default_browser_user_agent"
             android:summary="@string/pref_user_agent_summary"
@@ -105,6 +132,18 @@
             android:key="@string/key_setting_ignore_ssl_errors"
             android:title="@string/title_setting_ignore_ssl_errors"
             android:summary="@string/pref_ignore_ssl_errors_summary"/>
+
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_browser_third_party_cookies"
+            android:key="@string/key_setting_browser_third_party_cookies"
+            android:title="@string/title_setting_browser_third_party_cookies"
+            android:summary="@string/summary_setting_browser_third_party_cookies"/>
+
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_browser_remote_debugging"
+            android:key="@string/key_setting_browser_remote_debugging"
+            android:title="@string/title_setting_browser_remote_debugging"
+            android:summary="@string/summary_setting_browser_remote_debugging"/>
 
         <SwitchPreference
             android:defaultValue="false"
@@ -152,6 +191,56 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="@string/pref_navigation_category">
+
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_browser_swipe_navigation"
+            android:key="@string/key_setting_browser_swipe_navigation"
+            android:title="@string/title_setting_browser_swipe_navigation"
+            android:summary="@string/summary_setting_browser_swipe_navigation"/>
+
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_browser_nav_buttons"
+            android:key="@string/key_setting_browser_nav_buttons"
+            android:title="@string/title_setting_browser_nav_buttons"
+            android:summary="@string/summary_setting_browser_nav_buttons"/>
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/pref_lockdown_category">
+
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_app_lockdown"
+            android:key="@string/key_setting_app_lockdown"
+            android:title="@string/title_setting_app_lockdown"
+            android:summary="@string/summary_setting_app_lockdown"/>
+
+        <EditTextPreference
+            android:defaultValue="@string/default_setting_app_lockdown_apps"
+            android:key="@string/key_setting_app_lockdown_apps"
+            android:title="@string/title_setting_app_lockdown_apps"/>
+
+        <Preference
+            android:key="button_device_admin"
+            android:title="@string/title_setting_device_admin"/>
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/pref_login_category">
+
+        <EditTextPreference
+            android:key="@string/key_setting_browser_login_username"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_browser_login_username"/>
+
+        <EditTextPreference
+            android:key="@string/key_setting_browser_login_password"
+            android:singleLine="true"
+            android:title="@string/title_setting_browser_login_password"/>
+
+    </PreferenceCategory>
+
     <PreferenceCategory android:title="@string/preference_title_screen">
 
         <SwitchPreference
@@ -178,6 +267,22 @@
             android:summary="@string/preference_summary_screen_saver_settings"
             android:key="@string/key_screensaver"/>
 
+        <ListPreference
+            android:defaultValue="@string/default_screensaver_clock_size"
+            android:key="@string/key_screensaver_clock_size"
+            android:title="@string/title_screensaver_clock_size"
+            android:entries="@array/clock_size_names"
+            android:entryValues="@array/clock_size_values"
+            android:summary="%s"
+            android:dependency="@string/key_screensaver"/>
+
+        <SwitchPreference
+            android:defaultValue="@string/default_screensaver_clock_move"
+            android:key="@string/key_screensaver_clock_move"
+            android:title="@string/title_screensaver_clock_move"
+            android:summary="@string/summary_screensaver_clock_move"
+            android:dependency="@string/key_screensaver"/>
+
         <SwitchPreference
             android:defaultValue="false"
             android:title="@string/preference_title_screen_saver_dim"
@@ -189,6 +294,11 @@
             android:title="@string/preference_title_screen_saver_wallpaper"
             android:summary="@string/preference_summary_screen_saver_settings_wallpaper"
             android:key="settings_wallpaper_screensaver" />
+
+        <Preference
+            android:key="settings_screensaver_photo_folder"
+            android:dependency="settings_wallpaper_screensaver"
+            android:title="@string/title_screensaver_photo_folder"/>
 
         <SwitchPreference
             android:defaultValue="false"
@@ -221,6 +331,73 @@
 
     </PreferenceCategory>
 
+    <PreferenceCategory android:title="@string/pref_speech_category">
+
+        <EditTextPreference
+            android:key="@string/key_setting_speech_ha_url"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_speech_ha_url"/>
+
+        <EditTextPreference
+            android:key="@string/key_setting_speech_ha_token"
+            android:singleLine="true"
+            android:title="@string/title_setting_speech_ha_token"/>
+
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_speech_ha_enabled"
+            android:key="@string/key_setting_speech_ha_enabled"
+            android:title="@string/title_setting_speech_ha_enabled"
+            android:summary="@string/summary_setting_speech_ha_enabled"/>
+
+        <EditTextPreference
+            android:key="@string/key_setting_speech_ha_engine"
+            android:dependency="@string/key_setting_speech_ha_enabled"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_speech_ha_engine"/>
+
+        <EditTextPreference
+            android:key="@string/key_setting_speech_ha_language"
+            android:dependency="@string/key_setting_speech_ha_enabled"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_speech_ha_language"/>
+
+        <SwitchPreference
+            android:defaultValue="@string/default_setting_voice_enabled"
+            android:key="@string/key_setting_voice_enabled"
+            android:title="@string/title_setting_voice_enabled"
+            android:summary="@string/summary_setting_voice_enabled"/>
+
+        <EditTextPreference
+            android:key="@string/key_setting_voice_pipeline"
+            android:dependency="@string/key_setting_voice_enabled"
+            android:selectAllOnFocus="true"
+            android:singleLine="true"
+            android:title="@string/title_setting_voice_pipeline"/>
+
+    </PreferenceCategory>
+
+    <PreferenceCategory android:title="@string/pref_backup_category">
+
+        <Preference
+            android:key="button_settings_export"
+            android:title="@string/title_settings_export"
+            android:summary="@string/summary_settings_export"/>
+
+        <Preference
+            android:key="button_settings_import"
+            android:title="@string/title_settings_import"
+            android:summary="@string/summary_settings_import"/>
+
+        <Preference
+            android:key="button_share_log"
+            android:title="@string/title_share_log"
+            android:summary="@string/summary_share_log"/>
+
+    </PreferenceCategory>
+
     <PreferenceCategory android:title="@string/pref_additional_settings_title">
 
         <Preference
@@ -249,5 +426,10 @@
     <Preference
         android:key="button_key_about"
         android:title="@string/pref_about_title"/>
+
+    <Preference
+        android:key="button_exit"
+        android:title="@string/title_setting_exit"
+        android:summary="@string/summary_setting_exit"/>
 
 </PreferenceScreen>

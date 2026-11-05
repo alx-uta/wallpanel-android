@@ -30,3 +30,18 @@ You also have the option in the settings to change the location of the settings 
 Once you have setup the code and dashboard url, each time you enter the settings, you will be prompted to enter the code unless the security-code requirement is disabled.
 
 ![Settings Code](https://github.com/thanksmister/wallpanel-android/blob/master/img/settings_code.png)
+
+## Copying settings to another device
+
+**Settings &rarr; Backup &rarr; Export Settings** saves the settings to a JSON file, to set
+up another tablet the same way, or this one again after a reinstall. Passwords, access
+tokens and the settings code are left out unless you tick **Include passwords, access
+tokens and the settings code**. Keep a file with them in it somewhere safe.
+
+**Import Settings** reads such a file and restarts WallPanel. The settings in the file
+replace the device's, and anything the file does not have is left as it is. By default the
+device keeps its own MQTT client ID, base topic and device name: two devices sharing a
+client ID knock each other off the broker, and with the same base topic both would take
+each other's commands. Untick **Keep this device's MQTT client ID, base topic and device
+name** when restoring a device from its own backup.
+

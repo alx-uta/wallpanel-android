@@ -41,6 +41,7 @@ import timber.log.Timber
 import java.net.Inet4Address
 import java.net.NetworkInterface
 import java.util.*
+import java.util.concurrent.ConcurrentHashMap
 import java.util.concurrent.TimeUnit
 import javax.inject.Inject
 
@@ -78,6 +79,12 @@ constructor(private val context: Context){
     // on the main looper, which is also where the cycle clears this.
     private val publishedSensorTypes = mutableSetOf<Int>()
     private var lightSensorEvent: SensorEvent? = null
+    // The last proximity reading. The sensor reports only when something moves, which can be
+    // hours apart, so each cycle sends this again. Main looper only.
+    private var lastProximity: JSONObject? = null
+    // The last reading of each sensor, for the HTTP API. Written from the main thread and the
+    // reading thread, read from the HTTP server's.
+    private val latestReadings = ConcurrentHashMap<String, JSONObject>()
     // Some devices' SELinux policy denies untrusted apps read access to /proc/stat.
     // Once that's confirmed, stop retrying every cycle instead of failing forever. Written
     // from the reading thread and read from the main thread.
@@ -92,14 +99,18 @@ constructor(private val context: Context){
     // The readings to take, by object id, or null for all of them. See [startReadings].
     @Volatile
     private var selectedSensors: Set<String>? = null
+    // A background cycle can still be going when the readings stop, and must not put back
+    // what stopping cleared.
+    @Volatile
+    private var readingsRunning = false
 
     private val sensorUpdateRunnable = object : Runnable {
         override fun run() {
             if (updateFrequencyMilliSeconds > 0) {
+                publishedSensorTypes.clear()
                 readImmediateSensors()
                 startBackgroundReadings()
                 sensorHandler.postDelayed(this, updateFrequencyMilliSeconds.toLong())
-                publishedSensorTypes.clear()
             }
         }
     }
@@ -120,6 +131,10 @@ constructor(private val context: Context){
             if (!deviceInfoPublished) {
                 getDeviceInfoReadings()
                 deviceInfoPublished = true
+            }
+            lastProximity?.let {
+                publishedSensorTypes.add(Sensor.TYPE_PROXIMITY)
+                publishSensorData(PROXIMITY, it)
             }
         } catch (e: Exception) {
             Timber.e(e, "Error taking the sensor readings")
@@ -159,9 +174,14 @@ constructor(private val context: Context){
     init {
         mSensorManager = context.getSystemService(SENSOR_SERVICE) as SensorManager
         for (s in mSensorManager.getSensorList(Sensor.TYPE_ALL)) {
-            if (getSensorName(s.type) != null)
+            if (s.type != Sensor.TYPE_PROXIMITY && getSensorName(s.type) != null)
                 mSensorList.add(s)
         }
+        // One of them: a device can list a wake-up and a plain proximity sensor for the same
+        // hardware. The default is the wake-up one, which reports with the screen off, and
+        // does not exist on a device that only has the plain one.
+        (mSensorManager.getDefaultSensor(Sensor.TYPE_PROXIMITY)
+            ?: mSensorManager.getSensorList(Sensor.TYPE_PROXIMITY).firstOrNull())?.let { mSensorList.add(it) }
         // Add system sensors (non-hardware). Every reading this device could report is
         // registered here whether or not a value is available at this moment, so that a
         // kiosk which boots faster than the Wi-Fi associates keeps its signal reading.
@@ -246,8 +266,10 @@ constructor(private val context: Context){
     fun startReadings(freqSeconds: Int, callback: SensorCallback, sensors: Set<String>? = null) {
         this.callback = callback
         selectedSensors = sensors
+        clearReadings()
         stopSensorReading()
         if (freqSeconds >= 0) {
+            readingsRunning = true
             updateFrequencyMilliSeconds = 1000 * freqSeconds
             deviceInfoPublished = false
             sensorHandler.removeCallbacksAndMessages(null)
@@ -267,13 +289,33 @@ constructor(private val context: Context){
     }
 
     fun stopReadings() {
+        readingsRunning = false
         sensorHandler.removeCallbacksAndMessages(null)
         updateFrequencyMilliSeconds = 0
         stopSensorReading()
+        clearReadings()
+    }
+
+    /**
+     * The last reading of each sensor by name, as published. A sensor with nothing to report
+     * yet is absent, and the object is empty while readings are not running.
+     */
+    fun latestReadings(): JSONObject {
+        val readings = JSONObject()
+        for ((name, reading) in latestReadings) {
+            readings.put(name, reading)
+        }
+        return readings
+    }
+
+    private fun clearReadings() {
+        latestReadings.clear()
+        lastProximity = null
     }
 
     private fun publishSensorData(sensorName: String?, sensorData: JSONObject) {
-        if(sensorName != null && isSelected(sensorName)) {
+        if(sensorName != null && readingsRunning && isSelected(sensorName)) {
+            latestReadings[sensorName] = sensorData
             callback?.publishSensorData(sensorName, sensorData)
         }
     }
@@ -298,6 +340,7 @@ constructor(private val context: Context){
             Sensor.TYPE_MAGNETIC_FIELD -> return MAGNETIC_FIELD
             Sensor.TYPE_PRESSURE -> return PRESSURE
             Sensor.TYPE_RELATIVE_HUMIDITY -> return HUMIDITY
+            Sensor.TYPE_PROXIMITY -> return PROXIMITY
             TYPE_BATTERY -> return BATTERY
             TYPE_CPU -> return CPU_USAGE
             TYPE_MEMORY -> return MEMORY_USAGE
@@ -318,6 +361,7 @@ constructor(private val context: Context){
             Sensor.TYPE_MAGNETIC_FIELD -> return context.getString(R.string.mqtt_sensor_magnetic_field)
             Sensor.TYPE_PRESSURE -> return context.getString(R.string.mqtt_sensor_pressure)
             Sensor.TYPE_RELATIVE_HUMIDITY -> return context.getString(R.string.mqtt_sensor_humidity)
+            Sensor.TYPE_PROXIMITY -> return context.getString(R.string.mqtt_sensor_proximity)
             TYPE_BATTERY -> return context.getString(R.string.mqtt_sensor_battery_level)
             TYPE_CPU -> return context.getString(R.string.mqtt_sensor_cpu_usage)
             TYPE_MEMORY -> return context.getString(R.string.mqtt_sensor_memory_usage)
@@ -338,6 +382,7 @@ constructor(private val context: Context){
             Sensor.TYPE_MAGNETIC_FIELD -> return UNIT_UT
             Sensor.TYPE_PRESSURE -> return UNIT_HPA
             Sensor.TYPE_RELATIVE_HUMIDITY -> return UNIT_PERCENTAGE
+            Sensor.TYPE_PROXIMITY -> return UNIT_CM
             TYPE_BATTERY -> return UNIT_PERCENTAGE
             TYPE_CPU -> return UNIT_PERCENTAGE
             TYPE_MEMORY -> return UNIT_MB
@@ -434,6 +479,10 @@ constructor(private val context: Context){
                     publishSensorEvent(light)
                 }
             }
+            if (event.sensor.type == Sensor.TYPE_PROXIMITY) {
+                publishProximity(event)
+                return
+            }
             // One reading per sensor per cycle. A single flag for all of them meant the
             // first sensor to fire was the only one Home Assistant ever heard from, leaving
             // the rest of the advertised entities without a state.
@@ -442,6 +491,26 @@ constructor(private val context: Context){
             }
         }
         override fun onAccuracyChanged(sensor: Sensor?, accuracy: Int) {
+        }
+    }
+
+    /**
+     * Someone arriving or leaving goes out at once rather than with the next cycle, which
+     * would lose a visit shorter than it. A sensor that measures distance can change value
+     * all the time, so a move that stays on the same side counts as one reading per cycle.
+     */
+    private fun publishProximity(event: SensorEvent) {
+        val distance = event.values[0]
+        val near = isNear(distance, event.sensor.maximumRange)
+        val changed = lastProximity?.optBoolean(NEAR) != near
+        val data = JSONObject()
+        data.put(VALUE, distance.toDouble())
+        data.put(UNIT, UNIT_CM)
+        data.put(NEAR, near)
+        data.put(ID, event.sensor.name)
+        lastProximity = data
+        if (publishedSensorTypes.add(Sensor.TYPE_PROXIMITY) || changed) {
+            publishSensorData(PROXIMITY, data)
         }
     }
 
@@ -820,6 +889,8 @@ constructor(private val context: Context){
         const val AC_PLUGGED: String = "acPlugged"
         const val USB_PLUGGED: String = "usbPlugged"
         const val HUMIDITY: String = "humidity"
+        const val PROXIMITY: String = "proximity"
+        const val NEAR: String = "near"
         const val LIGHT: String = "light"
         const val PRESSURE: String = "pressure"
         const val TEMPERATURE: String = "temperature"
@@ -849,6 +920,7 @@ constructor(private val context: Context){
         const val UNIT_MB: String = "MB"
         const val UNIT_GB: String = "GB"
         const val UNIT_DBM: String = "dBm"
+        const val UNIT_CM: String = "cm"
         const val UNIT_SECONDS: String = "s"
         const val STATE_CLASS_MEASUREMENT: String = "measurement"
         const val STATE_CLASS_TOTAL_INCREASING: String = "total_increasing"
@@ -861,7 +933,19 @@ constructor(private val context: Context){
         private const val RSSI_WORST = -100
         private const val RSSI_BEST = -50
 
+        // The distance Android itself counts as near, for sensors with a longer range.
+        private const val NEAR_DISTANCE_CM = 5f
+
         private const val PROC_STAT = "/proc/stat"
         private const val PROC_MEMINFO = "/proc/meminfo"
+
+        /**
+         * Most proximity sensors only tell near from far, reporting 0 and their maximum
+         * range, and that maximum varies by device, so a reading is near when it is short
+         * of both the maximum and the usual distance.
+         */
+        fun isNear(distance: Float, maximumRange: Float): Boolean {
+            return distance >= 0f && distance < minOf(maximumRange, NEAR_DISTANCE_CM)
+        }
     }
 }

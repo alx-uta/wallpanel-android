@@ -16,6 +16,9 @@
 
 package xyz.wallpanel.pro.network
 
+import xyz.wallpanel.pro.utils.Lockdown
+import org.robolectric.Shadows
+import android.app.admin.DevicePolicyManager
 import android.content.Context
 import android.content.SharedPreferences
 import androidx.preference.PreferenceManager
@@ -136,6 +139,38 @@ class MqttDiscoveryTest {
         val all = entities()
         assertNull(all.getValue("select/cameraResolution").config)
         assertNull(all.getValue("select/cameraFps").config)
+    }
+
+    @Test
+    fun `the stream switch sends the stream command and reads the state back`() {
+        setBool(R.string.key_setting_camera_enabled, true)
+        val stream = config("switch/stream")
+        assertEquals("""{"stream": true}""", stream.getString("payload_on"))
+        assertEquals("""{"stream": false}""", stream.getString("payload_off"))
+        assertEquals("{% if value_json.stream %}ON{% else %}OFF{% endif %}", stream.getString("value_template"))
+    }
+
+    @Test
+    fun `the stream switch is removed while the camera is off`() {
+        setBool(R.string.key_setting_camera_enabled, false)
+        assertNull(entities().getValue("switch/stream").config)
+    }
+
+    @Test
+    fun `proximity is a binary sensor on the near field`() {
+        setBool(R.string.key_setting_sensors_enabled, true)
+        val proximity = config("binary_sensor/proximity", listOf(SensorInfo("proximity", "cm", null, "Proximity")))
+        assertEquals("wallpanel/kitchen/sensor/proximity", proximity.getString("state_topic"))
+        assertEquals("{% if value_json.near %}ON{% else %}OFF{% endif %}", proximity.getString("value_template"))
+        assertEquals("occupancy", proximity.getString("device_class"))
+    }
+
+    @Test
+    fun `proximity is removed on a device without the sensor and never built as a reading`() {
+        setBool(R.string.key_setting_sensors_enabled, true)
+        val all = entities()
+        assertNull(all.getValue("binary_sensor/proximity").config)
+        assertFalse("sensor/proximity" in all)
     }
 
     @Test
@@ -514,5 +549,75 @@ class MqttDiscoveryTest {
             .filterNot { it.objectId in notFromTheSensorReader }
             .map { SensorInfo(it.objectId, null, null, it.objectId) } +
             SensorInfo("battery", "%", "battery", "Battery Level", "measurement")
+    }
+
+    @Test
+    fun `config controls set one setting each through the config command`() {
+        val mode = config("select/screenSaverMode")
+        assertEquals("""{"config": {"screenSaverMode": {{ value | to_json }}}}""", mode.getString("command_template"))
+        assertEquals("{{ value_json.screenSaverMode }}", mode.getString("value_template"))
+        assertEquals(
+            listOf("off", "clock", "dim", "wallpaper", "web"),
+            mode.getJSONArray("options").let { a -> (0 until a.length()).map { a.getString(it) } }
+        )
+
+        val timeout = config("number/inactivityTime")
+        assertEquals("""{"config": {"inactivityTime": {{ value | int }}}}""", timeout.getString("command_template"))
+        assertEquals("s", timeout.getString("unit_of_measurement"))
+        assertEquals("box", timeout.getString("mode"))
+        assertEquals(5, timeout.getInt("min"))
+
+        val dim = config("number/screenSaverDim")
+        assertEquals("""{"config": {"screenSaverDim": {{ value | int }}}}""", dim.getString("command_template"))
+        assertEquals(99, dim.getInt("max"))
+
+        val sleep = config("switch/preventSleep")
+        assertEquals("""{"config": {"preventSleep": true}}""", sleep.getString("payload_on"))
+        assertEquals("""{"config": {"preventSleep": false}}""", sleep.getString("payload_off"))
+        assertEquals("{% if value_json.preventSleep %}ON{% else %}OFF{% endif %}", sleep.getString("value_template"))
+        assertEquals("config", sleep.getString("entity_category"))
+
+        val theme = config("switch/darkTheme")
+        assertEquals("""{"config": {"darkTheme": true}}""", theme.getString("payload_on"))
+
+        val url = config("text/screenSaverUrl")
+        assertEquals("""{"config": {"screenSaverUrl": {{ value | to_json }}}}""", url.getString("command_template"))
+    }
+
+    @Test
+    fun `lockdown is a config switch`() {
+        val lockdown = config("switch/lockdown")
+        assertEquals("""{"config": {"lockdown": true}}""", lockdown.getString("payload_on"))
+        assertEquals("""{"config": {"lockdown": false}}""", lockdown.getString("payload_off"))
+        assertEquals("{% if value_json.lockdown %}ON{% else %}OFF{% endif %}", lockdown.getString("value_template"))
+        assertEquals("config", lockdown.getString("entity_category"))
+    }
+
+    @Test
+    fun `screen off needs device admin and reboot the device owner`() {
+        assertNull(entities()["button/screenOff"]!!.config)
+        assertNull(entities()["button/reboot"]!!.config)
+
+        val policy = Shadows.shadowOf(context.getSystemService(DevicePolicyManager::class.java))
+        policy.setActiveAdmin(Lockdown.admin(context))
+        assertEquals("""{"screenOff": true}""", config("button/screenOff").getString("payload_press"))
+        assertNull(entities()["button/reboot"]!!.config)
+
+        policy.setDeviceOwner(Lockdown.admin(context))
+        val reboot = config("button/reboot")
+        assertEquals("""{"reboot": true}""", reboot.getString("payload_press"))
+        assertEquals("config", reboot.getString("entity_category"))
+    }
+
+    @Test
+    fun `the notify entity sends the message as the notification command`() {
+        val notify = config("notify/notification")
+        assertEquals("wallpanel/kitchen/command", notify.getString("command_topic"))
+        assertEquals("""{"notification": {{ value | to_json }}}""", notify.getString("command_template"))
+    }
+
+    @Test
+    fun `bring to front is a button`() {
+        assertEquals("""{"foreground": true}""", config("button/foreground").getString("payload_press"))
     }
 }

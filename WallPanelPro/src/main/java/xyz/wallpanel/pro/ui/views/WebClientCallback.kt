@@ -1,6 +1,8 @@
 package xyz.wallpanel.pro.ui.views
 
 import android.net.Uri
+import android.view.View
+import android.webkit.WebChromeClient
 import android.webkit.WebView
 
 interface WebClientCallback {
@@ -57,5 +59,22 @@ interface WebClientCallback {
      * nothing was picked.
      */
     fun pickFiles(mimeTypes: Array<String>, multiple: Boolean, onResult: (Array<Uri>?) -> Unit)
+
+    /**
+     * The WebView shows a page element fullscreen in [view], which is put over the page
+     * until [hideCustomView]. [onHidden] tells the WebView the user left fullscreen.
+     */
+    fun showCustomView(view: View, onHidden: WebChromeClient.CustomViewCallback)
+
+    fun hideCustomView()
+
+    /**
+     * The username and password from the settings for the server [host] asking for them, or
+     * null when it is not the dashboard's own server or none are set.
+     */
+    fun storedLogin(host: String?): Pair<String, String>?
+
+    /** As [storedLogin], for the whole address asking, whose scheme and port count too. */
+    fun storedLoginForUrl(url: String?): Pair<String, String>?
 
 }

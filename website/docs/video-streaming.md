@@ -8,9 +8,51 @@ If video streaming is enabled, then the stream can be accessed with this URL:
 http://yourip:2971/camera/stream
 ```
 
+With an [access token](./remote-control/commands.md#access-token) set, the stream needs it
+too, as basic authentication or on the URL:
+
+```plain
+http://yourip:2971/camera/stream?token=<token>
+```
+
 The endpoint answers `503` while the camera is switched off, and while it is switched on
 but not running -- when the camera permission has not been granted, or the camera could
 not be opened.
+
+## Stopping the stream
+
+The `stream` [command](./remote-control/commands.md) stops the stream without touching the
+camera, so a panel can keep watching for motion while nobody can watch through it, say
+while you are at home:
+
+```json
+{"stream": false}
+```
+
+Open streams are closed straight away and new ones get `503`. Motion, face and QR detection
+carry on. `{"stream": true}` starts it again; if the camera was started without the stream,
+that restarts the camera, which pauses detection for two to three seconds on an older
+device. With no detection switched on, stopping the stream also closes the camera, since
+nothing is left using it.
+
+The command sets **Settings &rarr; HTTP &rarr; MJPEG Camera Streaming**, so it lasts across
+restarts. In Home Assistant it is the **Camera Stream** switch, and `stream` in the
+[application state](./remote-control/sensors.md#application-state-data) reports it.
+`{"camera": false}` is different: it stops the camera and everything using it.
+
+If the stream was the only thing the HTTP server was on for, with the REST API off, the
+server stops with it. `{"stream": true}` then has to come over MQTT.
+
+Over HTTP the command needs an [access token](./remote-control/commands.md#access-token)
+to be set, either way round, so that nobody else on the network can stop the stream or
+start it.
+
+## Rotation and mirror
+
+**Settings &rarr; Camera &rarr; Rotate Camera** turns the picture a quarter turn either way
+or upside down, and **Mirror Camera** flips it left to right after that. Together they
+cover a camera mounted at any angle. Both apply to the stream, not to motion, face or QR
+detection, which do not care which way up the picture is.
 
 ## Viewers
 

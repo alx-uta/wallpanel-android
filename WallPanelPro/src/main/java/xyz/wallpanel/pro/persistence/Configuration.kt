@@ -23,6 +23,7 @@ import xyz.wallpanel.pro.R
 import xyz.wallpanel.pro.modules.CameraProfile
 import xyz.wallpanel.pro.modules.CameraResolution
 import xyz.wallpanel.pro.network.DiscoveryCatalog
+import org.xmlpull.v1.XmlPullParser
 import javax.inject.Inject
 
 class Configuration @Inject
@@ -33,9 +34,19 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         get() = this.sharedPreferences.getBoolean(PREF_FIRST_TIME, true)
         set(value) = this.sharedPreferences.edit().putBoolean(PREF_FIRST_TIME, value).apply()
 
-    val appPreventSleep: Boolean
+    var appPreventSleep: Boolean
         get() = getBoolPref(R.string.key_setting_app_preventsleep,
                 R.string.default_setting_app_preventsleep)
+        set(value) {
+            sharedPreferences.edit().putBoolean(context.getString(R.string.key_setting_app_preventsleep), value).apply()
+        }
+
+    /**
+     * Minutes another app may stay in front before WallPanel brings itself back. 0 is off.
+     */
+    val appReturnMinutes: Int
+        get() = getIntPref(R.string.key_setting_app_return_minutes, R.string.default_setting_app_return_minutes)
+            .coerceAtLeast(0)
 
     // TODO we have to migrate this due to an error when entering codes with leading 0 value
     var settingsCode: String
@@ -102,6 +113,10 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     var cameraRotate: Float
         get() = this.sharedPreferences.getString(PREF_CAMERA_ROTATE, "0f")?.trim()?.toFloatOrNull() ?: 0f
         set(value) = this.sharedPreferences.edit().putString(PREF_CAMERA_ROTATE, value.toString()).apply()
+
+    /** Flips the streamed picture left to right, after it has been rotated. */
+    val cameraMirror: Boolean
+        get() = getBoolPref(R.string.key_setting_camera_mirror, R.string.default_setting_camera_mirror)
 
     var appLaunchUrl: String
         get() = getStringPref(R.string.key_setting_app_launchurl,
@@ -199,6 +214,17 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     val httpMJPEGEnabled: Boolean
         get() = getBoolPref(R.string.key_setting_http_mjpegenabled,
                 R.string.default_setting_http_mjpegenabled)
+
+    /**
+     * The access token every HTTP request has to carry, the stream as well as the REST API.
+     * Empty leaves the server open, which is how it has always behaved. Surrounding spaces
+     * are dropped: they are easy to paste in and impossible to see in the settings.
+     */
+    var httpToken: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_http_token), null)?.trim().orEmpty()
+        set(value) {
+            sharedPreferences.edit().putString(context.getString(R.string.key_setting_http_token), value).apply()
+        }
 
     fun setHttpMJPEGEnabled(value: Boolean?) {
         sharedPreferences.edit().putBoolean(context.getString(R.string.key_setting_http_mjpegenabled), value!!).apply()
@@ -352,6 +378,76 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         get() = getBoolPref(R.string.key_setting_sensors_enabled,
                 R.string.default_setting_sensors_value)
 
+    /** Something coming close to the proximity sensor turns the screen on. */
+    val sensorsProximityWake: Boolean
+        get() = getBoolPref(R.string.key_setting_sensors_proximity_wake, R.string.default_setting_sensors_proximity_wake)
+
+    /** The speak command goes through Home Assistant's text to speech. */
+    val speechHaEnabled: Boolean
+        get() = getBoolPref(R.string.key_setting_speech_ha_enabled, R.string.default_setting_speech_ha_enabled)
+
+    /** Where Home Assistant is, as typed. Empty means the dashboard's own address. */
+    val speechHaUrl: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_speech_ha_url), null)?.trim().orEmpty()
+
+    /** A long-lived access token. Surrounding spaces are dropped, see [httpToken]. */
+    val speechHaToken: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_speech_ha_token), null)?.trim().orEmpty()
+
+    /** The `tts.` entity to speak with. Empty picks the first one Home Assistant has. */
+    val speechHaEngine: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_speech_ha_engine), null)?.trim().orEmpty()
+
+    /** The language to ask the engine for. Empty leaves it to the engine. */
+    val speechHaLanguage: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_speech_ha_language), null)?.trim().orEmpty()
+
+    /** A microphone button on the dashboard talks to Home Assistant's Assist. */
+    val voiceEnabled: Boolean
+        get() = getBoolPref(R.string.key_setting_voice_enabled, R.string.default_setting_voice_enabled)
+
+    /** The Assist pipeline, by id or name. Empty means Home Assistant's preferred one. */
+    val voicePipeline: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_voice_pipeline), null)?.trim().orEmpty()
+
+    /** Swiping in from the left edge goes back a page, from the right edge forward. */
+    val browserSwipeNavigation: Boolean
+        get() = getBoolPref(R.string.key_setting_browser_swipe_navigation, R.string.default_setting_browser_swipe_navigation)
+
+    /**
+     * WallPanel holds the screen as a locked task: screen pinning, or the full lock task mode
+     * when it is the device owner. See [xyz.wallpanel.pro.utils.Lockdown].
+     */
+    var appLockdown: Boolean
+        get() = getBoolPref(R.string.key_setting_app_lockdown, R.string.default_setting_app_lockdown)
+        set(value) {
+            sharedPreferences.edit().putBoolean(context.getString(R.string.key_setting_app_lockdown), value).apply()
+        }
+
+    /** Package names of apps that may be opened while locked down, as the setting holds them. */
+    val appLockdownApps: String
+        get() = getStringPref(R.string.key_setting_app_lockdown_apps, R.string.default_setting_app_lockdown_apps).trim()
+
+    /** On-screen back and dashboard buttons. */
+    val browserNavButtons: Boolean
+        get() = getBoolPref(R.string.key_setting_browser_nav_buttons, R.string.default_setting_browser_nav_buttons)
+
+    /** Pages embedded in the dashboard, such as an iframe card, may keep cookies. */
+    val browserThirdPartyCookies: Boolean
+        get() = getBoolPref(R.string.key_setting_browser_third_party_cookies, R.string.default_setting_browser_third_party_cookies)
+
+    /** Lets Chrome or Firefox on a computer connected over ADB inspect the dashboard. */
+    val browserRemoteDebugging: Boolean
+        get() = getBoolPref(R.string.key_setting_browser_remote_debugging, R.string.default_setting_browser_remote_debugging)
+
+    /** The username given to the dashboard's server when it asks for one. Empty is none. */
+    val browserLoginUsername: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_browser_login_username), null)?.trim().orEmpty()
+
+    /** Kept as typed: spaces can be part of a password. */
+    val browserLoginPassword: String
+        get() = sharedPreferences.getString(context.getString(R.string.key_setting_browser_login_password), null).orEmpty()
+
     val hardwareAccelerated: Boolean
         get() = getBoolPref(R.string.key_hadware_accelerated_enabled,
                 R.string.default_hardware_accelerated_value)
@@ -375,6 +471,23 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         set(value) {
             sharedPreferences.edit().putBoolean(context.getString(R.string.key_pref_browser_refresh), value).apply()
         }
+
+    /** Reload the page when a screensaver is dismissed, so it does not show stale values. */
+    val browserReloadOnWake: Boolean
+        get() = getBoolPref(R.string.key_setting_browser_reload_on_wake, R.string.default_setting_browser_reload_on_wake)
+
+    /**
+     * Minutes without a touch after which the dashboard is loaded again if another page is
+     * showing. 0 is off.
+     */
+    val browserIdleReturnMinutes: Int
+        get() = getIntPref(R.string.key_setting_browser_idle_return, R.string.default_setting_browser_idle_return)
+            .coerceAtLeast(0)
+
+    /** Minutes between reloads of the page on view. 0 is off. */
+    val browserReloadIntervalMinutes: Int
+        get() = getIntPref(R.string.key_setting_browser_reload_interval, R.string.default_setting_browser_reload_interval)
+            .coerceAtLeast(0)
 
     var useGeckoView: Boolean
         get() = getBoolPref(R.string.key_use_geckoview, R.string.default_use_geckoview)
@@ -517,10 +630,24 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         set(value) =
             sharedPreferences.edit().putBoolean(context.getString(R.string.key_screensaver), value).apply()
 
+    /** How many times its normal size the screensaver clock is drawn, as far as it fits. */
+    val clockScreenSaverScale: Float
+        get() = getStringPref(R.string.key_screensaver_clock_size, R.string.default_screensaver_clock_size)
+            .trim().toFloatOrNull()?.takeIf { it > 0f } ?: 1f
+
+    /** Whether the screensaver clock moves around every minute, against burn-in. */
+    val clockScreenSaverMoves: Boolean
+        get() = getBoolPref(R.string.key_screensaver_clock_move, R.string.default_screensaver_clock_move)
+
     var hasScreenSaverWallpaper: Boolean
         get() = getBoolPref(R.string.key_screensaver_wallpaper, R.string.default_screensaver_wallpaper)
         set(value) =
             sharedPreferences.edit().putBoolean(context.getString(R.string.key_screensaver_wallpaper), value).apply()
+
+    /** The folder the wallpaper screensaver shows, a document tree. Empty shows web photos. */
+    var screenSaverPhotoFolder: String
+        get() = sharedPreferences.getString(PREF_SCREENSAVER_PHOTO_FOLDER, "").orEmpty()
+        set(value) = sharedPreferences.edit().putString(PREF_SCREENSAVER_PHOTO_FOLDER, value).apply()
 
     var webScreenSaver: Boolean
         get() = this.sharedPreferences.getBoolean(PREF_WEB_SCREENSAVER, false)
@@ -605,6 +732,142 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         sharedPreferences.edit().putStringSet(context.getString(keyRes), excluded.toSet()).apply()
     }
 
+    /** Every stored setting, by key, for an export. See [SettingsBackup]. */
+    /** What [xyz.wallpanel.pro.utils.LogRedactor] takes out of the log wherever it turns up. */
+    fun logHiddenValues(): List<String> = listOf(
+        mqttPassword, httpToken, speechHaToken, browserLoginPassword
+    ).filter { it.isNotEmpty() }
+
+    fun allSettings(): Map<String, *> = sharedPreferences.all.filterKeys { it !in BACKUP_INTERNAL_KEYS }
+
+    /**
+     * Writes settings read from an export over the stored ones, all at once, before
+     * returning. An entry whose type is not the one the setting is read as is left out, see
+     * [SettingsBackup.compatible]. Returns the keys left out, or null when nothing could be
+     * written.
+     */
+    fun importSettings(values: Map<String, Any>): List<String>? {
+        val imported = SettingsBackup.compatible(
+            values.filterKeys { it !in BACKUP_INTERNAL_KEYS }, sharedPreferences.all, settingTypes()
+        )
+        val editor = sharedPreferences.edit()
+        imported.values.forEach { (key, value) ->
+            @Suppress("UNCHECKED_CAST")
+            when (value) {
+                is String -> editor.putString(key, value)
+                is Boolean -> editor.putBoolean(key, value)
+                is Int -> editor.putInt(key, value)
+                is Long -> editor.putLong(key, value)
+                is Float -> editor.putFloat(key, value)
+                is Set<*> -> editor.putStringSet(key, value as Set<String>)
+            }
+        }
+        return if (editor.commit()) imported.skipped else null
+    }
+
+    /**
+     * The type each setting is read as, for checking an import: what the settings screens
+     * keep, and over that what this class reads, since a few settings are kept by this class
+     * under keys of their own. A setting read here and not listed is left out of an import.
+     */
+    fun settingTypes(): Map<String, SettingType> {
+        val types = preferenceScreenTypes().toMutableMap()
+        fun put(type: SettingType, vararg keys: String) = keys.forEach { types[it] = type }
+        fun key(resId: Int) = context.getString(resId)
+        put(
+            SettingType.BOOLEAN,
+            PREF_FULL_SCREEN, PREF_DARK_THEME, PREF_SETTINGS_TRANSPARENT, PREF_SETTINGS_DISABLE,
+            PREF_BROWSER_REFRESH_DISCONNECT, PREF_SCREEN_BRIGHTNESS, PREF_WEB_SCREENSAVER,
+            key(R.string.key_setting_app_preventsleep), key(R.string.key_setting_settings_code_required),
+            key(R.string.key_setting_camera_mirror), key(R.string.key_setting_app_showactivity),
+            key(R.string.key_setting_camera_enabled), key(R.string.key_setting_camera_motionenabled),
+            key(R.string.key_setting_camera_motionwake), key(R.string.key_setting_camera_motionbright),
+            key(R.string.key_setting_camera_faceenabled), key(R.string.key_setting_camera_facewake),
+            key(R.string.key_setting_camera_facerotation), key(R.string.key_setting_camera_qrcodeenabled),
+            key(R.string.key_setting_http_restenabled), key(R.string.key_setting_http_shellenabled),
+            key(R.string.key_setting_http_mjpegenabled), key(R.string.key_setting_mqtt_enabled),
+            key(R.string.key_setting_mqtt_tls_enabled), key(R.string.key_setting_mqtt_discovery),
+            key(R.string.key_setting_mqtt_discovery_legacy_entities), key(R.string.key_setting_mqtt_discovery_controls),
+            key(R.string.key_setting_sensors_enabled), key(R.string.key_setting_sensors_proximity_wake),
+            key(R.string.key_setting_speech_ha_enabled), key(R.string.key_setting_voice_enabled),
+            key(R.string.key_setting_browser_swipe_navigation), key(R.string.key_setting_app_lockdown),
+            key(R.string.key_setting_browser_nav_buttons), key(R.string.key_setting_browser_third_party_cookies),
+            key(R.string.key_setting_browser_remote_debugging), key(R.string.key_hadware_accelerated_enabled),
+            key(R.string.key_pref_browser_refresh), key(R.string.key_setting_browser_reload_on_wake),
+            key(R.string.key_use_geckoview), key(R.string.key_setting_camera_only_screensaver),
+            key(R.string.key_setting_camera_low_resolution), key(R.string.key_setting_camera_boost_enabled),
+            key(R.string.key_screensaver_blank), key(R.string.key_screensaver_dim), key(R.string.key_screensaver),
+            key(R.string.key_screensaver_clock_move), key(R.string.key_screensaver_wallpaper),
+            key(R.string.key_setting_ignore_ssl_errors),
+        )
+        put(
+            SettingType.STRING,
+            PREF_SETTINGS_CODE_STRING, PREF_CAMERA_ROTATE, PREF_WEB_SCREENSAVER_URL,
+            key(R.string.key_setting_app_launchurl), key(R.string.key_setting_app_return_minutes),
+            key(R.string.key_setting_camera_motionminluma), key(R.string.key_setting_motion_clear),
+            key(R.string.key_setting_http_port), key(R.string.key_setting_http_token),
+            key(R.string.key_setting_http_mjpegmaxstreams), key(R.string.key_setting_http_mjpegfps),
+            key(R.string.key_setting_mqtt_version), key(R.string.key_setting_mqtt_servername),
+            key(R.string.key_setting_mqtt_serverport), key(R.string.key_setting_mqtt_basetopic),
+            key(R.string.key_setting_mqtt_clientid), key(R.string.key_setting_mqtt_username),
+            key(R.string.key_setting_mqtt_password), key(R.string.key_setting_mqtt_sensorfrequency),
+            key(R.string.key_setting_mqtt_discovery_topic), key(R.string.key_setting_mqtt_discovery_name),
+            key(R.string.key_setting_speech_ha_url), key(R.string.key_setting_speech_ha_token),
+            key(R.string.key_setting_speech_ha_engine), key(R.string.key_setting_speech_ha_language),
+            key(R.string.key_setting_voice_pipeline), key(R.string.key_setting_app_lockdown_apps),
+            key(R.string.key_setting_browser_login_username), key(R.string.key_setting_browser_login_password),
+            key(R.string.key_setting_browser_user_agent), key(R.string.key_setting_browser_idle_return),
+            key(R.string.key_setting_browser_reload_interval), key(R.string.key_use_geckoview_suspend_seconds),
+            key(R.string.key_setting_camera_fps), key(R.string.key_setting_camera_motionframeskip),
+            key(R.string.key_setting_camera_wake_time), key(R.string.key_setting_camera_resolution),
+            key(R.string.key_setting_camera_boost_resolution), key(R.string.key_setting_camera_boost_fps),
+            key(R.string.key_setting_camera_boost_hold), key(R.string.key_setting_test_zoomlevel),
+            key(R.string.key_screensaver_clock_size),
+            // ScheduleRepository's, the one setting kept outside this class
+            key(R.string.key_setting_schedules),
+        )
+        put(
+            SettingType.INT,
+            PREF_CAMERA_MOTION_LATENCY, PREF_CAMERA_FACE_SIZE, PREF_SETTINGS_LOCATION, PREF_IMAGE_ROTATION,
+            key(R.string.setting_camera_cameraid), key(R.string.key_screensaver_dim_value),
+            key(R.string.key_setting_screen_brightness), key(R.string.key_setting_screensaver_brightness),
+        )
+        put(SettingType.LONG, key(R.string.key_screensaver_inactivity_time))
+        put(
+            SettingType.STRING_SET,
+            key(R.string.key_setting_mqtt_discovery_control_ids_excluded),
+            key(R.string.key_setting_mqtt_discovery_sensor_ids_excluded),
+        )
+        return types
+    }
+
+    /** The settings the preference screens keep, by key, as their XML declares them. */
+    private fun preferenceScreenTypes(): Map<String, SettingType> {
+        val types = mutableMapOf<String, SettingType>()
+        for (screen in PREFERENCE_SCREENS) {
+            val parser = context.resources.getXml(screen)
+            try {
+                while (parser.next() != XmlPullParser.END_DOCUMENT) {
+                    if (parser.eventType != XmlPullParser.START_TAG) {
+                        continue
+                    }
+                    val type = SettingType.ofPreference(parser.name) ?: continue
+                    if (!parser.getAttributeBooleanValue(ANDROID_NAMESPACE, "persistent", true)) {
+                        continue
+                    }
+                    val keyRes = parser.getAttributeResourceValue(ANDROID_NAMESPACE, "key", 0)
+                    val key = if (keyRes != 0) context.getString(keyRes) else parser.getAttributeValue(ANDROID_NAMESPACE, "key")
+                    key?.let { types[it] = type }
+                }
+            } catch (e: Exception) {
+                Timber.e(e, "Could not read the settings a preference screen keeps")
+            } finally {
+                parser.close()
+            }
+        }
+        return types
+    }
+
     fun hasSettingsUpdates(): Boolean {
         val updates = sharedPreferences.getBoolean(PREF_BROWSER_SETTINGS_UPDATED, false)
         sharedPreferences.edit().putBoolean(PREF_BROWSER_SETTINGS_UPDATED, false).apply()
@@ -621,18 +884,45 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
     }
 
     companion object {
+        /**
+         * The application's own bookkeeping, which never goes into an export or comes out of
+         * an import. The legacy dim flag "c" is migrated into the current setting when it is
+         * read, so one brought back by an import would overwrite the setting it came with.
+         */
+        private val BACKUP_INTERNAL_KEYS: Set<String> by lazy {
+            setOf(
+                PREF_FIRST_TIME,
+                PREF_CAMERA_PERMISSIONS,
+                PREF_SHELL_PERMISSIONS,
+                PREF_NOTIFICATION_PERMISSIONS,
+                PREF_OVERLAY_PERMISSION,
+                PREF_MQTT_DISCOVERY_ADVERTISED_TOPICS,
+                PREF_BROWSER_SETTINGS_UPDATED,
+                PREF_DEVICE_BRIGHTNESS_WAS_AUTOMATIC,
+                PREF_SETTINGS_CODE,
+                PREF_SCREENSAVER_DIM_LEGACY,
+                PREF_SCREENSAVER_PHOTO_FOLDER,
+            )
+        }
+
         /** See [mqttBaseTopic]. Surrounding spaces are dropped, an empty topic stays empty. */
         fun normalizeBaseTopic(topic: String): String {
             val trimmed = topic.trim()
             return if (trimmed.isEmpty() || trimmed.endsWith("/")) trimmed else "$trimmed/"
         }
 
+        private const val ANDROID_NAMESPACE = "http://schemas.android.com/apk/res/android"
+        private val PREFERENCE_SCREENS = intArrayOf(
+            R.xml.pref_general, R.xml.pref_camera, R.xml.pref_face, R.xml.pref_http,
+            R.xml.pref_motion, R.xml.pref_mqtt, R.xml.pref_qrcode, R.xml.pref_sensors,
+        )
+
         private const val PREF_SCREENSAVER_DIM_LEGACY = "c"
         private const val PREF_BROWSER_SETTINGS_UPDATED = "pref_browser_settings_updated"
         private const val PREF_DARK_THEME = "pref_dark_theme"
         private const val PREF_FULL_SCREEN = "pref_full_screen"
         private const val PREF_SETTINGS_CODE = "pref_settings_code"
-        private const val PREF_SETTINGS_CODE_STRING = "pref_settings_code_string"
+        const val PREF_SETTINGS_CODE_STRING = "pref_settings_code_string"
         private const val PREF_SETTINGS_TRANSPARENT = "pref_settings_transparent"
         private const val PREF_SETTINGS_DISABLE = "pref_settings_disable"
         private const val PREF_SETTINGS_LOCATION = "pref_settings_location"
@@ -651,6 +941,8 @@ constructor(private val context: Context, private val sharedPreferences: SharedP
         const val PREF_IMAGE_ROTATION = "pref_image_rotation"
         private val PREF_CAMERA_FACE_SIZE = "pref_camera_face_size"
         private val PREF_CAMERA_MOTION_LATENCY = "pref_camera_motion_latency"
+        // A grant on this device alone, so it means nothing in an export
+        private const val PREF_SCREENSAVER_PHOTO_FOLDER = "pref_screensaver_photo_folder"
         private val PREF_WEB_SCREENSAVER_URL = "pref_web_screensaver_url"
         private val PREF_WEB_SCREENSAVER = "pref_web_screensaver"
         const val WEB_SCREEN_SAVER = "https://wallpanel.xyz"

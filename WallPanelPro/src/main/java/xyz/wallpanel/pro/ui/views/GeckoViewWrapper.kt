@@ -17,7 +17,9 @@
 package xyz.wallpanel.pro.ui.views
 
 import android.content.Context
+import android.net.Uri
 import androidx.annotation.UiThread
+import org.mozilla.geckoview.ContentBlocking
 import org.mozilla.geckoview.GeckoRuntime
 import org.mozilla.geckoview.GeckoRuntimeSettings
 import org.mozilla.geckoview.GeckoSession
@@ -52,7 +54,7 @@ class GeckoViewWrapper(
         /**
          * Initialize the GeckoRuntime (should be called once per app lifecycle)
          */
-        fun initializeRuntime(context: Context, zoomLevel: Float, darkTheme: Boolean) {
+        fun initializeRuntime(context: Context, zoomLevel: Float, darkTheme: Boolean, remoteDebugging: Boolean) {
             if (runtime == null) {
                 // Configure GeckoRuntime with optimal settings
                 val builder = GeckoRuntimeSettings.Builder()
@@ -71,8 +73,8 @@ class GeckoViewWrapper(
                 // Enable web fonts
                 builder.webFontsEnabled(true)
                 
-                // Enable remote debugging in debug builds
-                builder.remoteDebuggingEnabled(android.os.Build.TYPE == "userdebug")
+                // Firefox's about:debugging over ADB, see RemoteDebugging
+                builder.remoteDebuggingEnabled(remoteDebugging)
                 
                 // Configure console output for debugging
                 builder.consoleOutput(true)
@@ -101,6 +103,26 @@ class GeckoViewWrapper(
          */
         fun setDarkTheme(darkTheme: Boolean) {
             runtime?.settings?.preferredColorScheme = colorScheme(darkTheme)
+        }
+
+        /**
+         * With third-party cookies on, a page embedded in the dashboard shares its cookies
+         * with the same site opened on its own, as it does in the WebView. Off, it keeps
+         * none at all.
+         */
+        fun setThirdPartyCookies(allow: Boolean) {
+            runtime?.settings?.contentBlocking?.setCookieBehavior(
+                if (allow) ContentBlocking.CookieBehavior.ACCEPT_ALL
+                else ContentBlocking.CookieBehavior.ACCEPT_FIRST_PARTY
+            )
+        }
+
+        /** Takes effect at once; a runtime not started yet takes it from initializeRuntime(). */
+        fun setRemoteDebugging(enabled: Boolean) {
+            val settings = runtime?.settings ?: return
+            if (settings.remoteDebuggingEnabled != enabled) {
+                settings.setRemoteDebuggingEnabled(enabled)
+            }
         }
 
         private fun colorScheme(darkTheme: Boolean): Int {
@@ -252,9 +274,12 @@ class GeckoViewWrapper(
         val session = geckoSession
         if (session != null) {
             // GeckoView doesn't have a direct evaluateJS method
-            // We'll load it as a javascript: URI which executes it
+            // We'll load it as a javascript: URI which executes it. The address is
+            // percent-decoded and stripped of line breaks before it runs, so the script goes
+            // in percent-encoded. A page whose script ends on a string is replaced by that
+            // string, so a last line ending on nothing follows it.
             try {
-                session.loadUri("javascript:$script")
+                session.loadUri(javascriptUri(script))
                 callback?.invoke(null)
             } catch (e: Exception) {
                 Timber.e(e, "JavaScript evaluation error")
@@ -262,6 +287,9 @@ class GeckoViewWrapper(
             }
         }
     }
+
+    private fun javascriptUri(script: String): String =
+        "javascript:" + Uri.encode(script) + "%0Avoid%200"
 
     /**
      * Mark the session as visible or hidden.

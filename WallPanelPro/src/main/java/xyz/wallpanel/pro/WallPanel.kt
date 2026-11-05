@@ -17,6 +17,7 @@
 package xyz.wallpanel.pro
 
 import android.R.attr
+import android.app.ActivityManager
 import android.content.ComponentName
 import android.content.Context
 import android.content.Intent
@@ -35,6 +36,8 @@ import dagger.android.support.DaggerApplication
 import org.mozilla.geckoview.GeckoRuntime
 import timber.log.Timber
 import xyz.wallpanel.pro.di.DaggerApplicationComponent
+import xyz.wallpanel.pro.persistence.Configuration
+import xyz.wallpanel.pro.utils.DiagnosticLog
 import xyz.wallpanel.pro.utils.ReleaseTree
 import xyz.wallpanel.pro.utils.LauncherShortcuts
 import xyz.wallpanel.pro.utils.WallpanelDebugTree
@@ -66,8 +69,34 @@ class WallPanel : DaggerApplication() {
         } else {
             Timber.plant(ReleaseTree())
         }
+        if (keepsTheLog()) {
+            DiagnosticLog.install(this, Configuration(this, sharedPreferences))
+            keepLastLinesOfACrash()
+        }
         strictMode()
         LauncherShortcuts.createShortcuts(this)
+    }
+
+    // GeckoView's helper processes start this class too. The main process keeps the log, and
+    // the crash handler's process adds to it, since a browser crash can take the main one along
+    private fun keepsTheLog(): Boolean {
+        val name = if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.P) {
+            getProcessName()
+        } else {
+            (getSystemService(Context.ACTIVITY_SERVICE) as ActivityManager).runningAppProcesses
+                ?.firstOrNull { it.pid == myPid() }?.processName
+        }
+        return name == null || name == packageName || name == "$packageName:crash"
+    }
+
+    // Holds until an activity installs AppExceptionHandler, which does the same
+    private fun keepLastLinesOfACrash() {
+        val next = Thread.getDefaultUncaughtExceptionHandler()
+        Thread.setDefaultUncaughtExceptionHandler { thread, ex ->
+            Timber.e(ex, "Uncaught exception on thread ${thread.name}")
+            DiagnosticLog.flush()
+            next?.uncaughtException(thread, ex)
+        }
     }
 
     private fun strictMode() {

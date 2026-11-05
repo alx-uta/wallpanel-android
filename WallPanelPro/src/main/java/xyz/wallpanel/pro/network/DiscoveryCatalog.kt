@@ -43,10 +43,16 @@ object DiscoveryCatalog {
         DiscoveryChoice("clearCache", R.string.mqtt_control_clear_cache),
         DiscoveryChoice("relaunch", R.string.mqtt_control_relaunch),
         DiscoveryChoice("wake", R.string.mqtt_control_wake),
+        DiscoveryChoice("playNotification", R.string.mqtt_control_play_notification),
+        DiscoveryChoice("foreground", R.string.mqtt_control_foreground),
+        DiscoveryChoice("assist", R.string.mqtt_control_assist),
         DiscoveryChoice("restartApp", R.string.mqtt_control_restart_app),
+        DiscoveryChoice("screenOff", R.string.mqtt_control_screen_off),
+        DiscoveryChoice("reboot", R.string.mqtt_control_reboot),
         DiscoveryChoice("settings", R.string.mqtt_control_settings),
         DiscoveryChoice("screen", R.string.mqtt_control_screen),
         DiscoveryChoice("camera", R.string.mqtt_control_camera),
+        DiscoveryChoice("stream", R.string.mqtt_control_stream),
         DiscoveryChoice("cameraResolution", R.string.mqtt_control_camera_resolution),
         DiscoveryChoice("cameraFps", R.string.mqtt_control_camera_fps),
         DiscoveryChoice("screensaver", R.string.mqtt_control_screensaver),
@@ -55,6 +61,14 @@ object DiscoveryCatalog {
         DiscoveryChoice("url", R.string.mqtt_control_url),
         DiscoveryChoice("speak", R.string.mqtt_control_speak),
         DiscoveryChoice("toast", R.string.mqtt_control_toast),
+        DiscoveryChoice("notification", R.string.mqtt_control_notify),
+        DiscoveryChoice("screenSaverMode", R.string.mqtt_control_screensaver_mode),
+        DiscoveryChoice("inactivityTime", R.string.mqtt_control_inactivity_time),
+        DiscoveryChoice("screenSaverDim", R.string.mqtt_control_screensaver_dim),
+        DiscoveryChoice("preventSleep", R.string.mqtt_control_prevent_sleep),
+        DiscoveryChoice("darkTheme", R.string.mqtt_control_dark_theme),
+        DiscoveryChoice("screenSaverUrl", R.string.mqtt_control_screensaver_url),
+        DiscoveryChoice("lockdown", R.string.mqtt_control_lockdown),
         DiscoveryChoice("shell", R.string.mqtt_control_shell),
     )
 
@@ -73,6 +87,7 @@ object DiscoveryCatalog {
         DiscoveryChoice(SensorReader.ANDROID_VERSION, R.string.mqtt_sensor_android_version),
         DiscoveryChoice(SensorReader.TEMPERATURE, R.string.mqtt_sensor_temperature),
         DiscoveryChoice(SensorReader.LIGHT, R.string.mqtt_sensor_light),
+        DiscoveryChoice(SensorReader.PROXIMITY, R.string.mqtt_sensor_proximity),
         DiscoveryChoice(SensorReader.HUMIDITY, R.string.mqtt_sensor_humidity),
         DiscoveryChoice(SensorReader.PRESSURE, R.string.mqtt_sensor_pressure),
         DiscoveryChoice(SensorReader.MAGNETIC_FIELD, R.string.mqtt_sensor_magnetic_field),
@@ -100,7 +115,8 @@ object DiscoveryCatalog {
 
     /**
      * Ids that come from [SensorReader]'s reading list. The rest of [SENSORS] is built
-     * elsewhere: the battery flags ride along in the battery payload, the camera entities
+     * elsewhere: the battery flags ride along in the battery payload, proximity is a binary
+     * sensor rather than a reading, the camera entities
      * come from the detector callbacks, and the current URL and shell result are reported
      * from application state.
      *
@@ -117,6 +133,7 @@ object DiscoveryCatalog {
         SensorReader.CHARGING,
         SensorReader.AC_PLUGGED,
         SensorReader.USB_PLUGGED,
+        SensorReader.PROXIMITY,
     )
 
     /** Object ids ordered by the label the user sees, for the settings screen. */

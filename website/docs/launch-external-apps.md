@@ -9,3 +9,5 @@ intent:#Intent;launchFlags=0x10000000;component=com.ringapp/.ui.activities.Login
 ```
 
 For a list of more intent schema urls, visit https://support.actiontiles.com/en/communities/12/topics/1255-open-android-app-or-app-activity-via-url-formatted-shortcut.
+
+While [Lockdown](./lockdown.md#opening-other-apps) is on, only the apps it allows open.

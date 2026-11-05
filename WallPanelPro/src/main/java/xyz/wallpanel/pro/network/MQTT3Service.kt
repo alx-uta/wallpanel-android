@@ -280,7 +280,8 @@ class MQTT3Service(
                         listener?.subscriptionMessage(
                             it.config.clientIdentifier.get().toString(),
                             publish.topic.toString(),
-                            UTF_8.decode(publish.payload.get()).toString()
+                            // Empty for a message with no payload, such as a retained one being cleared
+                            String(publish.payloadAsBytes, UTF_8)
                         )
                     }
                 } catch (e: NullPointerException) {
